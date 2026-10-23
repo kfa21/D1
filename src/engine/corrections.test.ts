@@ -17,7 +17,7 @@ import {
   fixedTubeSheetThickness,
   removableTubeSheetThickness,
 } from './tema';
-import { externalPressureCheck, externalRequiredThickness, zickHornStress, zickK3 } from './asme';
+import { externalPressureCheck, externalRequiredThickness, zickHornStress, zickK3, zickK2, zickSaddle } from './asme';
 import { studCount } from './pipes';
 import { computeTank } from './api650';
 import { computeEquipment } from './compute';
@@ -276,6 +276,45 @@ describe('Zick saddle horn stress (verified formula + published K3)', () => {
     expect(s.zickFc).toBeGreaterThan(50); // real magnitude, not the old ~0.06 MPa
     expect(s.zickAllow).toBeCloseTo(1.25 * c.sAllow, 5);
     expect(s.reaction).toBeGreaterThan(0);
+  });
+
+  it('K2 shear anchors match Zick Table I and decrease 120°→150°', () => {
+    expect(zickK2(120)).toBeCloseTo(1.171, 6);
+    expect(zickK2(150)).toBeCloseTo(0.799, 6);
+    expect(zickK2(90)).toBeCloseTo(1.171, 6); // clamped below 120° (conservative)
+    expect(zickK2(120)).toBeGreaterThan(zickK2(135));
+    expect(zickK2(135)).toBeGreaterThan(zickK2(150));
+  });
+
+  it('shear and longitudinal match hand calc (K2·Q/(R·t), beam moments, πR²t)', () => {
+    // controlled case: W=200 kN, 2 saddles, R=700, t=10, L=8000 (≥8R), span=6000, 120°
+    const z = zickSaddle({ WopN: 200000, nSaddle: 2, RMm: 700, tMm: 10, LttMm: 8000, spanMm: 6000, b0Mm: 200, angleDeg: 120, Pm: 1.0, S: 150 });
+    expect(z.Q).toBe(100000);
+    expect(z.k2).toBeCloseTo(1.171, 6);
+    expect(z.shear).toBeCloseTo((1.171 * 100000) / (700 * 10), 6); // ≈ 16.73 MPa
+    // longitudinal: overhang a = (L−span)/2 = 1000
+    expect(z.a).toBe(1000);
+    expect(z.Mhog).toBeCloseTo((200000 * 1000 * 1000) / (2 * 8000), 3); // W·a²/(2L) = 1.25e7
+    expect(z.Msag).toBeCloseTo((200000 * 8000) / 8 - (200000 * 1000) / 2, 3); // = 1e8
+    const Z = Math.PI * 700 * 700 * 10; // πR²t
+    expect(z.longTens).toBeCloseTo((1.0 * 700) / 20 + 1e8 / Z, 5); // ≈ 41.50 MPa
+    expect(z.longComp).toBeCloseTo(1.25e7 / Z - 35, 5);
+  });
+
+  it('demo V-101 completes all three Zick cases — horn governs, shear & long. pass', () => {
+    const v = demoProject().find((e) => e.tag === 'V-101')!;
+    const c = computeEquipment(v);
+    const s = c.saddle!;
+    expect(s.k2).toBeCloseTo(1.171, 3); // 120°
+    expect(s.shearAllowMPa).toBeCloseTo(0.8 * c.sAllow, 5);
+    expect(s.longAllowMPa).toBeCloseTo(c.sAllow, 5);
+    // shear and longitudinal are comfortably under their allowables for this drum
+    expect(s.shearMPa).toBeLessThan(s.shearAllowMPa);
+    expect(s.longStressMPa).toBeGreaterThan(0);
+    expect(s.longStressMPa).toBeLessThan(s.longAllowMPa);
+    // the horn is the governing check and trips the wear-plate advisory
+    expect(s.hornUtil).toBeGreaterThan(0.85);
+    expect(s.ok).toBe(false);
   });
 });
 

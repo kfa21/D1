@@ -654,8 +654,8 @@ function SupportEditor({ equip }: { equip: Equipment }) {
 
       {calc.saddle && (
         <div className="kpi" style={{ marginTop: 10 }}>
-          <span className="v">Zick horn {fmt(calc.saddle.zickFc, 1)} / {fmt(calc.saddle.zickAllow, 1)} MPa {calc.saddle.ok ? <span className="badge ok">OK</span> : <span className="badge err">review</span>}</span>
-          <span className="l">{calc.saddle.note} — membrane {fmt(calc.saddle.hornMembraneMPa, 1)} + bending {fmt(calc.saddle.hornBendingMPa, 1)} MPa · reaction {fmt(calc.saddle.reaction, 1)} kN/saddle</span>
+          <span className="v">Zick horn {fmt(calc.saddle.zickFc, 1)}/{fmt(calc.saddle.zickAllow, 1)} · shear {fmt(calc.saddle.shearMPa, 1)}/{fmt(calc.saddle.shearAllowMPa, 1)} · long. {fmt(calc.saddle.longStressMPa, 1)}/{fmt(calc.saddle.longAllowMPa, 1)} MPa {calc.saddle.ok ? <span className="badge ok">OK</span> : <span className="badge err">review</span>}</span>
+          <span className="l">{calc.saddle.note} — reaction {fmt(calc.saddle.reaction, 1)} kN/saddle, compressive fibre {fmt(calc.saddle.longCompMPa, 1)} MPa</span>
         </div>
       )}
 

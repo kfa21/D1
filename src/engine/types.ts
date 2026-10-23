@@ -460,10 +460,22 @@ export interface SaddleCalc {
   saddleWidthMm: number;
   /** Zick horn coefficient K3 for the saddle angle */
   k3: number;
-  /** longitudinal stress at saddle (pressure + bending, indicative, MPa) */
+  /** max tensile longitudinal stress at saddle (pressure + bending, MPa) */
   longStressMPa: number;
+  /** compressive fibre at saddle top (bending − pressure, MPa) — buckling review */
+  longCompMPa: number;
+  /** longitudinal allowable (material S, indicative) */
+  longAllowMPa: number;
+  /** Zick tangential shear stress at saddle (MPa) */
+  shearMPa: number;
+  /** shear allowable = 0.8 × tension allowable (Zick) */
+  shearAllowMPa: number;
+  /** Zick shear coefficient K2 for the saddle angle */
+  k2: number;
+  /** horn utilisation zickFc/zickAllow — drives the wear-plate advisory */
+  hornUtil: number;
   maxSpan: number; // mm guidance (20R)
-  ok: boolean;
+  ok: boolean; // all three Zick checks (horn, shear, longitudinal) pass
   note: string;
 }
 

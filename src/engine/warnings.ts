@@ -43,6 +43,9 @@ export const WARNING_CATALOG: Record<string, WarningSpec> = {
   'SD-01': { level: 'warning', note: 'Saddle horn compression over Zick allowable — add pad / increase angle' },
   'SD-02': { level: 'info', note: 'Saddle spacing exceeds 20R guidance' },
   'SD-03': { level: 'info', note: 'Saddle contact angle < 120° — below usual Zick/code minimum' },
+  'SD-04': { level: 'warning', note: 'Saddle tangential shear over 0.8·S (Zick)' },
+  'SD-05': { level: 'warning', note: 'Longitudinal stress over allowable at saddle (Zick)' },
+  'SD-06': { level: 'info', note: 'High saddle horn utilisation — wear plate / stiffener ring advised' },
   'MD-01': { level: 'error', note: 'Cone transition missing between differing diameters' },
   // API 650 tanks (api650.ts)
   'T650-01': { level: 'warning', note: 'One-foot method beyond D ≤ 61 m — use variable-design-point' },

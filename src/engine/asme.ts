@@ -190,6 +190,68 @@ export function zickHornStress(Q: number, tMm: number, RMm: number, spanMm: numb
   return { S3: membrane + bending, membrane, bending, b2, k3 };
 }
 
+// Zick tangential-shear coefficient K2 (unstiffened shell) — published anchors from
+// Zick Table I: 1.171 @ 120°, 0.799 @ 150°. Log-interpolated between (labelled
+// indicative); below 120° clamps to the conservative 1.171. (Ring-in-plane case is
+// K2 = 1/π = 0.318 — not used here; saddles modelled as unstiffened.)
+const ZICK_K2: [number, number][] = [
+  [120, 1.171],
+  [150, 0.799],
+];
+
+export function zickK2(saddleAngleDeg: number): number {
+  if (saddleAngleDeg <= 120) return ZICK_K2[0][1];
+  if (saddleAngleDeg >= 150) return ZICK_K2[1][1];
+  const [a0, k0] = ZICK_K2[0];
+  const [a1, k1] = ZICK_K2[1];
+  const f = (saddleAngleDeg - a0) / (a1 - a0);
+  return Math.exp(Math.log(k0) + f * (Math.log(k1) - Math.log(k0)));
+}
+
+export interface ZickInput {
+  /** total operating weight (N) */
+  WopN: number;
+  nSaddle: number;
+  /** shell inside radius (mm) */
+  RMm: number;
+  /** governing (corroded) shell thickness (mm) */
+  tMm: number;
+  /** tangent-to-tangent cylinder length (mm) */
+  LttMm: number;
+  /** saddle spacing, centre-to-centre (mm) */
+  spanMm: number;
+  /** saddle contact width b0 (mm) */
+  b0Mm: number;
+  angleDeg: number;
+  /** design pressure (MPa) */
+  Pm: number;
+  /** material allowable at temperature (MPa) */
+  S: number;
+}
+
+/** Full Zick saddle assessment: horn circumferential (S3), tangential shear, and
+ *  longitudinal stress (elementary-beam hogging/sagging + pressure, section modulus
+ *  πR²t). All preliminary — verify against licensed Zick/ASME VIII-2 Annex G. */
+export function zickSaddle(z: ZickInput) {
+  const t = Math.max(0.5, z.tMm);
+  const Q = z.WopN / Math.max(1, z.nSaddle); // load per saddle, N
+  // 1) circumferential stress at the horn
+  const horn = zickHornStress(Q, t, z.RMm, z.LttMm, z.b0Mm, z.angleDeg);
+  // 2) tangential shear: τ = K2·Q/(R·t), allowable 0.8·S
+  const k2 = zickK2(z.angleDeg);
+  const shear = (k2 * Q) / (z.RMm * t);
+  // 3) longitudinal: beam hogging over saddle + sagging at mid-span, + pressure
+  const a = Math.max(0, (z.LttMm - z.spanMm) / 2); // overhang tangent→saddle
+  const Mhog = (z.WopN * a * a) / (2 * z.LttMm); // N·mm, over-saddle hogging
+  const Msag = Math.max(0, (z.WopN * z.LttMm) / 8 - (z.WopN * a) / 2); // N·mm mid-span
+  const Mlong = Math.max(Mhog, Msag);
+  const Zlong = Math.PI * z.RMm * z.RMm * t; // mm³, thin-shell I/c = πR²t
+  const sp = (z.Pm * z.RMm) / (2 * t); // MPa longitudinal pressure (tensile)
+  const longTens = sp + Mlong / Zlong; // max tensile fibre
+  const longComp = Mhog / Zlong - sp; // compressive fibre at saddle top
+  return { Q, ...horn, k2, shear, a, Mhog, Msag, longTens, longComp, sp, Zlong };
+}
+
 // ---------------------------------------------------------------------------
 // UG-45 nozzle neck minimum thickness (b3 table, indicative)
 // ---------------------------------------------------------------------------
@@ -769,48 +831,59 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
     }
   }
 
-  // Saddle checks (horizontal) — Zick method: circumferential stress at the horn
+  // Saddle checks (horizontal) — full Zick: horn circumferential, tangential shear,
+  // and longitudinal (beam hogging/sagging + pressure). Preliminary — verify against
+  // licensed Zick / ASME VIII-2 Annex G.
   let saddle: EquipmentCalc['saddle'];
   if (equip.orientation === 'horizontal' && equip.support.type === 'saddle') {
     const nSad = Math.max(2, Math.min(4, equip.support.legCount || 2));
     const RMm = sections[0].spec.dia / 2; // inside radius
-    // governing (min) corroded shell thickness — the shell carries the saddle load
     const tGov = Math.max(1, Math.min(...sections.map((s) => Math.max(0.5, s.tCorroded))));
-    const WopN = weightOperating * 9.81; // operating weight, N
-    const Q = WopN / nSad; // load per saddle, N
-    const reaction = Q / 1000; // kN
     const b0 = Math.min(400, Math.max(150, 0.05 * (2 * RMm))); // assumed saddle contact width, mm
     const span = equip.support.saddleSpan || sections.reduce((s, x) => s + x.spec.ttLength, 0);
     const angle = Math.max(90, Math.min(150, equip.support.saddleAngle || 120));
-    // Zick L is the cylinder tangent length (head-to-head), not the saddle spacing
-    const { S3, membrane, bending, k3 } = zickHornStress(Q, tGov, RMm, totalTT, b0, angle);
-    const hornAllow = 1.25 * S; // Zick recommendation: 1.25 × tension allowable
-    // Longitudinal stress at mid-span (pressure + gross bending), indicative only:
-    // shell as a simply-supported beam (UDL), section modulus ≈ πR²t. The governing
-    // Zick longitudinal case (over the saddle, K1 factor, saddle position) needs a
-    // full moment review — flagged in the note.
-    const Mmid = (WopN * span) / 8; // N·mm, mid-span sagging moment
-    const Zlong = Math.PI * RMm * RMm * tGov; // mm³
-    const longStress = (Pm * RMm) / (2 * tGov) + Mmid / Zlong; // MPa
+    const z = zickSaddle({ WopN: weightOperating * 9.81, nSaddle: nSad, RMm, tMm: tGov, LttMm: totalTT, spanMm: span, b0Mm: b0, angleDeg: angle, Pm, S });
+    const hornAllow = 1.25 * S; // Zick: 1.25 × tension allowable
+    const shearAllow = 0.8 * S; // Zick: 0.8 × tension allowable
+    const longAllow = S;
     const maxSpan = 20 * RMm;
+    const hornOk = z.S3 <= hornAllow;
+    const shearOk = z.shear <= shearAllow;
+    const longOk = z.longTens <= longAllow;
+    const hornUtil = z.S3 / hornAllow;
     saddle = {
-      reaction,
-      zickFc: S3,
+      reaction: z.Q / 1000,
+      zickFc: z.S3,
       zickAllow: hornAllow,
-      hornMembraneMPa: membrane,
-      hornBendingMPa: bending,
+      hornMembraneMPa: z.membrane,
+      hornBendingMPa: z.bending,
       saddleWidthMm: b0,
-      k3,
-      longStressMPa: longStress,
+      k3: z.k3,
+      longStressMPa: z.longTens,
+      longCompMPa: z.longComp,
+      longAllowMPa: longAllow,
+      shearMPa: z.shear,
+      shearAllowMPa: shearAllow,
+      k2: z.k2,
+      hornUtil,
       maxSpan,
-      ok: S3 <= hornAllow,
-      note: `Zick horn check (K3 = ${k3.toFixed(3)} @ ${angle}°, b2 = ${(b0 + 10 * tGov).toFixed(0)} mm, L = ${(totalTT / 1000).toFixed(2)} m) — verify against licensed Zick/ASME VIII-2 Annex G`,
+      ok: hornOk && shearOk && longOk,
+      note: `Zick: horn K3=${z.k3.toFixed(3)}, shear K2=${z.k2.toFixed(3)} @ ${angle}°, b2=${(b0 + 10 * tGov).toFixed(0)} mm, L=${(totalTT / 1000).toFixed(2)} m, a=${(z.a / 1000).toFixed(2)} m — verify vs licensed Zick/ASME VIII-2 Annex G`,
     };
-    if (!saddle.ok) {
-      warnings.push({ level: 'warning', code: 'SD-01', msg: `Saddle horn compression ${S3.toFixed(1)} MPa > ${hornAllow.toFixed(1)} MPa (Zick) — add saddle wear plate or increase saddle angle` });
+    if (!hornOk) {
+      warnings.push({ level: 'warning', code: 'SD-01', msg: `Saddle horn compression ${z.S3.toFixed(1)} MPa > ${hornAllow.toFixed(1)} MPa (Zick) — add saddle wear plate or increase saddle angle` });
+    }
+    if (!shearOk) {
+      warnings.push({ level: 'warning', code: 'SD-04', msg: `Saddle tangential shear ${z.shear.toFixed(1)} MPa > ${shearAllow.toFixed(1)} MPa (0.8·S, Zick) — thicken saddle region / add stiffening` });
+    }
+    if (!longOk) {
+      warnings.push({ level: 'warning', code: 'SD-05', msg: `Longitudinal stress ${z.longTens.toFixed(1)} MPa > ${longAllow.toFixed(1)} MPa at saddle (Zick) — review saddle position / shell thickness` });
+    }
+    if (hornUtil > 0.85) {
+      warnings.push({ level: 'info', code: 'SD-06', msg: `Saddle horn utilisation ${(hornUtil * 100).toFixed(0)}% — a continuous saddle wear plate / stiffener ring is recommended (detail per code; do not simply add pad thickness into Zick)` });
     }
     if (angle < 120) {
-      warnings.push({ level: 'info', code: 'SD-03', msg: `Saddle contact angle ${angle}° < 120° — below the usual Zick/code minimum; K3 clamped to the 120° (conservative) value` });
+      warnings.push({ level: 'info', code: 'SD-03', msg: `Saddle contact angle ${angle}° < 120° — below the usual Zick/code minimum; K3/K2 clamped to the 120° (conservative) value` });
     }
     if (span > maxSpan * 1.2) {
       warnings.push({
