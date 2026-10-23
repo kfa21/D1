@@ -1,0 +1,32 @@
+
+> static-equip-designer@1.0.0 dev
+> vite --host 0.0.0.0 --port 3000
+
+
+  VITE v6.4.4  ready in 156 ms
+
+  ➜  Local:   http://localhost:3000/
+  ➜  Network: http://169.254.77.2:3000/
+10:05:30 AM [vite] (client) page reload fre10:05:30 AM [vite] (client) page rel1:53:18 PM [vite] (client) hmr update /src/App.tsx, /src/pages/Viewer3D.tsx, /src/pages/AiReview.tsx, /src/pages/Inspection.tsx, /src/pages/SettingsPage.tsx, /src/pages/Reports.tsx, /src/pages/MaterialsPwht.tsx, /src/pages/BomPage.tsx, /src/pages/Register.tsx, /src/pages/EstimatePage.tsx
+1:53:26 PM [vite] (client) hmr update /src/App.tsx, /src/pages/Viewer3D.tsx, /src/pages/AiReview.tsx, /src/pages/Inspection.tsx, /src/pages/SettingsPage.tsx, /src/pages/Reports.tsx, /src/pages/MaterialsPwht.tsx, /src/pages/BomPage.tsx, /src/pages/Register.tsx, /src/pages/EstimatePage.tsx
+1:54:48 PM [vite] (client) hmr update /src/App.tsx, /src/pages/Viewer3D.tsx, /src/pages/AiReview.tsx, /src/pages/Inspection.tsx, /src/pages/SettingsPage.tsx, /src/pages/Reports.tsx, /src/pages/MaterialsPwht.tsx, /src/pages/BomPage.tsx, /src/pages/Register.tsx, /src/pages/EstimatePage.tsx
+1:57:47 PM [vite] (client) hmr update /src/App.tsx, /src/pages/Viewer3D.tsx, /src/pages/AiReview.tsx, /src/pages/Inspection.tsx, /src/pages/SettingsPage.tsx, /src/pages/Reports.tsx, /src/pages/MaterialsPwht.tsx, /src/pages/BomPage.tsx, /src/pages/Register.tsx, /src/pages/EstimatePage.tsx
+2:00:26 PM [vite] (client) hmr update /src/App.tsx, /src/pages/Viewer3D.tsx, /src/pages/AiReview.tsx, /src/pages/Inspection.tsx, /src/pages/SettingsPage.tsx, /src/pages/Reports.tsx, /src/pages/MaterialsPwht.tsx, /src/pages/BomPage.tsx, /src/pages/Register.tsx, /src/pages/EstimatePage.tsx
+2:00:30 PM [vite] (client) hmr update /src/pages/SettingsPage.tsx, /src/pages/Reports.tsx, /src/App.tsx, /src/pages/Viewer3D.tsx, /src/pages/AiReview.tsx, /src/pages/Inspection.tsx, /src/pages/MaterialsPwht.tsx, /src/pages/BomPage.tsx, /src/pages/Register.tsx, /src/pages/EstimatePage.tsx
+2:02:18 PM [vite] (client) hmr update /src/App.tsx, /src/pages/Viewer3D.tsx, /src/pages/AiReview.tsx, /src/pages/Inspection.tsx, /src/pages/SettingsPage.tsx, /src/pages/Reports.tsx, /src/pages/MaterialsPwht.tsx, /src/pages/BomPage.tsx, /src/pages/Register.tsx, /src/pages/EstimatePage.tsx
+2:02:25 PM [vite] (client) hmr update /src/App.tsx, /src/pages/Viewer3D.tsx, /src/pages/AiReview.tsx, /src/pages/Inspection.tsx, /src/pages/SettingsPage.tsx, /src/pages/Reports.tsx, /src/pages/MaterialsPwht.tsx, /src/pages/BomPage.tsx, /src/pages/Register.tsx, /src/pages/EstimatePage.tsx
+2:02:32 PM [vite] (client) hmr update /src/pages/BomPage.tsx
+2:04:57 PM [vite] (client) hmr update /src/pages/SettingsPage.tsx
+2:06:02 PM [vite] (client) hmr update /src/App.tsx, /src/pages/Viewer3D.tsx, /src/pages/AiReview.tsx, /src/pages/Inspection.tsx, /src/pages/SettingsPage.tsx, /src/pages/Reports.tsx, /src/pages/MaterialsPwht.tsx, /src/pages/BomPage.tsx, /src/pages/Register.tsx, /src/pages/EstimatePage.tsx
+2:06:09 PM [vite] (client) hmr update /src/pages/SettingsPage.tsx
+2:07:26 PM [vite] (client) hmr update /src/pages/BomPage.tsx
+2:07:34 PM [vite] (client) hmr update /src/pages/EstimatePage.tsx
+2:24:20 PM [vite] (client) hmr update /src/App.tsx, /src/pages/Viewer3D.tsx, /src/pages/AiReview.tsx, /src/pages/Inspection.tsx, /src/pages/SettingsPage.tsx, /src/pages/Reports.tsx, /src/pages/MaterialsPwht.tsx, /src/pages/BomPage.tsx, /src/pages/Register.tsx, /src/pages/EstimatePage.tsx
+2:30:33 PM [vite] (client) hmr update /src/App.tsx, /src/pages/Viewer3D.tsx, /src/pages/AiReview.tsx, /src/pages/Inspection.tsx, /src/pages/SettingsPage.tsx, /src/pages/Reports.tsx, /src/pages/MaterialsPwht.tsx, /src/pages/BomPage.tsx, /src/pages/Register.tsx, /src/pages/EstimatePage.tsx
+2:32:06 PM [vite] (client) hmr update /src/App.tsx, /src/pages/Viewer3D.tsx, /src/pages/AiReview.tsx, /src/pages/Inspection.tsx, /src/pages/SettingsPage.tsx, /src/pages/Reports.tsx, /src/pages/MaterialsPwht.tsx, /src/pages/BomPage.tsx, /src/pages/Register.tsx, /src/pages/EstimatePage.tsx
+2:33:38 PM [vite] (client) hmr update /src/App.tsx, /src/pages/Viewer3D.tsx, /src/pages/AiReview.tsx, /src/pages/Inspection.tsx, /src/pages/SettingsPage.tsx, /src/pages/Reports.tsx, /src/pages/MaterialsPwht.tsx, /src/pages/BomPage.tsx, /src/pages/Register.tsx, /src/pages/EstimatePage.tsx
+2:34:49 PM [vite] (client) hmr update /src/pages/EstimatePage.tsx
+2:42:38 PM [vite] (client) hmr update /src/pages/Inspection.tsx
+2:45:43 PM [vite] (client) hmr update /src/pages/Inspection.tsx
+2:46:54 PM [vite] (client) hmr update /src/pages/Inspection.tsx
+2:47:01 PM [vite] (client) hmr update /src/pages/Inspection.tsx

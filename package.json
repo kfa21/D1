@@ -1,0 +1,31 @@
+{
+  "name": "static-equip-designer",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Static equipment design suite: ASME VIII Div 1/2, API 650, API 661, TEMA",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 3000",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 3000",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.170.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^3.0.5"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
+  }
+}

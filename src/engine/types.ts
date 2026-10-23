@@ -1,0 +1,546 @@
+// Domain model for the static equipment design suite.
+// Internal unit system: length mm, pressure bar(g), temperature °C, mass kg, stress MPa.
+
+export type EquipType = 'vessel' | 'column' | 'hx' | 'finfan' | 'tank';
+export type HeadType = 'ellip2' | 'toriFD' | 'toriD' | 'hemi' | 'none';
+export type Orientation = 'vertical' | 'horizontal';
+export type InspectionLevel = '3.1' | '3.2';
+export type RtCategory = 'full' | 'spot' | 'none';
+
+/** Corrosion-resistant cladding / lining of the pressure shell (vessels & columns). */
+export type CladMode = 'none' | 'full' | 'partial';
+export type CladKind = 'weldOverlay' | 'explosionBonded' | 'rollBonded' | 'mechanicalLiner';
+
+export interface CladSpec {
+  mode: CladMode;
+  kind: CladKind;
+  /** Lining/cladding grade, e.g. 316L, 304L, 321, 347, 904L, 625, duplex */
+  materialKey: string;
+  /** Nominal cladding/lining thickness (mm) */
+  thicknessMm: number;
+  /** Partial mode: covered length measured up from bottom datum (mm) */
+  partialLengthMm: number;
+  note: string;
+}
+
+/** NDT methods — per-weld-method plan with timing and extent. */
+export type NdtMethod = 'mt' | 'ut' | 'rt' | 'putTofd';
+export type NdtTiming = 'during' | 'afterPwht' | 'final';
+export type NdtExtent = 'full' | 'spot' | 'sample';
+
+export interface NdtItemSpec {
+  method: NdtMethod;
+  enabled: boolean;
+  /** during welding (interstage), after PWHT, or final before hydro */
+  timing: NdtTiming;
+  extent: NdtExtent;
+  note: string;
+}
+
+/** Production phase during which an ITP stage is performed (checkbox multi-select). */
+export type ItpStagePhase = 'receiving' | 'fabrication' | 'interstage' | 'afterPwht' | 'hydro' | 'final';
+
+/** Per-tag ITP stage schedule — checked timing phases + duration with manual override. */
+export interface ItpStageTiming {
+  /** stable stage code (matches ITP activity rows) */
+  code: string;
+  /** checked phases when this stage is performed */
+  phases: ItpStagePhase[];
+  /** engine-estimated duration in hours (indicative) */
+  durationH: number;
+  /** manual duration override in hours; null = use engine estimate */
+  durationOverrideH: number | null;
+}
+
+export interface SectionSpec {
+  id: string;
+  /** Inside diameter, new condition (mm) */
+  dia: number;
+  /** Cylinder length Tan-Tan (mm) */
+  ttLength: number;
+  headTop: HeadType;
+  headBottom: HeadType;
+  /** Selected nominal shell thickness (mm). 0 => auto pick from stock */
+  shellThk: number;
+  headThkTop: number;
+  headThkBot: number;
+  /** Included angle of the cone joining this section to the one below (deg) */
+  coneAngleDeg: number;
+  /** Cone wall thickness (mm), 0 => auto */
+  coneThk: number;
+}
+
+export type NozzleKind = 'process' | 'vent' | 'drain' | 'instrument' | 'manway' | 'safety' | 'safetyRelief' | 'spare' | 'support';
+
+export interface NozzleSpec {
+  id: string;
+  tag: string;
+  service: string;
+  /** Bore (mm) — finished inside diameter */
+  dn: number;
+  /** pipe schedule key, see PIPE_SCHEDULES */
+  schKey: string;
+  sectionId: string;
+  /** Elevation of nozzle centre above vessel bottom datum (mm) */
+  elevation: number;
+  /** Azimuth, deg clockwise from north (viewed from top) */
+  azimuth: number;
+  kind: NozzleKind;
+  flangeClass: 150 | 300 | 600 | 900 | 1500 | 2500;
+  flangeMatKey: string;
+  /** Reinforcement pad OD (mm), 0 => none */
+  padDia: number;
+  /** Pad thickness (mm) */
+  padThk: number;
+  /** Neck length from shell OD to flange face (mm) */
+  projOutside: number;
+}
+
+export type InternalsKind =
+  | 'sieveTray'
+  | 'valveTray'
+  | 'bubbleCapTray'
+  | 'randomPacking'
+  | 'structuredPacking'
+  | 'demister'
+  | 'distributor'
+  | 'collector'
+  | 'chimneyTray'
+  | 'supportRing';
+
+export interface InternalsSpec {
+  id: string;
+  kind: InternalsKind;
+  count: number;
+  /** Tray/packing layer spacing (mm) */
+  spacing: number;
+  /** Elevation of lowest internals level above bottom datum (mm) */
+  bottomElevation: number;
+  materialKey: string;
+  /** Extra allowance kg/m2 (deck furniture, downcomers etc.) */
+  kgPerM2: number;
+  note: string;
+}
+
+export type SupportType = 'legs' | 'saddle' | 'skirt' | 'ring' | 'none';
+
+export interface SupportSpec {
+  /** primary support type */
+  type: SupportType;
+  legCount: number;
+  saddleSpan: number;
+  saddleAngle: number; // deg
+  skirtH: number;
+  legPlateThk: number;
+  /** base ring + anchor bolt group (skirt/legs/ring-mounted vessels) */
+  baseRing?: boolean;
+  /** lifting lugs / padeyes on shell */
+  padeyes?: boolean;
+  /** guy-wire derrick for tall verticals (L/D > 4) */
+  guyLines?: boolean;
+}
+
+/** Per-kind support item calculation (each support type costed separately). */
+export interface SupportItemCalc {
+  kind: 'legs' | 'saddle' | 'skirt' | 'ring' | 'baseRing' | 'padeyes' | 'guylines';
+  label: string;
+  count: number;
+  weightKg: number;
+  /** attachment / fabrication weld length (m) */
+  weldLenM: number;
+  /** fabrication + welding hours */
+  hours: number;
+  note: string;
+}
+
+export interface SupportCalc {
+  items: SupportItemCalc[];
+  totalWeightKg: number;
+  totalHours: number;
+  /** anchor bolt group for the primary support / base ring */
+  anchorBolts: { count: number; diaMm: number; lengthMm: number } | null;
+}
+
+export type TankRoofType = 'cone' | 'dome' | 'internalFloating' | 'externalFloating';
+export type TankSealPrimary = 'none' | 'shoe' | 'fabric' | 'liquidMounted' | 'doubleContact';
+export type TankSealSecondary = 'none' | 'metal' | 'fabric' | 'panCover';
+
+export interface TankSpec {
+  fluidName: string;
+  specificGravity: number;
+  roofType: TankRoofType;
+  annularBottom: boolean;
+  bottomThk: number; // mm
+  roofThk: number; // mm
+  windPressure: number; // kPa
+  seismic: boolean;
+  shellAllowableOverride: number; // MPa, 0 = use API table
+  stiffenerRings: boolean;
+  maxDesignLiquidLevel: number; // mm, 0 = use TT height
+  /** primary seal (internal / external floating roof) — API 650 §5.8.3 */
+  primarySeal?: TankSealPrimary;
+  /** secondary seal (external floating roof) */
+  secondarySeal?: TankSealSecondary;
+}
+
+/** Optional structural steelwork around the equipment (skid, portal, pedestal…). */
+export interface StructureSpec {
+  enabled: boolean;
+  kind: 'skid' | 'portal' | 'pedestal' | 'platform';
+}
+
+export interface StructureMember {
+  label: string;
+  section: string;
+  count: number;
+  lengthM: number;
+  kgPerM: number;
+  kg: number;
+}
+
+/** Structure calculation recommendation for a tag (costed when selected). */
+export interface StructureRecommendation {
+  kind: StructureSpec['kind'];
+  basis: string;
+  members: StructureMember[];
+  weightKg: number;
+  /** shop fabrication hours when enabled */
+  hours: number;
+  enabled: boolean;
+}
+
+export interface HXSpec {
+  temaType: string;
+  /** Tube-to-tubesheet joint: expanded, strength welded, seal welded + expanded, fully welded */
+  tubeJointType?: 'expanded' | 'strengthWelded' | 'sealWeldExpanded' | 'fullyWelded';
+  /** Tubesheet face cladding/overlay (bonded, integral or weld overlay) */
+  tubeSheetClad?: { enabled: boolean; materialKey: string; thicknessMm: number };
+  shellFluid: string;
+  tubeFluid: string;
+  /** 0 => auto-size from tube count */
+  shellDiaOD: number;
+  tubeOD: number;
+  tubeWall: number;
+  tubeLength: number; // mm between tubesheets
+  tubeCount: number; // 0 => auto fill ~70% of shell
+  pitch: number; // mm
+  layoutAngle: 30 | 45 | 60 | 90;
+  baffleType: 'segmental' | 'doubleSeg' | 'noTubeInWindow' | 'orifice' | 'single';
+  baffleCut: number; // % of shell ID
+  baffleSpacing: number; // mm, 0 => auto (20% of shell ID)
+  passesTube: 1 | 2 | 4 | 6 | 8;
+  shellMatKey: string;
+  tubeMatKey: string;
+  baffleMatKey: string;
+  headMatKey: string;
+  tsMatKey: string;
+  designPShell: number; // bar g
+  designTShell: number; // °C
+  designPTube: number;
+  designTTube: number;
+  dutyKW: number;
+  tShellIn: number;
+  tShellOut: number;
+  tTubeIn: number;
+  tTubeOut: number;
+  /** Overall U (W/m²K) incl. fouling allowance; 0 => default guess by service class */
+  uOverall: number;
+  tubeSideDP: number; // bar (0 => typical guidance only)
+  baffleCount: number; // 0 => auto
+}
+
+export interface FinFanSpec {
+  arrangement: 'induced' | 'forced' | 'vapor';
+  bays: number;
+  rows: number;
+  tubeLength: number; // mm effective finned length
+  tubeOD: number;
+  tubeWall: number;
+  finOD: number;
+  finPitch: number; // fins per inch
+  finThk: number; // mm
+  dutyKW: number;
+  processInC: number;
+  processOutC: number;
+  airInC: number;
+  /** Overall U on external finned area (W/m²K), 0 => default guess */
+  uAir: number;
+  /** Allowed air temperature rise (°C), 0 => default 15 */
+  airRiseC: number;
+  fanEfficiency: number; // 0..1
+  plenumLossH2O: number; // in. H2O
+  tubeMatKey: string;
+  finMatKey: string;
+  headerThk: number;
+  tubeCount: number; // 0 => auto
+}
+
+export interface Equipment {
+  id: string;
+  srNo: number;
+  tag: string;
+  name: string;
+  equipType: EquipType;
+  orientation: Orientation;
+  sections: SectionSpec[];
+  nozzles: NozzleSpec[];
+  internals: InternalsSpec[];
+  support: SupportSpec;
+  materialKey: string;
+  corrosionAllowance: number; // mm
+  designPressure: number; // bar g
+  designTemp: number; // °C
+  mdmt: number; // °C (minimum design metal temperature)
+  /** Design external/vacuum pressure (bar), e.g. 0.1 for full vacuum check */
+  externalPressure: number;
+  rtCategory: RtCategory;
+  inspectionLevel: InspectionLevel;
+  /** Cladding/lining of shell & heads (vessels & columns). Optional for legacy saved projects. */
+  clad?: CladSpec;
+  /** Per-method NDT plan (DP/MT, UT, conventional RT, PaUT/TOFD). */
+  ndtPlan?: NdtItemSpec[];
+  /** ITP stage timing schedule (phases + durations). Optional for legacy projects. */
+  itpStages?: ItpStageTiming[];
+  /** force PWHT on/off; null = auto per UCS-56 */
+  pwhtOverride: boolean | null;
+  /** Fill process for shell/head seams: auto = SAW when eligible (ferritic vessel/column, t ≥ 10 mm), else SMAW. */
+  weldProcess?: 'auto' | 'saw' | 'smaw';
+  /** Outsourced dish-end forming: manual hours override (null/undefined = auto estimate). */
+  formingHoursOverride?: number | null;
+  /** Outsourced dish-end forming rate override (BHD/h); null/undefined = Settings rate. */
+  formingRateOverride?: number | null;
+  /** structural steelwork recommendation (skid/portal/pedestal/platform) — costed when enabled */
+  structure?: StructureSpec;
+  /** Desired MAWP (bar g); 0 => equal to design pressure */
+  mwps: number;
+  testPressureFactor: number; // default 1.3 (UG-99)
+  notes: string;
+  tank?: TankSpec;
+  hx?: HXSpec;
+  finfan?: FinFanSpec;
+}
+
+export type WarnLevel = 'error' | 'warning' | 'info';
+export interface Warning {
+  level: WarnLevel;
+  code: string;
+  msg: string;
+}
+
+export interface HeadCalc {
+  type: HeadType;
+  /** Inside crown radius (mm) */
+  crownR: number;
+  /** Inside knuckle radius (mm) */
+  knuckleR: number;
+  /** Depth inside (mm) */
+  depth: number;
+  /** Required pressure thickness without CA (mm) */
+  tReq: number;
+  /** Minimum nominal to order incl. CA (mm) */
+  tMinNominal: number;
+  mawp: number; // bar, corroded
+  utilization: number;
+  blankDia: number; // mm
+  surfaceArea: number; // m2 (one head)
+}
+
+export interface ExternalPressureCalc {
+  L: number; // distance between lines of support (mm)
+  Do: number;
+  t: number; // corroded
+  DoOverT: number;
+  A: number;
+  B: number; // psi (chart factor)
+  pAllowBar: number; // allowable external pressure, bar
+  ok: boolean;
+  approximated: boolean;
+  note: string;
+}
+
+export interface SectionCalc {
+  spec: SectionSpec;
+  /** corroded inside radius (mm) */
+  Rc: number;
+  tReqHoop: number;
+  tReqLong: number;
+  tReqExternal: number;
+  tReq: number; // governing pressure thickness (no CA)
+  tMinNominal: number; // tReq + CA (min order thickness)
+  tNominal: number; // selected/ordered (mm)
+  tCorroded: number; // tNominal - CA
+  mawpHoop: number;
+  mawpLong: number;
+  utilization: number; // max of hoop/long/external
+  governing: string;
+  headTop?: HeadCalc;
+  headBot?: HeadCalc;
+  cone?: { tReq: number; tMinNominal: number; tNominal: number; theta: number; mawp: number; D1: number; D2: number };
+  external?: ExternalPressureCalc;
+  weightShellKg: number;
+}
+
+export interface NozzleCalc {
+  spec: NozzleSpec;
+  dn: number; // corroded opening dia
+  wall: number; // nominal neck wall
+  wallCorroded: number;
+  trn: number; // nozzle pressure thickness required
+  ug45min: number; // UG-45(b)(3) minimum
+  neckOK: boolean;
+  Areq: number;
+  A1: number;
+  A2: number;
+  A3: number;
+  Aweld: number;
+  Aprov: number;
+  shortfall: number;
+  reinforceOK: boolean;
+  flangeRating: number; // bar at design T
+  flangeClassOK: boolean;
+  pipeLenM: number;
+  pipeKg: number;
+  flangeKg: number;
+}
+
+export interface BoltCalc {
+  count: number;
+  boltCircle: number;
+  areaEach: number; // mm2
+  totalArea: number;
+  reqArea: number;
+  utilization: number;
+  ok: boolean;
+}
+
+export interface SaddleCalc {
+  reaction: number; // kN
+  zickFc: number; // MPa compressive
+  zickAllow: number; // MPa
+  maxSpan: number; // mm guidance
+  ok: boolean;
+}
+
+export interface PwhtAdvice {
+  required: boolean;
+  basis: string;
+  preheat: string;
+  procedure: string;
+  fillers: string[];
+}
+
+export interface TankCalc {
+  shellCourses: {
+    courseNo: number;
+    heightMm: number;
+    hTopM: number; // head of liquid at top of course
+    tDesign: number;
+    tTest: number;
+    tMinCode: number;
+    tNominal: number;
+    material: string;
+  }[];
+  bottomThk: number;
+  annularThk: number;
+  roofThk: number;
+  shellWeightKg: number;
+  bottomWeightKg: number;
+  roofWeightKg: number;
+  /** floating-roof seal assembly mass (kg) — primary + secondary, 0 for fixed roofs */
+  sealWeightKg: number;
+  windGirderRequired: boolean;
+  anchorBoltAreaMm2: number;
+  volumeM3: number;
+  hydroWaterKg: number;
+  testPressureBar: number;
+}
+
+export interface HXCalc {
+  shellOD: number;
+  shellID: number;
+  tubeCountActual: number;
+  bundleOD: number;
+  tubeSheetThk: number;
+  /** Tubesheet face cladding weight (kg, both faces) */
+  tubeSheetCladKg: number;
+  baffleCount: number;
+  baffledLength: number;
+  bundleWeightKg: number;
+  tubeWeightKg: number;
+  tubeSideDP: number; // bar
+  shellSideDP: number; // bar
+  tubeSideVelocity: number;
+  lmtd: number;
+  requiredArea: number;
+  providedArea: number;
+  areaOK: boolean;
+  expansionJointSuggested: boolean;
+  saddleSpan: number;
+  weightOperatingKg: number;
+  nozzleOK: boolean;
+}
+
+export interface FinFanCalc {
+  tubesPerRow: number;
+  tubeCountActual: number;
+  bundleWidth: number;
+  faceAreaM2: number;
+  finnedAreaM2: number;
+  airFlowCMH: number;
+  airDPH2O: number; // total incl plenum
+  fanBHP: number;
+  fanKW: number;
+  airTempRise: number;
+  thermalOK: boolean;
+  weightBundleKg: number;
+  weightOperatingKg: number;
+  rowsOK: boolean;
+}
+
+export interface BOMItem {
+  id: string;
+  equipId: string;
+  tag: string;
+  category: 'Plate' | 'Pipe' | 'Fitting' | 'Flange' | 'Bolting' | 'Gasket' | 'Internals' | 'Structural' | 'Consumable' | 'Service' | 'Other';
+  item: string;
+  spec: string;
+  material: string;
+  qty: number;
+  unit: 'kg' | 'ea' | 'm' | 'm²' | 'L';
+  unitMassKg?: number;
+  massKg: number;
+  plateReq?: { w: number; l: number; thk: number }; // for plate nesting
+  note?: string;
+}
+
+export interface EquipmentCalc {
+  equip: Equipment;
+  codeRef: string;
+  mawpBar: number;
+  mawpNote: string;
+  /** Cladding/lining summary (vessels & columns) */
+  clad?: { weightKg: number; areaM2: number; materialKey: string; materialName: string; coverageLengthMm: number };
+  sections: SectionCalc[];
+  nozzles: NozzleCalc[];
+  hydroTestBar: number; // at top of vessel
+  hydroTestBottomBar: number; // incl. static head
+  weightDryKg: number;
+  weightHydroKg: number;
+  weightOperatingKg: number;
+  internalVolumeM3: number;
+  paintAreaM2: number;
+  weldLengthM: number;
+  membraneUtil: number; // governing internal-pressure utilization (for stress view)
+  weldEfficiency: number;
+  pwht: PwhtAdvice;
+  warnings: Warning[];
+  bolts?: BoltCalc;
+  saddle?: SaddleCalc;
+  /** per-kind support breakdown (legs/saddles/skirt/ring/base ring/padeyes/guylines) */
+  supports?: SupportCalc;
+  tank?: TankCalc;
+  hx?: HXCalc;
+  finfan?: FinFanCalc;
+  materialName: string;
+  sAllow: number; // MPa at design temp
+}
