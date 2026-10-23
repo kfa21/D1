@@ -4,7 +4,7 @@
 
 import type { Equipment, EquipmentCalc, HXCalc, Warning } from './types';
 import { allowableAt, getMat } from './materials';
-import { computeVessel } from './asme';
+import { computeVessel, zickHornStress } from './asme';
 import { mpaToPsi } from './units';
 
 export const SHELL_ODS = [
@@ -269,14 +269,26 @@ export function computeHX(equip: Equipment): EquipmentCalc {
   const headWeight = 2 * 1.084 * Math.pow(shellOD / 1000, 2) * (tHeadMm / 1000) * headMat.density * 1.05;
   const bundleWeight = tubeWeight + tsWeight / 2 + tubeSheetCladKg / 2 + baffleWeight;
 
-  // Saddles (TEMA: supports at 0.2 L from tangent)
+  // Saddles (TEMA: supports at 0.2 L from tangent) — Zick horn check
   const saddleSpan = effLen * 0.6;
+  const wOpKg = shellWeight + headWeight + tubeWeight + tsWeight + tubeSheetCladKg + baffleWeight + 600;
+  const Qsad = (wOpKg * 9.81) / 2; // load per saddle (2 saddles), N
+  const RMmSad = shellID / 2; // inside radius, mm
+  const b0Sad = Math.min(400, Math.max(150, 0.05 * shellID)); // assumed saddle width, mm
+  const hornSad = zickHornStress(Qsad, tShell, RMmSad, saddleSpan, b0Sad, 120);
+  const hornAllowSad = 1.25 * Ssh; // Zick: 1.25 × tension allowable
   const saddle = {
-    reaction: 0,
-    zickFc: 0,
-    zickAllow: 0,
+    reaction: Qsad / 1000,
+    zickFc: hornSad.S3,
+    zickAllow: hornAllowSad,
+    hornMembraneMPa: hornSad.membrane,
+    hornBendingMPa: hornSad.bending,
+    saddleWidthMm: b0Sad,
+    k3: hornSad.k3,
+    longStressMPa: 0,
     maxSpan: 25 * (shellID / 2),
-    ok: true,
+    ok: hornSad.S3 <= hornAllowSad,
+    note: `Zick horn check (K3 = ${hornSad.k3.toFixed(3)} @ 120°) for TEMA saddle at 0.2L — verify against licensed Zick/ASME VIII-2 Annex G`,
   };
 
   const calc: HXCalc = {

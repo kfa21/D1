@@ -73,12 +73,13 @@ src/
 
 ## Roadmap
 
-- Line-by-line UG-37/UG-45 rework with per-nozzle hand-calculation cases
-- Full Zick saddle analysis (P1–P3) and WRC 107/537 local loads
-- Real wind/seismic input fields for vessel anchor design
+- WRC 107/537 local loads at nozzle/shell junctions
+- Complete the Zick saddle check: longitudinal & shear cases plus saddle-stiffener (ring) inertia requirement (the **horn-stress** check is implemented; wind/seismic anchor inputs are implemented)
 - API 650 variable-design-point method (D > 61 m), annular-plate design
 - Bell–Delaware shell-side ΔP/U and tube-vibration screening for exchangers
 - PDF datasheet/BOQ export, imperial unit mode, ASME VIII-2 Part 5 toggle
+
+> The nozzle-reinforcement (UG-37/UG-45), saddle (Zick horn) and anchor-bolt (wind/seismic) checks are **preliminary** engineering estimates built on published formulas with interpolated/tabulated coefficients. They are indicative starting points — verify the full method against the licensed code edition (ASME VIII-1/VIII-2 Annex G, ASCE 7) before fabrication.
 
 ---
 

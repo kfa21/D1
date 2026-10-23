@@ -38,9 +38,11 @@ export const WARNING_CATALOG: Record<string, WarningSpec> = {
   'PW-01': { level: 'warning', note: 'PWHT required by UCS-56 but overridden off' },
   'GE-01': { level: 'warning', note: 'Vertical L/D > 15 — review wind/seismic analysis' },
   'GE-02': { level: 'warning', note: 'D/t > 200 — buckling & handling checks advised' },
-  'AB-01': { level: 'warning', note: 'Anchor bolt area short (UG-47)' },
-  'SD-01': { level: 'warning', note: 'Saddle local compression over Zick allowable — add pad' },
+  'AB-01': { level: 'warning', note: 'Anchor bolt area short for governing overturning moment' },
+  'AB-02': { level: 'info', note: 'Anchor bolt spacing/count outside good-practice seating guidance' },
+  'SD-01': { level: 'warning', note: 'Saddle horn compression over Zick allowable — add pad / increase angle' },
   'SD-02': { level: 'info', note: 'Saddle spacing exceeds 20R guidance' },
+  'SD-03': { level: 'info', note: 'Saddle contact angle < 120° — below usual Zick/code minimum' },
   'MD-01': { level: 'error', note: 'Cone transition missing between differing diameters' },
   // API 650 tanks (api650.ts)
   'T650-01': { level: 'warning', note: 'One-foot method beyond D ≤ 61 m — use variable-design-point' },

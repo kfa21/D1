@@ -200,6 +200,7 @@ export function demoProject(): Equipment[] {
     designTemp: 150,
     rtCategory: 'full',
     inspectionLevel: '3.2',
+    designLoads: { windPressureKpa: 1.2, sds: 0.25, seismicR: 3, seismicIe: 1.0 },
   });
   c.ndtPlan = [
     { method: 'mt', enabled: true, timing: 'final', extent: 'full', note: 'All pressure welds' },

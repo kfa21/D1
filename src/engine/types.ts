@@ -124,6 +124,21 @@ export interface InternalsSpec {
 
 export type SupportType = 'legs' | 'saddle' | 'skirt' | 'ring' | 'none';
 
+/** Design wind / seismic loads driving anchor-bolt overturning (vessels & columns).
+ *  Wind is a flat design pressure on the projected area (common vessel-spec basis);
+ *  seismic uses the ASCE 7 equivalent-lateral-force coefficients. Both are
+ *  preliminary-aid inputs — verify against the governing ASCE/Jurisdiction edition. */
+export interface DesignLoads {
+  /** flat design wind pressure on projected area (kPa); 0 => default 0.75 kPa */
+  windPressureKpa: number;
+  /** seismic site spectral acceleration Sds (g); 0 => no seismic considered */
+  sds: number;
+  /** ASCE 7 response modification factor R (typical vessel/support ~ 3.0) */
+  seismicR: number;
+  /** ASCE 7 seismic importance factor Ie (1.0 / 1.25 / 1.5) */
+  seismicIe: number;
+}
+
 export interface SupportSpec {
   /** primary support type */
   type: SupportType;
@@ -311,6 +326,8 @@ export interface Equipment {
   formingRateOverride?: number | null;
   /** structural steelwork recommendation (skid/portal/pedestal/platform) — costed when enabled */
   structure?: StructureSpec;
+  /** design wind/seismic loads for anchor-bolt overturning (vessels & columns) */
+  designLoads?: DesignLoads;
   /** Desired MAWP (bar g); 0 => equal to design pressure */
   mwps: number;
   testPressureFactor: number; // default 1.3 (UG-99)
@@ -411,14 +428,43 @@ export interface BoltCalc {
   reqArea: number;
   utilization: number;
   ok: boolean;
+  // governing overturning load case (wind vs seismic) — additive detail
+  governing: 'wind' | 'seismic';
+  /** governing overturning moment about the base (kN·m) */
+  overturnMomentKNm: number;
+  windMomentKNm: number;
+  seismicMomentKNm: number;
+  /** max tension in the most-tensioned bolt (elastic bolt-group, kN) */
+  boltTensionKN: number;
+  /** max bolt tensile stress (MPa) */
+  boltStressMPa: number;
+  /** bolt allowable working stress at temperature (MPa, indicative) */
+  boltAllowMPa: number;
+  /** circumferential bolt spacing (mm) and good-practice advisory */
+  spacingMm: number;
+  spacingOK: boolean;
+  note: string;
 }
 
 export interface SaddleCalc {
-  reaction: number; // kN
-  zickFc: number; // MPa compressive
-  zickAllow: number; // MPa
-  maxSpan: number; // mm guidance
+  reaction: number; // kN per saddle
+  /** Zick circumferential compressive stress at the saddle horn (S3, MPa) */
+  zickFc: number;
+  /** horn allowable = 1.25 × shell tension allowable (MPa, Zick) */
+  zickAllow: number;
+  /** membrane (direct) component of the horn stress (MPa) */
+  hornMembraneMPa: number;
+  /** local circumferential bending component at the horn (MPa) */
+  hornBendingMPa: number;
+  /** assumed saddle contact width b0 (mm) */
+  saddleWidthMm: number;
+  /** Zick horn coefficient K3 for the saddle angle */
+  k3: number;
+  /** longitudinal stress at saddle (pressure + bending, indicative, MPa) */
+  longStressMPa: number;
+  maxSpan: number; // mm guidance (20R)
   ok: boolean;
+  note: string;
 }
 
 export interface PwhtAdvice {

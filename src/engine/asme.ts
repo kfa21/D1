@@ -132,6 +132,64 @@ export function externalPressureCheck(
   };
 }
 
+/** Invert UG-28: minimum corroded thickness whose external-pressure allowable ≥ PExt (bar).
+ *  Uses L = Do (no intermediate stiffener) as a conservative line-of-support assumption. */
+export function externalRequiredThickness(
+  Do: number,
+  PExtBar: number,
+  tC: number,
+  group: 'CS' | 'LTCS' | 'CrMo' | 'SS' | 'Duplex'
+): number {
+  if (PExtBar <= 0) return 0;
+  let lo = 0.5;
+  let hi = Math.max(20, Do / 2);
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    const chk = externalPressureCheck(Do, mid, Do, tC, group);
+    if (chk.pAllowBar >= PExtBar) hi = mid;
+    else lo = mid;
+  }
+  return hi;
+}
+
+// ---------------------------------------------------------------------------
+// Zick saddle horn stress (circumferential compression at the horn)
+// S3 = Q/(4·t·b2) + 3·K3·Q/(2·t²) for L ≥ 8R  (P3 Engineering / Zick 1951 form)
+// S3 = Q/(4·t·b2) + 12·K3·Q·R/(L·t²) for L < 8R
+// where b2 = b0 + 10·t (effective supporting length). K3 from Zick Table I
+// (unstiffened shell): 0.528 @ 120°, 0.0316 @ 150° — intermediate angles are
+// log-interpolated between the two published anchors (labelled indicative).
+// ---------------------------------------------------------------------------
+// Published Zick Table I anchors for the unstiffened-shell horn coefficient K3.
+// Only the 120° and 150° entries are verified against the original paper; values
+// between them are interpolated and below 120° clamps to the 120° (conservative)
+// end — the codes normally limit saddle contact to ≥ 120°.
+const ZICK_K3: [number, number][] = [
+  [120, 0.528],
+  [150, 0.0316],
+];
+
+/** Zick horn coefficient K3 by saddle contact angle (deg). < 120° clamps to 0.528. */
+export function zickK3(saddleAngleDeg: number): number {
+  if (saddleAngleDeg <= 120) return ZICK_K3[0][1]; // conservative (max horn moment)
+  if (saddleAngleDeg >= 150) return ZICK_K3[1][1];
+  // log-interpolate between the two published anchors (K3 spans ~17×)
+  const [a0, k0] = ZICK_K3[0];
+  const [a1, k1] = ZICK_K3[1];
+  const f = (saddleAngleDeg - a0) / (a1 - a0);
+  return Math.exp(Math.log(k0) + f * (Math.log(k1) - Math.log(k0)));
+}
+
+/** Zick circumferential stress at the saddle horn (MPa). Q in N, lengths in mm. */
+export function zickHornStress(Q: number, tMm: number, RMm: number, spanMm: number, b0Mm: number, saddleAngleDeg: number) {
+  const t = Math.max(0.5, tMm);
+  const b2 = b0Mm + 10 * t; // effective supporting length
+  const k3 = zickK3(saddleAngleDeg);
+  const membrane = Q / (4 * t * b2); // direct/membrane term
+  const bending = spanMm >= 8 * RMm ? (3 * k3 * Q) / (2 * t * t) : (12 * k3 * Q * RMm) / (spanMm * t * t);
+  return { S3: membrane + bending, membrane, bending, b2, k3 };
+}
+
 // ---------------------------------------------------------------------------
 // UG-45 nozzle neck minimum thickness (b3 table, indicative)
 // ---------------------------------------------------------------------------
@@ -297,6 +355,7 @@ function calcNozzle(
   ca: number,
   matKey: string,
   tC: number,
+  PExt: number,
   warnings: Warning[]
 ): NozzleCalc {
   const pipeInfo = wallForBore(nozzle.dn, nozzle.schKey);
@@ -306,12 +365,22 @@ function calcNozzle(
   const boreCorr = nozzle.dn + 2 * ca; // corroded finished opening
   const wallCorr = Math.max(0, wall - ca);
   const Snozzle = S;
-  const trn = (P * boreCorr) / Math.max(1e-6, 2 * (S * E - 0.6 * P)); // nozzle pressure thickness
+  const trn = (P * boreCorr) / Math.max(1e-6, 2 * (S * E - 0.6 * P)); // nozzle pressure thickness (t_a)
   const npsNum = npsNumber(pipe?.nps ?? '2"');
-  const tb3 = ug45MinWall(npsNum);
+  const nmat = getMat(matKey);
+  const matGroup: 'CS' | 'LTCS' | 'CrMo' | 'SS' | 'Duplex' =
+    nmat.group === 'SS304' || nmat.group === 'SS316' || nmat.group === 'SS stab'
+      ? 'SS'
+      : nmat.group === 'Duplex' || nmat.group === 'SuperDuplex'
+      ? 'Duplex'
+      : (nmat.group as 'CS' | 'LTCS' | 'CrMo');
   const RshellNew = section.spec.dia / 2;
-  const tb1 = (P * RshellNew) / Math.max(1e-6, S * E - 0.6 * P);
-  const tb2 = (P * section.Rc) / Math.max(1e-6, S * E - 0.6 * P);
+  const tb3 = ug45MinWall(npsNum); // b3: Table UG-45 minimum wall
+  // b1: shell required thickness for internal pressure at the opening, E = 1.0 (UG-45)
+  const tb1 = (P * RshellNew) / Math.max(1e-6, S - 0.6 * P);
+  // b2: shell required thickness under external (vacuum) pressure at the opening
+  const tb2 = PExt > 0 ? externalRequiredThickness(section.spec.dia + 2 * section.tNominal, PExt, tC, matGroup) : 0;
+  // t_b = min(b3, max(b1, b2)); UG-45 neck requirement t = max(t_a, t_b)
   const tb = Math.min(tb3, Math.max(tb1, tb2));
   const tNeckReq = Math.max(trn, tb);
   // UG-45/UG-22: the nozzle neck pressure thickness is verified against its NOMINAL
@@ -328,11 +397,13 @@ function calcNozzle(
   const Areq = d * tr * F + 2 * tr * (1 - fr1) * Math.min(tn, d) * F;
 
   const A1 = Math.max(0, d * (E * ta - tr));
-  const hOut = Math.min(nozzle.projOutside + nozzle.padThk, tn + nozzle.padThk);
-  const hIn = Math.min(50, ta); // inside projection assumed ≤ 50 mm, limited by shell
-  // A2 = 2·d·(t_n − t_rn − F·t_r) per UG-37 — the F·t_r term (pressure thickness the
-  // nozzle would need anyway) must be deducted from the nozzle-wall contribution.
-  const A2 = 2 * (hOut + hIn) * Math.max(0, tn - trn - F * tr);
+  // UG-40 limits of reinforcement: shell side 2.5·t (+pad), nozzle side 2.5·t_n.
+  const hOut = Math.min(nozzle.projOutside + nozzle.padThk, 2.5 * ta + nozzle.padThk);
+  const hIn = Math.min(50, ta, 2.5 * tn); // inside projection (set-through assumption), UG-40 nozzle cap
+  // A2 = 2·(h_out + h_in)·(t_n − F·t_r) per UG-37.1 — only the F·t_r term (pressure
+  // thickness the shell needs at the opening) is deducted from the nozzle wall; the
+  // previous form also subtracted t_rn a second time, under-providing A2.
+  const A2 = 2 * (hOut + hIn) * Math.max(0, tn - F * tr);
   const padDia = nozzle.padDia > nozzle.dn + 2 * wall ? nozzle.padDia : 0;
   const A3 = padDia > 0 ? Math.max(0, (padDia - d - 2 * wall) * nozzle.padThk) : 0;
   const w = 6; // assumed fillet leg mm
@@ -474,7 +545,7 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
       sections.reduce((best, s) =>
         Math.abs(s.spec.dia) < Math.abs(best.spec.dia) ? s : best
       );
-    return calcNozzle(n, sec, Pm, S, E, ca, mat.key, T, warnings);
+    return calcNozzle(n, sec, Pm, S, E, ca, mat.key, T, PExt, warnings);
   });
 
   // Weights / volumes / areas
@@ -636,20 +707,41 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
     }
   }
 
-  // Anchor bolts (vertical, legs or skirt) — UG-47 basis: total bolt area =
-  // M_overturning / (f_b × D_b/2). M from an indicative design wind load on the
-  // projected area (P2 plan: user wind pressure + seismic zone inputs).
+  // Anchor bolts (vertical, legs or skirt) — force-couple sizing on the governing
+  // overturning moment (wind or seismic, separate cases not combined). Design loads
+  // from equip.designLoads (user) or indicative defaults. Preliminary aid — verify
+  // against ASCE 7 / the governing jurisdiction edition and ASME II-D bolt allowables.
   let bolts: EquipmentCalc['bolts'];
   if (equip.orientation === 'vertical' && (equip.support.type === 'legs' || equip.support.type === 'skirt')) {
+    const dl = equip.designLoads ?? { windPressureKpa: 0, sds: 0, seismicR: 3, seismicIe: 1 };
     const Dbc = sections[0].spec.dia + 400; // bolt circle, mm
-    const qWind = 750; // N/m² indicative design wind pressure
     const Hw = (totalTT * 1.05) / 1000; // m, projected height incl. top head
     const Dow = sections[0].spec.dia / 1000; // m, projected width
-    const Mwind = qWind * Dow * Hw * (Hw / 2); // N·m overturning moment
-    const fT = 90; // MPa allowable bolt stress at temperature (B7, indicative)
-    const reqArea = (Mwind * 1000) / (fT * (Dbc / 2)); // mm² = (N·mm)/(MPa·mm)
+    const Aproj = Dow * Hw; // m², projected wind area
+    // Wind overturning: flat design pressure (kPa) × projected area × lever to centroid
+    const qWindKpa = dl.windPressureKpa > 0 ? dl.windPressureKpa : 0.75; // kPa indicative
+    const Fwind = qWindKpa * Aproj; // kN
+    const Mwind = Fwind * (Hw / 2); // kN·m (centroid at mid-height)
+    // Seismic overturning: V = Cs·W, Cs = Sds·Ie/R (ASCE 7 ELF, indicative), CG ≈ 0.7·H
+    const Wop = (weightOperating * 9.81) / 1000; // kN operating weight
+    const Cs = dl.sds > 0 ? Math.min(0.5, (dl.sds * dl.seismicIe) / Math.max(0.5, dl.seismicR)) : 0;
+    const V = Cs * Wop; // kN base shear
+    const Mseis = V * (0.7 * Hw); // kN·m
+    const governing: 'wind' | 'seismic' = Mseis > Mwind ? 'seismic' : 'wind';
+    const Mgov = Math.max(Mwind, Mseis); // kN·m — separate load cases, not combined
+    const fT = 90; // MPa bolt allowable at temperature (B7, indicative — use ASME II-D)
+    const reqArea = (Mgov * 1e6) / (fT * (Dbc / 2)); // mm² = (kN·m→N·mm)/(MPa·mm)
     const count = Math.max(8, Math.round(sections[0].spec.dia / 250) * 4);
     const areaEach = (Math.PI * 24 * 24) / 4; // M24 default
+    // Elastic bolt-group max tension: T_max = M·R/Σy², Σy² = n·R²/2 for a full circle
+    const Rbc = Dbc / 2; // mm
+    const MgovNmm = Mgov * 1e6; // N·mm
+    const sumY2 = (count * Rbc * Rbc) / 2; // mm²
+    const Tbolt = (MgovNmm * Rbc) / sumY2; // N
+    const boltStress = Tbolt / areaEach; // MPa
+    // Good-practice circumferential spacing advisory (not a hard code limit)
+    const spacing = (Math.PI * Dbc) / count;
+    const spacingOK = spacing <= 600 && count >= 6;
     bolts = {
       count,
       boltCircle: Dbc,
@@ -658,32 +750,68 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
       reqArea,
       utilization: reqArea / Math.max(1, count * areaEach),
       ok: count * areaEach >= reqArea,
+      governing,
+      overturnMomentKNm: Mgov,
+      windMomentKNm: Mwind,
+      seismicMomentKNm: Mseis,
+      boltTensionKN: Tbolt / 1000,
+      boltStressMPa: boltStress,
+      boltAllowMPa: fT,
+      spacingMm: spacing,
+      spacingOK,
+      note: `Governing ${governing} overturning ${Mgov.toFixed(0)} kN·m (wind ${Mwind.toFixed(0)}, seismic ${Mseis.toFixed(0)}); force-couple A = M/(f_b·D_b/2), f_b = ${fT} MPa (indicative)`,
     };
     if (!bolts.ok) {
-      warnings.push({ level: 'warning', code: 'AB-01', msg: `Anchor bolt area short — increase bolt size/count (UG-47)` });
+      warnings.push({ level: 'warning', code: 'AB-01', msg: `Anchor bolt area short — increase bolt size/count for ${governing} overturning ${Mgov.toFixed(0)} kN·m (UG-47 basis)` });
+    }
+    if (!spacingOK) {
+      warnings.push({ level: 'info', code: 'AB-02', msg: `Anchor bolt spacing ${spacing.toFixed(0)} mm across ${count} bolts — review count/spacing for base-ring gasket seating (good practice ≤ 600 mm)` });
     }
   }
 
-  // Saddle checks (horizontal)
+  // Saddle checks (horizontal) — Zick method: circumferential stress at the horn
   let saddle: EquipmentCalc['saddle'];
   if (equip.orientation === 'horizontal' && equip.support.type === 'saddle') {
-    const R = sections[0].spec.dia / 2;
-    const reaction = (weightOperating / 1000) * 9.81 / 2 / 1000; // kN
-    const K2 = equip.support.saddleAngle >= 150 ? 0.0079 : 0.0132;
-    const Fc = (K2 * (weightOperating * 9.81) ) / Math.max(1, R * Math.max(1, sections[0].tNominal)); // MPa (Zick simplified)
-    const FcAllow = 0.125 * mat.sy;
-    const maxSpan = 20 * R;
+    const nSad = Math.max(2, Math.min(4, equip.support.legCount || 2));
+    const RMm = sections[0].spec.dia / 2; // inside radius
+    // governing (min) corroded shell thickness — the shell carries the saddle load
+    const tGov = Math.max(1, Math.min(...sections.map((s) => Math.max(0.5, s.tCorroded))));
+    const WopN = weightOperating * 9.81; // operating weight, N
+    const Q = WopN / nSad; // load per saddle, N
+    const reaction = Q / 1000; // kN
+    const b0 = Math.min(400, Math.max(150, 0.05 * (2 * RMm))); // assumed saddle contact width, mm
+    const span = equip.support.saddleSpan || sections.reduce((s, x) => s + x.spec.ttLength, 0);
+    const angle = Math.max(90, Math.min(150, equip.support.saddleAngle || 120));
+    // Zick L is the cylinder tangent length (head-to-head), not the saddle spacing
+    const { S3, membrane, bending, k3 } = zickHornStress(Q, tGov, RMm, totalTT, b0, angle);
+    const hornAllow = 1.25 * S; // Zick recommendation: 1.25 × tension allowable
+    // Longitudinal stress at mid-span (pressure + gross bending), indicative only:
+    // shell as a simply-supported beam (UDL), section modulus ≈ πR²t. The governing
+    // Zick longitudinal case (over the saddle, K1 factor, saddle position) needs a
+    // full moment review — flagged in the note.
+    const Mmid = (WopN * span) / 8; // N·mm, mid-span sagging moment
+    const Zlong = Math.PI * RMm * RMm * tGov; // mm³
+    const longStress = (Pm * RMm) / (2 * tGov) + Mmid / Zlong; // MPa
+    const maxSpan = 20 * RMm;
     saddle = {
       reaction,
-      zickFc: Fc,
-      zickAllow: FcAllow,
+      zickFc: S3,
+      zickAllow: hornAllow,
+      hornMembraneMPa: membrane,
+      hornBendingMPa: bending,
+      saddleWidthMm: b0,
+      k3,
+      longStressMPa: longStress,
       maxSpan,
-      ok: Fc <= FcAllow,
+      ok: S3 <= hornAllow,
+      note: `Zick horn check (K3 = ${k3.toFixed(3)} @ ${angle}°, b2 = ${(b0 + 10 * tGov).toFixed(0)} mm, L = ${(totalTT / 1000).toFixed(2)} m) — verify against licensed Zick/ASME VIII-2 Annex G`,
     };
     if (!saddle.ok) {
-      warnings.push({ level: 'warning', code: 'SD-01', msg: `Saddle local compression ${(Fc).toFixed(1)} MPa > ${FcAllow.toFixed(1)} MPa (Zick) — add saddle pad` });
+      warnings.push({ level: 'warning', code: 'SD-01', msg: `Saddle horn compression ${S3.toFixed(1)} MPa > ${hornAllow.toFixed(1)} MPa (Zick) — add saddle wear plate or increase saddle angle` });
     }
-    const span = equip.support.saddleSpan || sections.reduce((s, x) => s + x.spec.ttLength, 0);
+    if (angle < 120) {
+      warnings.push({ level: 'info', code: 'SD-03', msg: `Saddle contact angle ${angle}° < 120° — below the usual Zick/code minimum; K3 clamped to the 120° (conservative) value` });
+    }
     if (span > maxSpan * 1.2) {
       warnings.push({
         level: 'info',

@@ -17,12 +17,13 @@ import {
   fixedTubeSheetThickness,
   removableTubeSheetThickness,
 } from './tema';
-import { externalPressureCheck } from './asme';
+import { externalPressureCheck, externalRequiredThickness, zickHornStress, zickK3 } from './asme';
 import { studCount } from './pipes';
 import { computeTank } from './api650';
 import { computeEquipment } from './compute';
 import { demoProject } from '../defaults';
 import { checkWarningCodes } from './warnings';
+import type { Equipment } from './types';
 
 describe('LMTD correction factor F — Bowman 1-2 (corrected)', () => {
   it('R=2, P=0.3 → F ≈ 0.883 (Bowman chart ≈ 0.88)', () => {
@@ -127,20 +128,53 @@ describe('ASME UG-47 anchor bolts (corrected formula)', () => {
   });
 });
 
-describe('ASME UG-37 nozzle reinforcement (corrected A2, UG-45 mill tolerance)', () => {
-  it('A2 deducts F·t_r per UG-37 and the demo vessel still passes', () => {
+describe('ASME UG-37 nozzle reinforcement (corrected A2, UG-40 limits)', () => {
+  it('A2 uses the UG-37.1 form 2·(h_out+h_in)·(t_n − F·t_r) on the demo vessel', () => {
     const v = demoProject().find((e) => e.tag === 'V-101')!;
     const c = computeEquipment(v);
     const n2 = c.nozzles.find((nz) => nz.spec.tag === 'N2')!;
     expect(n2).toBeTruthy();
-    // re-derive the corrected A2 from the calc's own quantities
-    const hOut = Math.min(n2.spec.projOutside + n2.spec.padThk, n2.wall + n2.spec.padThk);
-    const hIn = Math.min(50, c.sections[0].tCorroded);
-    const expected = 2 * (hOut + hIn) * Math.max(0, n2.wallCorroded - n2.trn - c.sections[0].tReq);
+    // re-derive A2 from the calc's own quantities using the corrected form + UG-40 limits
+    const ta = c.sections[0].tCorroded;
+    const hOut = Math.min(n2.spec.projOutside + n2.spec.padThk, 2.5 * ta + n2.spec.padThk);
+    const hIn = Math.min(50, ta, 2.5 * n2.wallCorroded);
+    const expected = 2 * (hOut + hIn) * Math.max(0, n2.wallCorroded - c.sections[0].tReq); // F = 1
     expect(n2.A2).toBeCloseTo(expected, 6);
     expect(n2.reinforceOK).toBe(true); // pad still covers the requirement
     expect(n2.Aprov).toBeGreaterThanOrEqual(n2.Areq);
-    expect(n2.neckOK).toBe(true); // 6 mm sch40 neck − 12.5 % ≥ UG-45 minimum
+    expect(n2.neckOK).toBe(true); // sch40 neck − 12.5 % ≥ UG-45 minimum
+  });
+
+  it('thick-neck nozzle: A2 > 0 and no longer double-deducts t_rn (discriminating)', () => {
+    // thin shell (low pressure) + heavy DN300 sch40 neck → the neck wall contributes
+    // real reinforcement, so the A2 formula shape is actually exercised (demo N2 has A2 = 0).
+    const base = demoProject().find((e) => e.tag === 'V-101')!;
+    const eq: Equipment = {
+      ...base,
+      designPressure: 4,
+      corrosionAllowance: 0,
+      rtCategory: 'full',
+      externalPressure: 0,
+      sections: [{ ...base.sections[0], dia: 2000, ttLength: 4000, headTop: 'none', headBottom: 'none', shellThk: 0, coneAngleDeg: 0 }],
+      nozzles: [
+        { id: 'nz1', tag: 'NZ', service: 'Inlet', dn: 300, schKey: '40', sectionId: base.sections[0].id, elevation: 2000, azimuth: 0, kind: 'process', flangeClass: 150, flangeMatKey: 'SA-105', padDia: 0, padThk: 0, projOutside: 150 },
+      ],
+    };
+    const c = computeEquipment(eq);
+    const sec = c.sections[0];
+    const nz = c.nozzles[0];
+    const tn = nz.wallCorroded;
+    const tr = sec.tReq;
+    expect(tn).toBeGreaterThan(tr); // discriminating: neck contributes
+    const hOut = Math.min(nz.spec.projOutside + nz.spec.padThk, 2.5 * sec.tCorroded + nz.spec.padThk);
+    const hIn = Math.min(50, sec.tCorroded, 2.5 * tn);
+    const inner = tn - tr; // F = 1 — corrected form deducts F·t_r only
+    expect(nz.A2).toBeCloseTo(2 * (hOut + hIn) * inner, 6);
+    expect(nz.A2).toBeGreaterThan(0);
+    // the pre-fix form also subtracted t_rn, giving a strictly smaller A2
+    const oldInner = tn - nz.trn - tr;
+    expect(oldInner).toBeLessThan(inner);
+    expect(Math.abs(nz.A2 - 2 * (hOut + hIn) * oldInner)).toBeGreaterThan(1);
   });
 });
 
@@ -192,5 +226,93 @@ describe('B16.5 stud counts', () => {
     expect(studCount(8)).toBe(16); // old table wrongly gave 8
     expect(studCount(12)).toBe(20); // old table wrongly gave 12
     expect(studCount(24)).toBe(24);
+  });
+});
+
+describe('UG-45 external-pressure floor (inverted UG-28)', () => {
+  it('externalRequiredThickness inverts the UG-28 allowable', () => {
+    const t = externalRequiredThickness(1400, 1.0, 200, 'CS'); // ≈ 13.5 mm
+    const at = externalPressureCheck(1400, t, 1400, 200, 'CS');
+    expect(at.pAllowBar).toBeGreaterThanOrEqual(1.0);
+    const thinner = externalPressureCheck(1400, t - 0.3, 1400, 200, 'CS');
+    expect(thinner.pAllowBar).toBeLessThan(1.0);
+    expect(t).toBeGreaterThan(5); // a Ø1400 shell under 1 bar vacuum needs real thickness
+    expect(externalRequiredThickness(1400, 0, 200, 'CS')).toBe(0); // no external → no b2 floor
+  });
+});
+
+describe('Zick saddle horn stress (verified formula + published K3)', () => {
+  it('K3 anchors match Zick Table I and decrease monotonically 120°→150°', () => {
+    expect(zickK3(120)).toBeCloseTo(0.528, 6);
+    expect(zickK3(150)).toBeCloseTo(0.0316, 6);
+    expect(zickK3(90)).toBeCloseTo(0.528, 6); // clamped below 120° (conservative)
+    const a = zickK3(120), b = zickK3(130), c = zickK3(140), d = zickK3(150);
+    expect(a).toBeGreaterThan(b);
+    expect(b).toBeGreaterThan(c);
+    expect(c).toBeGreaterThan(d);
+  });
+
+  it('horn stress matches hand calc for the L ≥ 8R and L < 8R branches', () => {
+    // Q=100 kN, t=10 mm, R=700 mm, b0=200 mm, 120° (K3=0.528)
+    const hi = zickHornStress(100000, 10, 700, 8000, 200, 120); // L=8000 ≥ 8R=5600
+    expect(hi.b2).toBe(300); // b0 + 10t
+    expect(hi.membrane).toBeCloseTo(100000 / (4 * 10 * 300), 6);
+    expect(hi.bending).toBeCloseTo((3 * 0.528 * 100000) / (2 * 100), 6); // = 792
+    expect(hi.S3).toBeCloseTo(hi.membrane + hi.bending, 6);
+    const lo = zickHornStress(100000, 10, 700, 2600, 200, 120); // L < 8R
+    expect(lo.bending).toBeCloseTo((12 * 0.528 * 100000 * 700) / (2600 * 100), 6);
+    // the two branches are continuous at L = 8R
+    const at = zickHornStress(100000, 10, 700, 5600, 200, 120);
+    const justBelow = zickHornStress(100000, 10, 700, 5599, 200, 120);
+    expect(Math.abs(at.bending - justBelow.bending)).toBeLessThan(1);
+  });
+
+  it('demo V-101 saddle reports a real Zick horn stress (old formula gave ~0.06 MPa)', () => {
+    const v = demoProject().find((e) => e.tag === 'V-101')!;
+    const c = computeEquipment(v);
+    const s = c.saddle!;
+    expect(s.k3).toBeCloseTo(0.528, 3); // 120° saddle
+    expect(s.hornMembraneMPa + s.hornBendingMPa).toBeCloseTo(s.zickFc, 6);
+    expect(s.zickFc).toBeGreaterThan(50); // real magnitude, not the old ~0.06 MPa
+    expect(s.zickAllow).toBeCloseTo(1.25 * c.sAllow, 5);
+    expect(s.reaction).toBeGreaterThan(0);
+  });
+});
+
+describe('Anchor bolts — wind & seismic overturning (real inputs)', () => {
+  it('wind-only hand calc on demo column C-201 (q = 1.0 kPa)', () => {
+    const col = demoProject().find((e) => e.tag === 'C-201')!;
+    col.designLoads = { windPressureKpa: 1.0, sds: 0, seismicR: 3, seismicIe: 1 };
+    const c = computeEquipment(col);
+    const b = c.bolts!;
+    const Hw = (18000 * 1.05) / 1000; // 18.9 m
+    const Aproj = (1800 / 1000) * Hw; // 34.02 m²
+    const Mwind = 1.0 * Aproj * (Hw / 2); // kN·m ≈ 321.49
+    expect(b.governing).toBe('wind');
+    expect(b.windMomentKNm).toBeCloseTo(Mwind, 3);
+    expect(b.seismicMomentKNm).toBe(0);
+    expect(b.overturnMomentKNm).toBeCloseTo(Mwind, 3);
+    const Dbc = 1800 + 400;
+    const reqArea = (Mwind * 1e6) / (90 * (Dbc / 2)); // ≈ 3247 mm²
+    expect(b.reqArea).toBeCloseTo(reqArea, 3);
+    expect(b.ok).toBe(b.totalArea >= b.reqArea);
+    const Rbc = Dbc / 2;
+    const Tbolt = (Mwind * 1e6 * Rbc) / ((b.count * Rbc * Rbc) / 2); // elastic bolt group
+    expect(b.boltTensionKN).toBeCloseTo(Tbolt / 1000, 4);
+  });
+
+  it('seismic governs at high Sds, and wind/seismic are not combined', () => {
+    const col = demoProject().find((e) => e.tag === 'C-201')!;
+    col.designLoads = { windPressureKpa: 1.0, sds: 0.9, seismicR: 3, seismicIe: 1 };
+    const c = computeEquipment(col);
+    const b = c.bolts!;
+    const Hw = (18000 * 1.05) / 1000;
+    const Wop = (c.weightOperatingKg * 9.81) / 1000; // kN
+    const Cs = (0.9 * 1) / 3; // 0.3
+    const Mseis = Cs * Wop * (0.7 * Hw);
+    expect(b.governing).toBe('seismic');
+    expect(b.seismicMomentKNm).toBeCloseTo(Mseis, 3);
+    expect(b.overturnMomentKNm).toBeCloseTo(Mseis, 3); // = max(wind, seismic), not the sum
+    expect(b.overturnMomentKNm).toBeGreaterThan(b.windMomentKNm);
   });
 });

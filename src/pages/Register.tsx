@@ -317,6 +317,32 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
           </div>
         )}
 
+        {tab === 'general' && equip.orientation === 'vertical' && (equip.equipType === 'vessel' || equip.equipType === 'column') && (
+          <div style={{ marginTop: 14 }}>
+            <h3>Design Loads — anchor-bolt overturning (wind / seismic)</h3>
+            <div className="grid2">
+              <label className="f"><span>Wind pressure (kPa)</span>
+                <input type="number" step="0.05" value={equip.designLoads?.windPressureKpa ?? 0} onChange={(e) => update(equip.id, { designLoads: { ...(equip.designLoads ?? { windPressureKpa: 0, sds: 0, seismicR: 3, seismicIe: 1 }), windPressureKpa: +e.target.value } })} />
+              </label>
+              <label className="f"><span>Seismic Sds (g · 0 = none)</span>
+                <input type="number" step="0.05" value={equip.designLoads?.sds ?? 0} onChange={(e) => update(equip.id, { designLoads: { ...(equip.designLoads ?? { windPressureKpa: 0, sds: 0, seismicR: 3, seismicIe: 1 }), sds: +e.target.value } })} />
+              </label>
+              <label className="f"><span>Seismic R (response mod.)</span>
+                <input type="number" step="0.1" value={equip.designLoads?.seismicR ?? 3} onChange={(e) => update(equip.id, { designLoads: { ...(equip.designLoads ?? { windPressureKpa: 0, sds: 0, seismicR: 3, seismicIe: 1 }), seismicR: +e.target.value } })} />
+              </label>
+              <label className="f"><span>Seismic Ie (importance)</span>
+                <input type="number" step="0.05" value={equip.designLoads?.seismicIe ?? 1} onChange={(e) => update(equip.id, { designLoads: { ...(equip.designLoads ?? { windPressureKpa: 0, sds: 0, seismicR: 3, seismicIe: 1 }), seismicIe: +e.target.value } })} />
+              </label>
+              {calc.bolts && (
+                <div className="kpi" style={{ gridColumn: 'span 2' }}>
+                  <span className="v">{fmt(calc.bolts.overturnMomentKNm, 0)} kN·m ({calc.bolts.governing}) · A<sub>req</sub> {fmt(calc.bolts.reqArea, 0)} mm²</span>
+                  <span className="l">{calc.bolts.count} × M24 on Ø{calc.bolts.boltCircle} — bolt stress {fmt(calc.bolts.boltStressMPa, 1)} / {calc.bolts.boltAllowMPa} MPa (indicative)</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {tab === 'general' && (equip.equipType === 'vessel' || equip.equipType === 'column') && (
           <div style={{ marginTop: 14 }}>
             <h3>Cladding / Lining</h3>
@@ -624,6 +650,13 @@ function SupportEditor({ equip }: { equip: Equipment }) {
         </div>
       ) : (
         <p className="muted small" style={{ marginTop: 8 }}>No supports calculated — select a support type above.</p>
+      )}
+
+      {calc.saddle && (
+        <div className="kpi" style={{ marginTop: 10 }}>
+          <span className="v">Zick horn {fmt(calc.saddle.zickFc, 1)} / {fmt(calc.saddle.zickAllow, 1)} MPa {calc.saddle.ok ? <span className="badge ok">OK</span> : <span className="badge err">review</span>}</span>
+          <span className="l">{calc.saddle.note} — membrane {fmt(calc.saddle.hornMembraneMPa, 1)} + bending {fmt(calc.saddle.hornBendingMPa, 1)} MPa · reaction {fmt(calc.saddle.reaction, 1)} kN/saddle</span>
+        </div>
       )}
 
       <h3 style={{ marginTop: 16 }}>Structure calculation recommendation {rec.enabled ? <span className="badge ok">selected — in estimate</span> : <span className="badge">not costed</span>}</h3>
