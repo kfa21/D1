@@ -113,7 +113,10 @@ export function externalPressureCheck(
   group: 'CS' | 'LTCS' | 'CrMo' | 'SS' | 'Duplex'
 ): { A: number; B: number; pAllowBar: number; ok: (p: number) => boolean; note: string } {
   const ratio = Math.max(1.01, Do / Math.max(0.1, t));
-  const A = ratio <= 120 ? 1.1 / Math.pow(ratio, 1.5) : 1.5 / ratio; // UG-28 step (a)
+  // ASME II-D geometric chart (Fig. G) approximation: A = 1.1/(Do/t)^1.5, capped at the
+  // chart's left end (A ≤ 0.1). The previous 1.5/(Do/t) branch above Do/t = 120 jumped
+  // A up ~15× at the breakpoint, badly overstating the external-pressure allowable.
+  const A = Math.min(0.1, 1.1 / Math.pow(ratio, 1.5));
   const ssLike = group === 'SS';
   const er = ssLike ? 0.62 : group === 'Duplex' ? 1.25 : 1.0;
   const k = 1.9e6 * er;
@@ -125,7 +128,7 @@ export function externalPressureCheck(
     B,
     pAllowBar: pAllowPsi * 0.0689476,
     ok: (p: number) => p <= pAllowPsi * 0.0689476,
-    note: 'UG-28 with approximated factor charts (Fig. G / CS curves) — verify against ASME II charts',
+    note: 'UG-28 with approximated geometric chart (A = 1.1/(Do/t)^1.5) and Fig. G / CS curves — verify against ASME II-D charts',
   };
 }
 
@@ -205,7 +208,6 @@ function calcSection(
   const Rc = Math.max(1, R - ca); // corroded inside radius
   const { tHoop, tLong } = shellRequiredThickness(Rc, P, S, E); // corroded basis (UG-27 with CA in R)
   const mat = getMat(matKey);
-  const ext = externalPressureCheck(D + 2 * ca, Math.max(0.5, (spec.shellThk || tHoop + ca) - ca), 0, 20, mat.group === 'SS304' || mat.group === 'SS316' || mat.group === 'SS stab' ? 'SS' : mat.group === 'Duplex' || mat.group === 'SuperDuplex' ? 'Duplex' : mat.group === 'LTCS' ? 'LTCS' : mat.group === 'CrMo' ? 'CrMo' : 'CS');
   const tReqG = Math.max(tHoop, tLong);
   const tMinNominal = Math.max(UG16_MIN, tReqG) + ca;
   const tNominal = spec.shellThk > 0 ? spec.shellThk : tMinNominal;
@@ -313,8 +315,9 @@ function calcNozzle(
   const tb = Math.min(tb3, Math.max(tb1, tb2));
   const tNeckReq = Math.max(trn, tb);
   // UG-45/UG-22: the nozzle neck pressure thickness is verified against its NOMINAL
-  // wall. The vessel shell CA governs the shell opening, not the neck wall itself.
-  const neckOK = wall >= tNeckReq - 1e-6;
+  // wall less the −12.5 % pipe mill tolerance (ASTM A53/A106 minimum wall). The vessel
+  // shell CA governs the shell opening, not the neck wall itself.
+  const neckOK = wall * 0.875 >= tNeckReq - 1e-6;
 
   const d = boreCorr; // finished opening (corroded)
   const tr = section.tReq;
@@ -327,7 +330,9 @@ function calcNozzle(
   const A1 = Math.max(0, d * (E * ta - tr));
   const hOut = Math.min(nozzle.projOutside + nozzle.padThk, tn + nozzle.padThk);
   const hIn = Math.min(50, ta); // inside projection assumed ≤ 50 mm, limited by shell
-  const A2 = 2 * (hOut + hIn) * Math.max(0, tn - trn);
+  // A2 = 2·d·(t_n − t_rn − F·t_r) per UG-37 — the F·t_r term (pressure thickness the
+  // nozzle would need anyway) must be deducted from the nozzle-wall contribution.
+  const A2 = 2 * (hOut + hIn) * Math.max(0, tn - trn - F * tr);
   const padDia = nozzle.padDia > nozzle.dn + 2 * wall ? nozzle.padDia : 0;
   const A3 = padDia > 0 ? Math.max(0, (padDia - d - 2 * wall) * nozzle.padThk) : 0;
   const w = 6; // assumed fillet leg mm
@@ -340,7 +345,7 @@ function calcNozzle(
     warnings.push({
       level: 'error',
       code: 'NZ-01',
-      msg: `Nozzle ${nozzle.tag}: neck wall ${wall} mm (corroded ${wallCorr.toFixed(2)}) < required ${tNeckReq.toFixed(2)} mm (UG-45/pressure)`,
+      msg: `Nozzle ${nozzle.tag}: guaranteed min. neck wall ${(wall * 0.875).toFixed(2)} mm (${wall} mm − 12.5 % mill tol.) < required ${tNeckReq.toFixed(2)} mm (UG-45/pressure)`,
     });
   }
   if (!reinforceOK) {
@@ -455,6 +460,12 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
     }
     return c;
   });
+
+  // Cone transitions: D2 (small end) = diameter of the section below
+  for (let i = 0; i < sections.length; i++) {
+    const cone = sections[i].cone;
+    if (cone) cone.D2 = i > 0 ? sections[i - 1].spec.dia : cone.D1;
+  }
 
   // Nozzles
   const nozzleCalcs = equip.nozzles.map((n) => {
@@ -625,15 +636,20 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
     }
   }
 
-  // Anchor bolts (vertical, legs or skirt)
+  // Anchor bolts (vertical, legs or skirt) — UG-47 basis: total bolt area =
+  // M_overturning / (f_b × D_b/2). M from an indicative design wind load on the
+  // projected area (P2 plan: user wind pressure + seismic zone inputs).
   let bolts: EquipmentCalc['bolts'];
   if (equip.orientation === 'vertical' && (equip.support.type === 'legs' || equip.support.type === 'skirt')) {
-    const Dbc = sections[0].spec.dia + 400;
-    const M = (weightDry / 1000) * 9.81 * (sections[0].spec.dia / 2000) * 0.5; // approx overturning
-    const fT = 90; // MPa allowable bolt stress (B7 at temp, indicative)
-    const reqArea = (M * 1000) / ((Math.PI / 4) * Math.pow(Dbc / 1000, 2) * fT) * 4;
+    const Dbc = sections[0].spec.dia + 400; // bolt circle, mm
+    const qWind = 750; // N/m² indicative design wind pressure
+    const Hw = (totalTT * 1.05) / 1000; // m, projected height incl. top head
+    const Dow = sections[0].spec.dia / 1000; // m, projected width
+    const Mwind = qWind * Dow * Hw * (Hw / 2); // N·m overturning moment
+    const fT = 90; // MPa allowable bolt stress at temperature (B7, indicative)
+    const reqArea = (Mwind * 1000) / (fT * (Dbc / 2)); // mm² = (N·mm)/(MPa·mm)
     const count = Math.max(8, Math.round(sections[0].spec.dia / 250) * 4);
-    const areaEach = Math.PI * Math.pow(24, 2) / 4; // M24 default
+    const areaEach = (Math.PI * 24 * 24) / 4; // M24 default
     bolts = {
       count,
       boltCircle: Dbc,

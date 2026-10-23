@@ -243,14 +243,15 @@ export default function Viewer3D() {
       const a = ((s.saddleAngle || 120) * Math.PI) / 180;
       const width = Math.max(300, R0 * 0.5);
       for (const off of [-1, 1]) {
+        const spanOff = (off * span) / 2; // per-saddle station along the shell axis
         const arc = new THREE.Mesh(
           new THREE.CylinderGeometry(R0 * 1.01, R0 * 1.01, width, 48, 1, true, 2 * Math.PI - a / 2, a),
           steel()
         );
-        arc.position.set(0, spanOff, R0 * 0.02); // spanOff — per-saddle position along the shell axis
+        arc.position.set(0, spanOff, R0 * 0.02);
         g.add(arc);
         const base = new THREE.Mesh(new THREE.BoxGeometry(2 * R0 * Math.sin(a / 2) + 60, width, 40), steel(0x46526b));
-        base.position.set(0, arcY, R0 + 20);
+        base.position.set(0, spanOff, R0 + 20);
         g.add(base);
       }
     }
@@ -267,7 +268,8 @@ export default function Viewer3D() {
     if (s.guyLines && vertical) {
       const topY = totalLen * 0.85;
       const deadR = R0 * 4;
-      const unterR = Math.max(8, t * 2);
+      const shellT = calc.sections[0]?.tNominal ?? 10;
+      const unterR = Math.max(8, shellT * 2);
       for (const off of [0, Math.PI]) {
         const dx = Math.sin(off) * deadR, dz = Math.cos(off) * deadR;
         const lenGuy = Math.hypot(deadR, topY);

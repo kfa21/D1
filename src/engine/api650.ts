@@ -4,7 +4,7 @@
 // (D, H in m; S in MPa; t in mm). Verify against the governing edition.
 
 import type { Equipment, EquipmentCalc, TankCalc, Warning } from './types';
-import { allowableAt } from './materials';
+import { allowableAt, getMat } from './materials';
 import { computeVessel } from './asme';
 
 export interface Api650Stress {
@@ -139,26 +139,29 @@ export function computeTank(equip: Equipment): EquipmentCalc {
     });
   }
 
-  // Wind girder / stiffener advisory
+  // Wind girder / stiffener advisory — shell compressive stress from the overturning
+  // wind moment about the base: Z = πR²t; M [kN·m] → σ [Pa] → MPa. (Previous code
+  // compared Pa against an MPa allowable with πD² instead of πR² — always “required”.)
   const windP = tank.windPressure > 0 ? tank.windPressure : 1.2; // kPa
   const windMoment = windP * Dm * Hm * (Hm / 2); // kN·m
-  const shellAllowComp = 0.125 * 250; // MPa indicative
-  const shellComp = (windMoment * 1000) / (Math.PI * Math.pow(Dm, 2) * (tGov / 1000)); // MPa
-  const windGirderRequired = shellComp > shellAllowComp || Hm > 12;
+  const syTank = getMat(equip.materialKey).sy; // MPa
+  const shellAllowComp = 0.125 * syTank; // MPa (indicative; girder I per §5.8.7.2)
+  const Zshell = Math.PI * Math.pow(Dm / 2, 2) * (tGov / 1000); // m³
+  const windGirderStressMPa = (windMoment * 1000) / Math.max(1e-6, Zshell) / 1e6; // MPa
+  const windGirderRequired = windGirderStressMPa > shellAllowComp || Hm > 12;
   if (windGirderRequired) {
     warnings.push({
       level: 'info',
       code: 'T650-02',
-      msg: `Top/intermediate wind girder recommended (shell compressive stress ${shellComp.toFixed(1)} MPa vs allowable ${shellAllowComp} MPa, H = ${Hm.toFixed(1)} m)`,
+      msg: `Top/intermediate wind girder recommended (shell compressive stress ${windGirderStressMPa.toFixed(1)} MPa vs allowable ${shellAllowComp.toFixed(1)} MPa, H = ${Hm.toFixed(1)} m)`,
     });
   }
 
-  // Anchor bolts (simplified overturning)
-  const Dbc = Dm + 0.6;
-  const fT = 90; // MPa
-  const reqArea = (windMoment * 4) / (Math.PI * Math.pow(Dbc, 2) * fT); // m² → mm² handled below
-  const anchorBoltAreaMm2 = reqArea * 1e6;
-  if (anchorBoltAreaMm2 > 0 && anchorBoltAreaMm2 > 8 * Math.PI * 324) {
+  // Anchor bolts — UG-47 basis: total bolt area = M_overturning / (f_b × D_b/2)
+  const DbcMm = (Dm + 0.6) * 1000; // bolt circle, mm
+  const fT = 90; // MPa allowable bolt stress at temperature (indicative)
+  const anchorBoltAreaMm2 = (windMoment * 1e6) / (fT * (DbcMm / 2)); // N·mm/(MPa·mm) → mm²
+  if (anchorBoltAreaMm2 > 8 * Math.PI * 324) {
     warnings.push({ level: 'info', code: 'T650-03', msg: 'Anchor bolt group: consider chairs per API 650 §5.11' });
   }
 
@@ -176,6 +179,7 @@ export function computeTank(equip: Equipment): EquipmentCalc {
     bottomWeightKg: bottomWeight,
     roofWeightKg: roofWeight,
     windGirderRequired,
+    windGirderStressMPa,
     anchorBoltAreaMm2,
     volumeM3: volume,
     hydroWaterKg: hydroWater,

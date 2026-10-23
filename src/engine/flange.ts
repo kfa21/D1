@@ -66,16 +66,14 @@ export function verifyFlange(group: FlangeGroup, flangeClass: number, tC: number
   };
 }
 
-/** Minimum flange class (from available list) that covers P/T. */
+/**
+ * Minimum flange class (from available list) that covers P/T. Classes above 600 are
+ * checked against the Class 600 table — a conservative floor (true ratings are higher),
+ * never the previous optimistic ratio extrapolation.
+ */
 export function minFlangeClass(group: FlangeGroup, tC: number, pBar: number): number | null {
   for (const cls of [150, 300, 600, 900, 1500, 2500]) {
-    const limit = flangeRatingBar(group, Math.min(cls, 600), tC);
-    // beyond 600 we don't hold tables; extrapolate conservatively by ratio
-    const scaled =
-      cls <= 600
-        ? limit
-        : (flangeRatingBar(group, 600, tC) * cls) / 600;
-    if (pBar <= scaled) return cls;
+    if (pBar <= flangeRatingBar(group, Math.min(cls, 600), tC)) return cls;
   }
   return null;
 }

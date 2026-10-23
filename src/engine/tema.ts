@@ -5,6 +5,7 @@
 import type { Equipment, EquipmentCalc, HXCalc, Warning } from './types';
 import { allowableAt, getMat } from './materials';
 import { computeVessel } from './asme';
+import { mpaToPsi } from './units';
 
 export const SHELL_ODS = [
   168.3, 219.1, 273.1, 323.9, 355.6, 406.4, 457, 508, 610, 711, 813, 914, 1016, 1118, 1219, 1422, 1626, 1829, 2032,
@@ -42,7 +43,12 @@ export function maxTubes(bundleDia: number, pitch: number, angle: number): numbe
   return Math.max(1, Math.floor(0.9069 * Math.pow(bundleDia / pitch, 2)));
 }
 
-/** LMTD + correction factor F for 1-2 (or n-pass) exchanger */
+/**
+ * LMTD + correction factor F for 1-2 (or n-pass) exchanger — Bowman 1-2 shell formula.
+ * R = shell-side temperature drop / tube-side rise; P = tube-side rise / available drop.
+ * Returns F = 0 when the arrangement has a temperature cross (F undefined) so the
+ * caller raises an error instead of sizing on a wrong factor.
+ */
 export function lmtdCorrected(
   t1h: number, t2h: number, t1c: number, t2c: number, passes: number
 ): { lmtd: number; F: number } {
@@ -50,45 +56,46 @@ export function lmtdCorrected(
   const d2 = t2h - t2c;
   let lmtd = 0;
   if (Math.abs(d1 - d2) < 1e-6) lmtd = d1;
-  else if (d1 <= 0 || d2 <= 0) lmtd = Math.max(1, (d1 + d2) / 2);
+  else if (d1 <= 0 || d2 <= 0) lmtd = Math.max(1, (d1 + d2) / 2); // flagged via F below
   else lmtd = (d1 - d2) / Math.log(d1 / d2);
   if (passes <= 1) return { lmtd, F: 1 };
-  // 1-2 counter-current correction (Bowman chart approximation)
+
   const R = (t1h - t2h) / Math.max(1e-6, t2c - t1c);
   const P = (t2c - t1c) / Math.max(1e-6, t1h - t1c);
+  // Temperature cross / no driving force — F is not defined
+  if (P <= 0 || R <= 0 || P >= 1 || R * P >= 1) return { lmtd, F: 0 };
+
   const sq = Math.sqrt(R * R + 1);
-  let F = 1;
+  let F: number;
   if (Math.abs(R - 1) < 1e-3) {
-    F = (sq * (P - 1)) / ((R - 1) * Math.log((2 / P - 1 - R + sq) / (2 / P - 1 - R - sq)) || 1e-6);
-    F = isFinite(F) && F > 0 ? Math.min(1, F) : 0.8;
+    // R → 1 limit (L'Hôpital on the general expression)
+    F = (Math.SQRT2 * P) / ((1 - P) * Math.log((2 - P * (2 - Math.SQRT2)) / (2 - P * (2 + Math.SQRT2))));
   } else {
-    const num = Math.log((2 / P - 1 - R + sq) / (2 / P - 1 - R - sq));
-    const den = Math.log((2 / P - 1 - R - sq) / (2 / P - 1 - R + sq));
-    F = (sq * (R - 1) * num) / ((R - 1) * den * Math.max(1e-6, 1)) || 1;
-    if (!isFinite(F) || F <= 0) F = 0.75;
-    F = Math.min(1, F);
+    const num = sq * Math.log((1 - P) / (1 - R * P));
+    const den = (R - 1) * Math.log((2 - P * (R + 1 - sq)) / (2 - P * (R + 1 + sq)));
+    F = num / den;
   }
-  if (P > 0.5 * (sq - 1) / (R - 1) && R > 1) F = Math.max(0.6, F - 0.15); // crossed pattern warning zone
-  return { lmtd, F: Math.max(0.6, Math.min(1, F)) };
+  if (!isFinite(F) || F <= 0) F = 0;
+  return { lmtd, F: Math.min(1, F) };
 }
 
-/** TEMA RCB-7.131 fixed tubesheet thickness (returns mm) */
+/** TEMA RCB-7.131 fixed tubesheet thickness (returns mm). S in MPa, P in bar. */
 export function fixedTubeSheetThickness(
   gDiaMm: number, bMm: number, pBar: number, sMpa: number, fE: number, cMm: number
 ): number {
   const G = in_(gDiaMm);
   const G1 = in_(Math.max(10, gDiaMm - bMm));
-  const P = psi(pBar);
-  const S = psi(sMpa);
+  const P = psi(pBar); // bar → psi
+  const S = mpaToPsi(sMpa); // MPa → psi (was psi(sMpa): bar→psi on an MPa value, 10× understress)
   const t = Math.sqrt((fE * P * G * G) / (16 * Math.max(1, S) * G1)) + in_(cMm);
   return mm(t);
 }
 
-/** TEMA RCB-7.132 removable tubesheet (blown/flanged head action) */
+/** TEMA RCB-7.132 removable tubesheet (blown/flanged head action). S in MPa, P in bar. */
 export function removableTubeSheetThickness(dnMm: number, pBar: number, sMpa: number): number {
   const dN = in_(dnMm);
   const P = psi(pBar);
-  const S = Math.min(psi(sMpa), 12900);
+  const S = Math.min(mpaToPsi(sMpa), 12900); // MPa → psi, TEMA cap
   return mm(0.319 * dN * Math.sqrt(P / Math.max(1, S)));
 }
 
@@ -129,8 +136,18 @@ export function computeHX(equip: Equipment): EquipmentCalc {
   const { lmtd, F } = lmtdCorrected(
     hx.tShellIn, hx.tShellOut, hx.tTubeIn, hx.tTubeOut, hx.passesTube
   );
+  // F = 0 ⇔ temperature cross: F undefined, design infeasible as arranged
+  const crossOK = F > 0;
+  if (!crossOK) {
+    warnings.push({
+      level: 'error',
+      code: 'HX-11',
+      msg: `Temperature cross in the ${hx.passesTube === 1 ? '1-1' : `1-${hx.passesTube / 2}`} arrangement (R/P out of range) — LMTD correction F undefined; re-check temperatures or add shell passes`,
+    });
+  }
+  const Fgeom = crossOK ? F : 1; // sizing fallback only; areaOK stays false on a cross
   const U = hx.uOverall > 0 ? hx.uOverall : 320;
-  const Areq = (hx.dutyKW * 1000) / Math.max(1, U * F * lmtd);
+  const Areq = (hx.dutyKW * 1000) / Math.max(1, U * Fgeom * lmtd);
 
   let n = hx.tubeCount;
   const perTubeArea = Math.PI * (hx.tubeOD / 1000) * (effLen / 1000);
@@ -167,8 +184,11 @@ export function computeHX(equip: Equipment): EquipmentCalc {
   }
 
   // TEMA minimum shell-wall advisory (RCB-7.21) and shell pressure thickness (UG-27)
+  // t = P·R/(S − 0.6P) with P in MPa — the previous form multiplied by 10 instead of
+  // dividing, overstating the required shell wall ten-fold.
   const Rsh = shellID / 2;
-  const tShellReq = (psi(Psh) > 0 ? (Psh * 10 * Rsh) / Math.max(1, Ssh - 0.6 * (Psh / 10)) : 0) / 10;
+  const PmSh = Psh / 10; // bar → MPa
+  const tShellReq = Psh > 0 ? (PmSh * Rsh) / Math.max(1, Ssh - 0.6 * PmSh) : 0;
   const tShellMin = Math.max(tShellReq + equip.corrosionAllowance, wallSh);
   const tShell = Math.max(wallSh, Math.ceil(tShellMin));
 
@@ -228,20 +248,25 @@ export function computeHX(equip: Equipment): EquipmentCalc {
   const dL = (11.7e-6 * Math.abs(dTshell - dTtube) * effLen) / 1000 * 1000; // mm (steel α=11.7e-6)
   const expansionJointSuggested = isIntegral && dL > 3;
 
-  // Weights
+  // Weights (material records resolved once above: tubeMat/tsMat/shellMat/headMat)
   const tubeMassPerM =
     (Math.PI / 4) *
     (Math.pow(hx.tubeOD / 1000, 2) - Math.pow((hx.tubeOD - 2 * hx.tubeWall) / 1000, 2)) *
-    mt.density;
+    tubeMat.density;
   const tubeWeight = n * tubeMassPerM * (effLen / 1000);
   const holeAreaFactor = Math.min(0.6, (n * Math.PI * Math.pow(hx.tubeOD + 1, 2)) / 4 / Math.max(1, (Math.PI / 4) * shellID * shellID));
-  const tsWeight = 2 * ((Math.PI / 4) * Math.pow(shellID / 1000, 2) * (1 - holeAreaFactor) * (tsThk / 1000) * mts.density);
+  const tsWeight = 2 * ((Math.PI / 4) * Math.pow(shellID / 1000, 2) * (1 - holeAreaFactor) * (tsThk / 1000) * tsMat.density);
   const baffleWeight =
     baffleCount * (Math.PI / 4) * Math.pow(shellID / 1000, 2) * (1 - holeAreaFactor) * (6 / 1000) * 7850;
-  const shellWeight = Math.PI * ((shellOD / 1000)) * (tShell / 1000) * ((effLen + 100) / 1000) * msh.density;
-  const headDepth = shellID / 4;
-  const headWeight =
-    2 * 1.084 * Math.pow(shellOD / 1000, 2) * ((shellID / 4) / 1000) * mh.density * 1.05;
+  const shellWeight = Math.PI * (shellOD / 1000) * (tShell / 1000) * ((effLen + 100) / 1000) * shellMat.density;
+  // Heads: 2:1 SE per UG-32(e) — thickness from design P & head-material allowable;
+  // weight = surface-area factor × D² × t. (Previously the head DEPTH was used as if
+  // it were the plate thickness, overestimating each head several-fold.)
+  const PmHead = pTema / 10; // MPa
+  const Shead = allowableAt(hx.headMatKey, tTema);
+  const tHeadReqMm = (PmHead * shellOD) / Math.max(1e-6, 2 * Shead - 0.2 * PmHead);
+  const tHeadMm = Math.max(6, tHeadReqMm + equip.corrosionAllowance);
+  const headWeight = 2 * 1.084 * Math.pow(shellOD / 1000, 2) * (tHeadMm / 1000) * headMat.density * 1.05;
   const bundleWeight = tubeWeight + tsWeight / 2 + tubeSheetCladKg / 2 + baffleWeight;
 
   // Saddles (TEMA: supports at 0.2 L from tangent)
@@ -271,7 +296,7 @@ export function computeHX(equip: Equipment): EquipmentCalc {
     lmtd: lmtd * F,
     requiredArea: Areq,
     providedArea: n * perTubeArea,
-    areaOK: n * perTubeArea >= Areq,
+    areaOK: crossOK && n * perTubeArea >= Areq,
     expansionJointSuggested,
     saddleSpan,
     weightOperatingKg: shellWeight + headWeight + tubeWeight + tsWeight + tubeSheetCladKg + baffleWeight + 600,
@@ -285,8 +310,15 @@ export function computeHX(equip: Equipment): EquipmentCalc {
       msg: `Provided area ${calc.providedArea.toFixed(1)} m² < required ${Areq.toFixed(1)} m² (U = ${U} W/m²K, F = ${F.toFixed(2)})`,
     });
   }
-  if (F < 0.75) {
+  if (crossOK && F < 0.75) {
     warnings.push({ level: 'warning', code: 'HX-03', msg: `LMTD correction factor F = ${F.toFixed(2)} < 0.75 — consider shell passes or temperature re-arrangement` });
+  }
+  if (base.nozzles.some((nz) => nz.spec.flangeClass > 600)) {
+    warnings.push({
+      level: 'info',
+      code: 'FL-03',
+      msg: 'Nozzle flange class above 600: B16.5 rating conservatively taken from the Class 600 table (high-class tables not held) — verify per B16.5',
+    });
   }
   if (expansionJointSuggested) {
     warnings.push({ level: 'info', code: 'HX-04', msg: `Differential expansion ≈ ${dL.toFixed(1)} mm — expansion joint or floating head advised (fixed tubesheet)` });

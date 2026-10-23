@@ -121,7 +121,7 @@ export function computeFinFan(equip: Equipment): EquipmentCalc {
     airTempRise: airRise,
     thermalOK,
     weightBundleKg: weightBundle,
-    weightOperatingKg: weightOperating + structure,
+    weightOperatingKg: weightOperating, // already includes structure — was double-counted
     rowsOK: rows >= 6 && rows <= 9,
   };
 

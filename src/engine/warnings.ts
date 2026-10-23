@@ -26,6 +26,7 @@ export const WARNING_CATALOG: Record<string, WarningSpec> = {
   'NZ-02': { level: 'error', note: 'Nozzle reinforcement shortfall (UG-37)' },
   'FL-01': { level: 'error', note: 'B16.5 flange rating below design pressure at temperature' },
   'FL-02': { level: 'info', note: 'Flange class over-sized (>50% margin) — consider lower class' },
+  'FL-03': { level: 'info', note: 'Flange class > 600 rated conservatively from the Class 600 table — verify per B16.5' },
   'MT-01': { level: 'error', note: 'Design temperature above material recommended maximum' },
   'MT-02': { level: 'warning', note: 'MDMT below typical limit — impact testing per UG-84' },
   'EX-01': { level: 'error', note: 'External pressure exceeds UG-28 allowable' },
@@ -33,7 +34,7 @@ export const WARNING_CATALOG: Record<string, WarningSpec> = {
   'CL-02': { level: 'error', note: 'Partial cladding selected with zero coverage length' },
   'CL-03': { level: 'info', note: 'Mechanical liner non-pressure-retaining' },
   'CL-04': { level: 'warning', note: 'Clad finished thickness below typical 2 mm barrier minimum' },
-  'MW-01': { level: 'warning', note: 'MAWP below design pressure — increase thickness' },
+  'MW-01': { level: 'error', note: 'MAWP below design pressure — increase thickness' },
   'PW-01': { level: 'warning', note: 'PWHT required by UCS-56 but overridden off' },
   'GE-01': { level: 'warning', note: 'Vertical L/D > 15 — review wind/seismic analysis' },
   'GE-02': { level: 'warning', note: 'D/t > 200 — buckling & handling checks advised' },
@@ -45,6 +46,9 @@ export const WARNING_CATALOG: Record<string, WarningSpec> = {
   'T650-01': { level: 'warning', note: 'One-foot method beyond D ≤ 61 m — use variable-design-point' },
   'T650-02': { level: 'info', note: 'Wind girder recommended' },
   'T650-03': { level: 'info', note: 'Anchor bolt chairs advised (API 650 §5.11)' },
+  'T650-04': { level: 'info', note: 'External floating roof — seals, stability & roof-drain advisory (API 650 §5.8.3)' },
+  'T650-05': { level: 'info', note: 'Upper wind girder mandatory for external floating roof (API 650 §5.8.7)' },
+  'T650-06': { level: 'info', note: 'Internal floating roof — vapor-space venting & guider advisory (API 650 §5.8.2)' },
   // API 661 fin-fans (api661.ts)
   'AF-01': { level: 'warning', note: 'Face velocity above 6 m/s — noise/erosion' },
   'AF-02': { level: 'info', note: 'Rows per bank outside common 6–9 practice' },
@@ -58,6 +62,8 @@ export const WARNING_CATALOG: Record<string, WarningSpec> = {
   'HX-05': { level: 'info', note: 'Pressure drops are guidance only — recheck with flow data' },
   'HX-08': { level: 'warning', note: 'Tubesheet cladding ≥ 50% of tubesheet thickness' },
   'HX-09': { level: 'info', note: 'Welded tube-to-tubesheet joints require PT/MT' },
+  'HX-10': { level: 'warning', note: 'HX material is not a tube grade (form ≠ pipe) — re-select tube material' },
+  'HX-11': { level: 'error', note: 'Temperature cross — LMTD correction factor F undefined for the arrangement' },
   // Dispatcher (compute.ts)
   'SYS': { level: 'error', note: 'Calculation exception captured by dispatcher' },
 };

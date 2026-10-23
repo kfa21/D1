@@ -449,6 +449,8 @@ export interface TankCalc {
   /** floating-roof seal assembly mass (kg) — primary + secondary, 0 for fixed roofs */
   sealWeightKg: number;
   windGirderRequired: boolean;
+  /** shell compressive stress from wind overturning moment (MPa) */
+  windGirderStressMPa: number;
   anchorBoltAreaMm2: number;
   volumeM3: number;
   hydroWaterKg: number;

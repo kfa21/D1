@@ -117,16 +117,13 @@ export function npsNumber(nps: string): number {
   return parseFloat(parts[0]) + parseFloat(parts[1]) / 12;
 }
 
-/** Approximate stud count for a flange of given NPS (per B16.5) */
+/** Stud count per ASME B16.5 Table 9 (Class 150/300 raised-face flanges, NPS ≤ 24). */
+const STUD_COUNT: [number, number][] = [
+  [0.5, 4], [1, 4], [1.5, 4], [2, 4], [2.5, 4], [3, 4], [4, 8], [6, 12],
+  [8, 16], [10, 20], [12, 20], [14, 24], [16, 24], [18, 24], [20, 24], [24, 24],
+];
+
 export function studCount(npsNumber: number): number {
-  if (npsNumber <= 1) return 4;
-  if (npsNumber <= 2) return 4;
-  if (npsNumber <= 3) return 4;
-  if (npsNumber <= 4) return 8;
-  if (npsNumber <= 8) return 8;
-  if (npsNumber <= 12) return 12;
-  if (npsNumber <= 16) return 16;
-  if (npsNumber <= 20) return 20;
-  if (npsNumber <= 24) return 20;
+  for (const [n, c] of STUD_COUNT) if (npsNumber <= n) return c;
   return 24;
 }

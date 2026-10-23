@@ -1,1 +1,4 @@
 /freebuff-sites-build/
+node_modules/
+dist/
+*.log

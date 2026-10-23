@@ -5,6 +5,8 @@ export const PSI_PER_BAR = 14.5037738;
 export const BAR_PER_PSI = 1 / PSI_PER_BAR;
 export const BAR_PER_MPA = 10;
 export const MPA_PER_BAR = 0.1;
+/** 1 MPa = 10 bar = 145.0377 psi */
+export const MPA_TO_PSI = 10 * PSI_PER_BAR;
 export const IN_PER_MM = 1 / 25.4;
 export const MM_PER_IN = 25.4;
 export const KGF_PER_KN = 101.9716;
@@ -14,6 +16,7 @@ export const psigToBar = (psig: number) => psig * BAR_PER_PSI;
 export const barToPsig = (bar: number) => bar * PSI_PER_BAR;
 export const mpaToBar = (mpa: number) => mpa * BAR_PER_MPA;
 export const barToMpa = (bar: number) => bar * MPA_PER_BAR;
+export const mpaToPsi = (mpa: number) => mpa * MPA_TO_PSI;
 export const mmToIn = (mm: number) => mm * IN_PER_MM;
 export const inToMm = (inch: number) => inch * MM_PER_IN;
 
