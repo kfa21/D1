@@ -9,6 +9,9 @@ const extraHosts = (process.env.VITE_ALLOWED_HOSTS ?? '')
 
 export default defineConfig({
   plugins: [react()],
+  // relative asset base so the production build works from any mount point
+  // (GitHub Pages serves the project at /D1/)
+  base: './',
   server: {
     host: true,
     port: 3000,
