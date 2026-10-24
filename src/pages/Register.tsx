@@ -553,7 +553,7 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
                             <span className="muted small">no loads</span>
                           )}
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 4, marginTop: 6 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 4, marginTop: 6 }}>
                           {fields.map(([k, label]) => (
                             <label key={k} className="small" style={{ display: 'block' }}>
                               <span className="muted">{label}</span>
@@ -866,6 +866,16 @@ function TankEqEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
       <label className="f"><span>Roof t (mm)</span><input type="number" value={tk.roofThk} onChange={(e) => p({ roofThk: +e.target.value })} /></label>
       <label className="f"><span>Wind pressure (kPa)</span><input type="number" step="0.1" value={tk.windPressure} onChange={(e) => p({ windPressure: +e.target.value })} /></label>
       <label className="f"><span>Annular bottom plate</span><input type="checkbox" checked={tk.annularBottom} onChange={(e) => p({ annularBottom: e.target.checked })} /></label>
+      <label className="f"><span>Annular / field thickness (calc)</span>
+        <b className="small">
+          {tk.annularBottom
+            ? `${fmt(calc.tank!.annularThk, 1)} mm ring (Table 5-1a) · ${fmt(calc.tank!.bottomThk, 1)} mm field`
+            : `${fmt(calc.tank!.bottomThk, 1)} mm field (6 mm corroded + CA)`}
+        </b>
+      </label>
+      <label className="f"><span>Shell method (calc)</span>
+        <b className="small">{calc.tank!.shellMethod === 'vdp' ? 'Variable design point §5.6.4 (D > 61 m)' : 'One-foot §5.6.3'}</b>
+      </label>
       <label className="f"><span>Seismic design</span><input type="checkbox" checked={tk.seismic} onChange={(e) => p({ seismic: e.target.checked })} /></label>
       <label className="f"><span>Shell allowable override (MPa, 0=table)</span><input type="number" step="0.1" value={tk.shellAllowableOverride} onChange={(e) => p({ shellAllowableOverride: +e.target.value })} /></label>
       <label className="f"><span>Max liquid level (mm, 0=TT)</span><input type="number" value={tk.maxDesignLiquidLevel} onChange={(e) => p({ maxDesignLiquidLevel: +e.target.value })} /></label>

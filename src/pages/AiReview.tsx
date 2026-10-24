@@ -11,7 +11,7 @@ import { fmt } from '../engine/units';
 const SYSTEM_PROMPT = `You are a senior pressure-vessel design checker experienced with ASME Section VIII Division 1 & 2, API 650, API 661 and TEMA.
 You receive a JSON datasheet of one equipment tag (inputs + calculated results + warnings) and optionally an attached client datasheet document.
 Evaluate:
-1. Code compliance: thickness, heads (UG-27/UG-32), nozzle reinforcement (UG-32/UG-37), UG-45, external pressure (UG-28), hydrotest (UG-99), flange ratings (B16.5), joint efficiency/RT category, MDMT (UCS-66), PWHT (UCS-56). API 650 / API 661 / TEMA rules where the tag type requires it.
+1. Code compliance: thickness, heads (UG-27/UG-32), nozzle reinforcement (UG-32/UG-37), UG-45, external pressure (UG-28), hydrotest (UG-99), flange ratings (B16.5), joint efficiency/RT category, MDMT (UCS-66), PWHT (UCS-56). API 650 / API 661 / TEMA rules where the tag type requires it — including API 650 shell method (one-foot §5.6.3 vs variable design point §5.6.4), annular plates (Table 5-1a) and anchor bolts. Where nozzle local loads are present, check the WRC 107 screening (shell shear, nominal neck stress, Kellogg equivalent pressure into the flange rating; allowable 1.5·S) and note that full curve-based WRC 107/537 stresses need the licensed bulletin.
 2. Consistency with the attached client datasheet: flag any input mismatch or missing data.
 3. Design optimizations: material alternative, thickness/weight savings, standard plate utilization, nozzle/flange class rationalization, PWHT avoidance.
 Respond ONLY with JSON: {"summary": "...", "findings":[{"severity":"error|warning|info","code":"UG-27","message":"..."}],"optimizations":["..."],"datasheetMismatches":["..."],"overall":"compliant|action required"}. Be specific with numbers.`;
@@ -90,7 +90,24 @@ export default function AiReview() {
           nozzles: calc.nozzles.map((n) => ({
             tag: n.spec.tag, dn: n.spec.dn, wall: fmt(n.wall, 2), Areq: fmt(n.Areq, 0), Aprov: fmt(n.Aprov, 0),
             reinforceOK: n.reinforceOK, flangeClass: n.spec.flangeClass, flangeRating_bar: fmt(n.flangeRating, 0), flangeOK: n.flangeClassOK,
+            localLoad: n.load ? {
+              util_pct: fmt(n.load.util * 100, 0), ok: n.load.ok,
+              equivPressure_bar: fmt(n.load.equivPressureBar, 1),
+              shellShear_MPa: fmt(n.load.shellShearMPa, 1), neckVonMises_MPa: fmt(n.load.neckVonMisesMPa, 1),
+              gamma: fmt(n.load.gamma, 1), beta: fmt(n.load.beta, 3),
+            } : null,
           })),
+          tank: calc.tank ? {
+            shellMethod: calc.tank.shellMethod,
+            annularThk_mm: calc.tank.annularThk,
+            bottomThk_mm: calc.tank.bottomThk,
+            anchorBoltArea_mm2: fmt(calc.tank.anchorBoltAreaMm2, 0),
+            windGirderRequired: calc.tank.windGirderRequired,
+            courses: calc.tank.shellCourses.map((c) => ({
+              course: c.courseNo, designHead_m: c.designHeadM, designPoint_mm: c.designPointMm,
+              tDesign_mm: fmt(c.tDesign, 2), tNominal_mm: c.tNominal,
+            })),
+          } : undefined,
           pwht: calc.pwht,
           clad: calc.clad ? { grade: calc.clad.materialName, weight_kg: fmt(calc.clad.weightKg, 0), area_m2: fmt(calc.clad.areaM2, 1) } : undefined,
           weightDry_kg: fmt(calc.weightDryKg, 0),

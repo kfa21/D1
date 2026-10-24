@@ -119,7 +119,7 @@ export default function Reports() {
           <>
             <h3>Nozzle reinforcement & flange rating</h3>
             <table className="grid" style={{ marginBottom: 12 }}>
-              <thead><tr><th>Tag</th><th>Service</th><th className="num">Bore</th><th className="num">Neck t</th><th className="num">UG-45 min</th><th className="num">A req</th><th className="num">A prov</th><th>Reinf.</th><th>Flange</th><th className="num">Rating @T</th><th>OK</th></tr></thead>
+              <thead><tr><th>Tag</th><th>Service</th><th className="num">Bore</th><th className="num">Neck t</th><th className="num">UG-45 min</th><th className="num">A req</th><th className="num">A prov</th><th>Reinf.</th><th>Flange</th><th className="num">Rating @T</th><th>Local loads</th><th>OK</th></tr></thead>
               <tbody>
                 {calc.nozzles.map((n) => (
                   <tr key={n.spec.id}>
@@ -133,7 +133,17 @@ export default function Reports() {
                     <td>{n.reinforceOK ? <span className="badge ok">OK</span> : <span className="badge err">FAIL</span>}</td>
                     <td className="small">Cl {n.spec.flangeClass}</td>
                     <td className="num calc">{fmt(n.flangeRating, 1)} bar</td>
-                    <td>{n.flangeClassOK && n.neckOK ? <span className="badge ok">OK</span> : <span className="badge err">FAIL</span>}</td>
+                    <td className="small">
+                      {n.load ? (
+                        <>
+                          <span className={`badge ${n.load.ok ? 'ok' : 'err'}`}>{fmt(n.load.util * 100, 0)}%</span>{' '}
+                          <span className="muted">Pe {fmt(n.load.equivPressureBar, 1)} bar</span>
+                        </>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
+                    <td>{n.flangeClassOK && n.neckOK && (n.load?.ok ?? true) ? <span className="badge ok">OK</span> : <span className="badge err">FAIL</span>}</td>
                   </tr>
                 ))}
               </tbody>
