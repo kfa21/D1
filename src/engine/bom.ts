@@ -535,13 +535,13 @@ export function tankItems(equip: Equipment, calc: EquipmentCalc): { items: BOMIt
     item: 'Ladder, platforms & wind girder steel', spec: 'SMLS/angle/handrail',
     material: 'STRUCT-CS', qty: 1, unit: 'm',
     massKg: (equip.sections[0].ttLength / 1000) * 22 + Dm * 45,
-  });
-  const boltCount = Math.max(8, Math.round(Dm * 6));
+  });  // Anchor group from the shared bolt-group sizing when available (count matches
+  // the calc); fall back to the old spacing heuristic for standalone BOM runs.
+  const boltCount = calc.bolts?.count ?? Math.max(8, Math.round(Dm * 6));
   items.push({
     id: `${equip.id}-tk-anc`, equipId: equip.id, tag: equip.tag, category: 'Bolting',
-    item: 'Anchor bolts & chairs', spec: `${boltCount} × M30 (SA-36/SA-193) with chairs`,
-    material: 'SA-36', qty: boltCount, unit: 'ea',
-    unitMassKg: 6, massKg: boltCount * 6,
+    item: 'Anchor bolts & chairs', spec: `${boltCount} × M24 (SA-36/SA-193) with chairs`,
+    material: 'SA-36', qty: boltCount, unit: 'ea', unitMassKg: 3, massKg: boltCount * 3,
   });
   return { items, plateReqs };
 }

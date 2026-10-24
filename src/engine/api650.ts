@@ -6,7 +6,7 @@
 
 import type { Equipment, EquipmentCalc, TankCalc, Warning } from './types';
 import { allowableAt, getMat } from './materials';
-import { computeVessel } from './asme';
+import { computeVessel, sizeAnchorBolts } from './asme';
 
 export interface Api650Stress {
   Sd: number; // MPa design
@@ -329,17 +329,42 @@ export function computeTank(equip: Equipment): EquipmentCalc {
     });
   }
 
-  // Anchor bolts — UG-47 basis: total bolt area = M_overturning / (f_b × D_b/2)
-  const DbcMm = (Dm + 0.6) * 1000; // bolt circle, mm
-  const fT = 90; // MPa allowable bolt stress at temperature (indicative)
-  const anchorBoltAreaMm2 = (windMoment * 1e6) / (fT * (DbcMm / 2)); // N·mm/(MPa·mm) → mm²
-  if (anchorBoltAreaMm2 > 8 * Math.PI * 324) {
-    warnings.push({ level: 'info', code: 'T650-03', msg: 'Anchor bolt group: consider chairs per API 650 §5.11' });
-  }
-
   const volume = (Math.PI / 4) * Dm * Dm * Hm;
   const hydroWater = volume * 1000; // kg at G=1 test
   const testPressureBar = (Hm * 997 * 9.81) / 1e5;
+
+  const weightDry = shellKg + bottomWeight + roofWeight + base.weightDryKg * 0.15; // + nozzles/attachments
+  const weightOperatingKg = weightDry + volume * 997 * 0.9;
+
+  // Anchor bolts — the same elastic bolt-group engine as vessels/columns (wind OR
+  // seismic, separate cases not combined), API 650 §5.11 basis, ≤ 600 mm spacing.
+  // The previous block compared a raw required area against a magic constant and
+  // ignored seismic entirely.
+  const DbcMm = (Dm + 0.6) * 1000; // bolt circle, mm
+  const tankBolts = sizeAnchorBolts(
+    {
+      boltCircleMm: DbcMm,
+      windHeightM: Hm,
+      windWidthM: Dm,
+      windKpa: windP,
+      weightOperatingKg,
+      sds: equip.designLoads?.sds ?? 0,
+      seismicR: equip.designLoads?.seismicR || 3,
+      seismicIe: equip.designLoads?.seismicIe || 1,
+      boltCount: Math.max(8, Math.ceil((Math.PI * DbcMm) / 600)), // ≤ 600 mm target spacing
+      basis: 'API 650 §5.11',
+    },
+    warnings
+  );
+  const anchorBoltAreaMm2 = tankBolts.reqArea;
+  if (anchorBoltAreaMm2 > 8 * ((Math.PI * 36 * 36) / 4)) {
+    // required area beyond 8 × M36 — chair the group (§5.11)
+    warnings.push({
+      level: 'info',
+      code: 'T650-03',
+      msg: `Anchor bolt group requires ${anchorBoltAreaMm2.toFixed(0)} mm² (≥ 8 × M36) — consider chairs per API 650 §5.11`,
+    });
+  }
 
   const tankCalc: TankCalc = {
     shellCourses: courses,
@@ -358,15 +383,15 @@ export function computeTank(equip: Equipment): EquipmentCalc {
     testPressureBar,
   };
 
-  const weightDry = shellKg + bottomWeight + roofWeight + base.weightDryKg * 0.15; // + nozzles/attachments
   return {
     ...base,
+    bolts: tankBolts,
     codeRef: `API 650 (12th/13th ed.): §5.6 ${useVdp ? 'variable design point (§5.6.4)' : 'one-foot'} shell method, §5.5.3 annular plates, §5.7 openings, §5.8 wind girder, §5.10 roofs, §5.11 anchors`,
     sections: base.sections,
     tank: tankCalc,
     weightDryKg: weightDry,
     weightHydroKg: weightDry + hydroWater,
-    weightOperatingKg: weightDry + volume * 997 * 0.9,
+    weightOperatingKg,
     internalVolumeM3: volume,
     paintAreaM2: Math.PI * Dm * Hm + (Math.PI / 4) * Dm * Dm * 1.02,
     hydroTestBar: testPressureBar,

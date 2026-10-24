@@ -553,3 +553,60 @@ describe('WRC 107 nozzle local-load screening', () => {
     ).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// API 650 tank anchor bolts — shared elastic bolt-group engine
+// ---------------------------------------------------------------------------
+
+describe('API 650 tank anchors (shared bolt-group sizing)', () => {
+  const tank = () => {
+    const tk = newEquipment('tank', 11);
+    tk.sections[0] = { ...tk.sections[0], dia: 12000, ttLength: 14000 };
+    tk.tank!.maxDesignLiquidLevel = 14000;
+    tk.tank!.specificGravity = 0.9;
+    tk.tank!.windPressure = 1.0; // kPa
+    return tk;
+  };
+
+  it('wind-only hand calc: M = 1176 kN·m, 66 bolts, A_req ≈ 2074 mm²', () => {
+    const c = computeTank(tank());
+    const b = c.bolts!;
+    expect(b).toBeTruthy();
+    // M_wind = q·D·H·(H/2) = 1.0 × 12 × 14 × 7 = 1176 kN·m
+    expect(b.governing).toBe('wind');
+    expect(b.windMomentKNm).toBeCloseTo(1176, 3);
+    expect(b.seismicMomentKNm).toBe(0); // no Sds input → no seismic case
+    const Dbc = 12600; // (D + 0.6) m → mm
+    expect(b.boltCircle).toBe(Dbc);
+    expect(b.count).toBe(66); // ceil(π·Dbc / 600) — ≤ 600 mm spacing
+    // A_req = M/(f_b·D_b/2) = 1176e6 / (90 × 6300) = 2074 mm²
+    expect(b.reqArea).toBeCloseTo(2074, 0);
+    expect(b.ok).toBe(b.totalArea >= b.reqArea);
+    expect(b.spacingMm).toBeCloseTo(599.75, 1);
+    expect(b.spacingOK).toBe(true);
+    // elastic group: T = M·R/Σy², Σy² = n·R²/2 → ≈ 5.66 kN, σ ≈ 12.5 MPa
+    expect(b.boltTensionKN).toBeCloseTo(5.66, 1);
+    expect(b.boltStressMPa).toBeCloseTo(12.5, 0);
+    // tank field mirrors the shared engine result
+    expect(c.tank!.anchorBoltAreaMm2).toBe(b.reqArea);
+    // comfortably sized → no AB-01/AB-02/T650-03
+    expect(c.warnings.some((w) => w.code === 'AB-01' || w.code === 'AB-02')).toBe(false);
+    expect(c.warnings.some((w) => w.code === 'T650-03')).toBe(false);
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+  });
+
+  it('seismic (Sds input) governs, trips AB-01 and the chair advisory', () => {
+    const tk = tank();
+    tk.designLoads = { windPressureKpa: 1.0, sds: 0.8, seismicR: 3, seismicIe: 1 };
+    const c = computeTank(tk);
+    const b = c.bolts!;
+    expect(b.governing).toBe('seismic');
+    expect(b.seismicMomentKNm).toBeGreaterThan(b.windMomentKNm);
+    expect(b.overturnMomentKNm).toBe(b.seismicMomentKNm); // max of the two, not combined
+    // operating weight ≈ 1.45e6 kg → M_seis ≈ 0.267·W·0.7·H ≈ 36 MN·m ≫ wind
+    expect(b.reqArea).toBeGreaterThan(30000);
+    expect(c.warnings.some((w) => w.code === 'AB-01' && w.level === 'warning')).toBe(true);
+    expect(c.warnings.some((w) => w.code === 'T650-03' && w.level === 'info')).toBe(true);
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+  });
+});

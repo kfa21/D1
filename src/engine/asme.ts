@@ -7,6 +7,7 @@
 // verification against the licensed current code edition by a qualified engineer.
 
 import type {
+  BoltCalc,
   Equipment,
   EquipmentCalc,
   HeadCalc,
@@ -556,6 +557,102 @@ function calcNozzle(
 }
 
 // ---------------------------------------------------------------------------
+// Anchor bolt group — shared by vessels/columns (UG-47 basis) and API 650 tanks
+// ---------------------------------------------------------------------------
+export interface SizeAnchorBoltArgs {
+  /** bolt circle diameter (mm) */
+  boltCircleMm: number;
+  /** projected height for the wind lever (m) */
+  windHeightM: number;
+  /** projected width for the wind area (m) */
+  windWidthM: number;
+  /** flat design wind pressure on the projected area (kPa; ≤ 0 → 0.75 indicative) */
+  windKpa: number;
+  /** operating mass (kg) — seismic base shear W */
+  weightOperatingKg: number;
+  /** ASCE 7 Sds (g); ≤ 0 = no seismic case */
+  sds: number;
+  /** ASCE 7 response modification factor R */
+  seismicR: number;
+  /** ASCE 7 importance factor Ie */
+  seismicIe: number;
+  /** bolt count (caller-specific; spacing-driven for tanks, D-driven for vessels) */
+  boltCount: number;
+  /** citation used in AB-01/AB-02 messages */
+  basis?: string;
+}
+
+/** Elastic bolt-group anchor sizing on the governing overturning case (wind OR
+ *  seismic, separate cases never combined):
+ *   force-couple  A_req = M/(f_b·D_b/2)      (ASME VIII-1 UG-47 basis)
+ *   bolt tension  T = M·R/Σy²,  Σy² = n·R²/2 (full circle, elastic group)
+ *  f_b = 90 MPa (SA-193 B7 at temperature, indicative — verify ASME II-D / the
+ *  governing edition). Emits AB-01 (short area) and AB-02 (spacing advisory). */
+export function sizeAnchorBolts(a: SizeAnchorBoltArgs, warnings: Warning[]): BoltCalc {
+  const Dbc = a.boltCircleMm;
+  const Rbc = Dbc / 2;
+  const basis = a.basis ?? 'UG-47';
+  // Wind overturning: flat pressure × projected area × lever to the centroid
+  const qWindKpa = a.windKpa > 0 ? a.windKpa : 0.75;
+  const Aproj = a.windWidthM * a.windHeightM; // m²
+  const Mwind = qWindKpa * Aproj * (a.windHeightM / 2); // kN·m
+  // Seismic overturning: V = Cs·W, Cs = Sds·Ie/R (ASCE 7 ELF), CG ≈ 0.7·H
+  const Wop = (a.weightOperatingKg * 9.81) / 1000; // kN
+  const Cs = a.sds > 0 ? Math.min(0.5, (a.sds * a.seismicIe) / Math.max(0.5, a.seismicR)) : 0;
+  const Mseis = Cs * Wop * (0.7 * a.windHeightM); // kN·m
+  const governing: 'wind' | 'seismic' = Mseis > Mwind ? 'seismic' : 'wind';
+  const Mgov = Math.max(Mwind, Mseis);
+
+  const fT = 90; // MPa bolt allowable at temperature (B7, indicative)
+  const reqArea = (Mgov * 1e6) / (fT * Rbc); // mm² = (kN·m→N·mm)/(MPa·mm)
+  const count = Math.max(4, Math.round(a.boltCount));
+  const areaEach = (Math.PI * 24 * 24) / 4; // M24 default
+  const totalArea = count * areaEach;
+  // Elastic bolt-group max tension: T_max = M·R/Σy² with Σy² = n·R²/2
+  const MgovNmm = Mgov * 1e6;
+  const sumY2 = (count * Rbc * Rbc) / 2;
+  const Tbolt = (MgovNmm * Rbc) / sumY2; // N
+  const boltStress = Tbolt / areaEach; // MPa
+  const spacing = (Math.PI * Dbc) / count; // mm circumferential
+  const spacingOK = spacing <= 600 && count >= 6;
+
+  const bolts: BoltCalc = {
+    count,
+    boltCircle: Dbc,
+    areaEach,
+    totalArea,
+    reqArea,
+    utilization: reqArea / Math.max(1, totalArea),
+    ok: totalArea >= reqArea,
+    governing,
+    overturnMomentKNm: Mgov,
+    windMomentKNm: Mwind,
+    seismicMomentKNm: Mseis,
+    boltTensionKN: Tbolt / 1000,
+    boltStressMPa: boltStress,
+    boltAllowMPa: fT,
+    spacingMm: spacing,
+    spacingOK,
+    note: `Governing ${governing} overturning ${Mgov.toFixed(0)} kN·m (wind ${Mwind.toFixed(0)}, seismic ${Mseis.toFixed(0)}); force-couple A = M/(f_b·D_b/2), f_b = ${fT} MPa (indicative)`,
+  };
+  if (!bolts.ok) {
+    warnings.push({
+      level: 'warning',
+      code: 'AB-01',
+      msg: `Anchor bolt area short — increase bolt size/count for ${governing} overturning ${Mgov.toFixed(0)} kN·m (${basis} basis)`,
+    });
+  }
+  if (!spacingOK) {
+    warnings.push({
+      level: 'info',
+      code: 'AB-02',
+      msg: `Anchor bolt spacing ${spacing.toFixed(0)} mm across ${count} bolts — review count/spacing for base-ring gasket seating (good practice ≤ 600 mm)`,
+    });
+  }
+  return bolts;
+}
+
+// ---------------------------------------------------------------------------
 // Main vessel / column computation
 // ---------------------------------------------------------------------------
 export function computeVessel(equip: Equipment): EquipmentCalc {
@@ -789,66 +886,28 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
     }
   }
 
-  // Anchor bolts (vertical, legs or skirt) — force-couple sizing on the governing
-  // overturning moment (wind or seismic, separate cases not combined). Design loads
-  // from equip.designLoads (user) or indicative defaults. Preliminary aid — verify
-  // against ASCE 7 / the governing jurisdiction edition and ASME II-D bolt allowables.
+  // Anchor bolts (vertical, legs or skirt) — shared elastic bolt-group sizing on
+  // the governing overturning moment (wind or seismic, separate cases not combined).
+  // Design loads from equip.designLoads (user) or indicative defaults. Preliminary
+  // aid — verify against ASCE 7 / the governing jurisdiction edition.
   let bolts: EquipmentCalc['bolts'];
   if (equip.orientation === 'vertical' && (equip.support.type === 'legs' || equip.support.type === 'skirt')) {
     const dl = equip.designLoads ?? { windPressureKpa: 0, sds: 0, seismicR: 3, seismicIe: 1 };
-    const Dbc = sections[0].spec.dia + 400; // bolt circle, mm
-    const Hw = (totalTT * 1.05) / 1000; // m, projected height incl. top head
-    const Dow = sections[0].spec.dia / 1000; // m, projected width
-    const Aproj = Dow * Hw; // m², projected wind area
-    // Wind overturning: flat design pressure (kPa) × projected area × lever to centroid
-    const qWindKpa = dl.windPressureKpa > 0 ? dl.windPressureKpa : 0.75; // kPa indicative
-    const Fwind = qWindKpa * Aproj; // kN
-    const Mwind = Fwind * (Hw / 2); // kN·m (centroid at mid-height)
-    // Seismic overturning: V = Cs·W, Cs = Sds·Ie/R (ASCE 7 ELF, indicative), CG ≈ 0.7·H
-    const Wop = (weightOperating * 9.81) / 1000; // kN operating weight
-    const Cs = dl.sds > 0 ? Math.min(0.5, (dl.sds * dl.seismicIe) / Math.max(0.5, dl.seismicR)) : 0;
-    const V = Cs * Wop; // kN base shear
-    const Mseis = V * (0.7 * Hw); // kN·m
-    const governing: 'wind' | 'seismic' = Mseis > Mwind ? 'seismic' : 'wind';
-    const Mgov = Math.max(Mwind, Mseis); // kN·m — separate load cases, not combined
-    const fT = 90; // MPa bolt allowable at temperature (B7, indicative — use ASME II-D)
-    const reqArea = (Mgov * 1e6) / (fT * (Dbc / 2)); // mm² = (kN·m→N·mm)/(MPa·mm)
-    const count = Math.max(8, Math.round(sections[0].spec.dia / 250) * 4);
-    const areaEach = (Math.PI * 24 * 24) / 4; // M24 default
-    // Elastic bolt-group max tension: T_max = M·R/Σy², Σy² = n·R²/2 for a full circle
-    const Rbc = Dbc / 2; // mm
-    const MgovNmm = Mgov * 1e6; // N·mm
-    const sumY2 = (count * Rbc * Rbc) / 2; // mm²
-    const Tbolt = (MgovNmm * Rbc) / sumY2; // N
-    const boltStress = Tbolt / areaEach; // MPa
-    // Good-practice circumferential spacing advisory (not a hard code limit)
-    const spacing = (Math.PI * Dbc) / count;
-    const spacingOK = spacing <= 600 && count >= 6;
-    bolts = {
-      count,
-      boltCircle: Dbc,
-      areaEach,
-      totalArea: count * areaEach,
-      reqArea,
-      utilization: reqArea / Math.max(1, count * areaEach),
-      ok: count * areaEach >= reqArea,
-      governing,
-      overturnMomentKNm: Mgov,
-      windMomentKNm: Mwind,
-      seismicMomentKNm: Mseis,
-      boltTensionKN: Tbolt / 1000,
-      boltStressMPa: boltStress,
-      boltAllowMPa: fT,
-      spacingMm: spacing,
-      spacingOK,
-      note: `Governing ${governing} overturning ${Mgov.toFixed(0)} kN·m (wind ${Mwind.toFixed(0)}, seismic ${Mseis.toFixed(0)}); force-couple A = M/(f_b·D_b/2), f_b = ${fT} MPa (indicative)`,
-    };
-    if (!bolts.ok) {
-      warnings.push({ level: 'warning', code: 'AB-01', msg: `Anchor bolt area short — increase bolt size/count for ${governing} overturning ${Mgov.toFixed(0)} kN·m (UG-47 basis)` });
-    }
-    if (!spacingOK) {
-      warnings.push({ level: 'info', code: 'AB-02', msg: `Anchor bolt spacing ${spacing.toFixed(0)} mm across ${count} bolts — review count/spacing for base-ring gasket seating (good practice ≤ 600 mm)` });
-    }
+    bolts = sizeAnchorBolts(
+      {
+        boltCircleMm: sections[0].spec.dia + 400, // bolt circle, mm
+        windHeightM: (totalTT * 1.05) / 1000, // projected height incl. top head
+        windWidthM: sections[0].spec.dia / 1000, // projected width
+        windKpa: dl.windPressureKpa,
+        weightOperatingKg: weightOperating,
+        sds: dl.sds,
+        seismicR: dl.seismicR,
+        seismicIe: dl.seismicIe,
+        boltCount: Math.max(8, Math.round(sections[0].spec.dia / 250) * 4),
+        basis: 'UG-47',
+      },
+      warnings
+    );
   }
 
   // Saddle checks (horizontal) — full Zick: horn circumferential, tangential shear,
