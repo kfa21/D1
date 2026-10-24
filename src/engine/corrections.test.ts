@@ -585,9 +585,34 @@ describe('WRC 107 nozzle local-load screening', () => {
         wallCorrMm: 5,
         tShellMm: 10,
         shellDiaMm: 1200,
+        PdesignMPa: 0.5,
         S: 173,
       })
     ).toBeNull();
+  });
+
+  it('shell screening combines biaxial pressure membrane with the WRC shear', () => {
+    // P = 0.5 MPa, D = 1200 mm, T = 10 mm → σ_h = 30 MPa, σ_l = 15 MPa
+    // V1 = 50 kN over the 200 mm pad (r0 = 100 mm) → τ = 50000/(π·100·10) = 15.915 MPa
+    // σ_vm = √(σ_h² − σ_h·σ_l + σ_l² + 3τ²) = √(900 − 450 + 225 + 760) = 37.88 MPa
+    const lc = screenNozzleLoad({
+      loads: { fx: 0, fy: 50, fz: 0, mx: 0, my: 0, mz: 0 },
+      odMm: 114.3,
+      padDiaMm: 200,
+      boreCorrMm: 100,
+      wallCorrMm: 5,
+      tShellMm: 10,
+      shellDiaMm: 1200,
+      PdesignMPa: 0.5,
+      S: 173,
+    });
+    expect(lc).toBeTruthy();
+    expect(lc!.shellPressureMPa).toBeCloseTo(30, 6);
+    expect(lc!.shellShearMPa).toBeCloseTo(15.915, 2);
+    expect(lc!.shellVmMPa).toBeCloseTo(37.88, 1);
+    // utilisation = worst of shell (P + shear) and neck, vs 1.5·S
+    expect(lc!.util).toBeCloseTo(Math.max(lc!.shellVmMPa, lc!.neckVonMisesMPa) / (1.5 * 173), 6);
+    expect(lc!.ok).toBe(true);
   });
 });
 

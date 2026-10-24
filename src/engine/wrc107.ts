@@ -100,6 +100,10 @@ export function screenNozzleLoad(args: {
   tShellMm: number;
   /** shell inside diameter (mm) */
   shellDiaMm: number;
+  /** design pressure at the junction (MPa) — combined with the load shear on
+   *  the shell side (pressure membrane is already covered by UG-27 alone;
+   *  the interaction adds the WRC shear contribution) */
+  PdesignMPa: number;
   /** material allowable at design temperature (MPa) */
   S: number;
 }): NozzleLoadCalc | null {
@@ -127,10 +131,17 @@ export function screenNozzleLoad(args: {
   const G = 2 * r0;
   const peBar = kelloggEquivPressureBar(Fres, Math.hypot(l.Mt, l.Mo1, l.Mo2), G);
 
-  // Screening: shell (shear-driven, von Mises of pure shear) and neck, both vs
-  // a typical local-load allowable of 1.5·S.
+  // Screening: on the SHELL side combine the biaxial pressure membrane
+  // (σ_h = P·D/2T, σ_l = σ_h/2) with the WRC shear via von Mises — the pressure
+  // alone is already checked by UG-27, so this is the P + local-load
+  // interaction. The NECK side stays load-only (neck pressure is covered by
+  // UG-45/UG-27 trn). Both vs a typical local-load allowable of 1.5·S.
   const allow = 1.5 * S;
-  const shellVm = Math.sqrt(3) * shellShear;
+  const sigmaH = (Math.max(0, args.PdesignMPa) * args.shellDiaMm) / (2 * T);
+  const sigmaL = sigmaH / 2;
+  const shellVm = Math.sqrt(
+    Math.max(0, sigmaH * sigmaH - sigmaH * sigmaL + sigmaL * sigmaL + 3 * shellShear * shellShear)
+  );
   const util = Math.max(shellVm, neck.vonMises) / Math.max(1e-6, allow);
 
   return {
@@ -139,6 +150,8 @@ export function screenNozzleLoad(args: {
     gamma: Rm / Math.max(1e-6, T),
     beta: (0.875 * r0) / Rm,
     shellShearMPa: shellShear,
+    shellPressureMPa: sigmaH,
+    shellVmMPa: shellVm,
     neckAxialMPa: neck.axial,
     neckBendMPa: neck.bend,
     neckTorsionMPa: neck.torsion,
@@ -156,7 +169,7 @@ export function loadWarnings(tag: string, lc: NozzleLoadCalc, warnings: Warning[
   warnings.push({
     level: 'info',
     code: 'NL-01',
-    msg: `Nozzle ${tag}: local-load screening — shell shear ${lc.shellShearMPa.toFixed(1)} MPa, neck ${lc.neckVonMisesMPa.toFixed(1)} MPa vs ${(lc.allowMPa).toFixed(0)} MPa (1.5·S), Pe = ${lc.equivPressureBar.toFixed(1)} bar · full curve-based WRC 107/537 shell stresses require the licensed bulletin`,
+    msg: `Nozzle ${tag}: local-load screening — shell ${lc.shellVmMPa.toFixed(1)} MPa (P ${lc.shellPressureMPa.toFixed(1)} + shear ${lc.shellShearMPa.toFixed(1)}), neck ${lc.neckVonMisesMPa.toFixed(1)} MPa vs ${(lc.allowMPa).toFixed(0)} MPa (1.5·S), Pe = ${lc.equivPressureBar.toFixed(1)} bar · full curve-based WRC 107/537 shell stresses require the licensed bulletin`,
   });
   if (!lc.ok) {
     warnings.push({

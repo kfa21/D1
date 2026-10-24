@@ -459,6 +459,10 @@ export interface NozzleLoadCalc {
   beta: number;
   /** exact WRC 107 shell shear at a round attachment: V/(π·r0·T) + Mt/(2π·r0²·T) (MPa) */
   shellShearMPa: number;
+  /** shell hoop membrane from design pressure at the junction (MPa) */
+  shellPressureMPa: number;
+  /** combined shell screening stress, biaxial P membrane + WRC shear (von Mises, MPa) */
+  shellVmMPa: number;
   /** nominal nozzle-neck stresses (MPa) */
   neckAxialMPa: number;
   neckBendMPa: number;

@@ -502,6 +502,7 @@ function calcNozzle(
     wallCorrMm: wallCorr,
     tShellMm: ta,
     shellDiaMm: section.spec.dia,
+    PdesignMPa: P,
     S,
   });
   if (loadCalc) loadWarnings(nozzle.tag, loadCalc, warnings);
