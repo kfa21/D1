@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import { useStore, setSettings } from './store';
 import { CURRENCIES } from './engine/currency';
 import { computeEquipment } from './engine/compute';
 import Register from './pages/Register';
-import Viewer3D from './pages/Viewer3D';
+// 3D viewer pulls in three.js (~600 kB) — load it only when the page opens so
+// the initial bundle stays small
+const Viewer3D = lazy(() => import('./pages/Viewer3D'));
 import AiReview from './pages/AiReview';
 import BomPage from './pages/BomPage';
 import Inspection from './pages/Inspection';
@@ -114,7 +116,11 @@ export default function App() {
         </div>
         <div className="content">
           {page === 'register' && <Register />}
-          {page === 'viewer' && <Viewer3D />}
+          {page === 'viewer' && (
+            <Suspense fallback={<p className="muted small">Loading 3D viewer…</p>}>
+              <Viewer3D />
+            </Suspense>
+          )}
           {page === 'ai' && <AiReview />}
           {page === 'bom' && <BomPage />}
           {page === 'inspection' && <Inspection />}

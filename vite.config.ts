@@ -12,6 +12,18 @@ export default defineConfig({
   // relative asset base so the production build works from any mount point
   // (GitHub Pages serves the project at /D1/)
   base: './',
+  build: {
+    rollupOptions: {
+      output: {
+        // three.js (~480 kB minified) is the only half-megabyte dependency —
+        // keep it in its own lazy vendor chunk so neither the initial bundle
+        // nor the Viewer3D chunk trips the 500 kB size warning
+        manualChunks(id: string) {
+          if (id.includes('node_modules/three/')) return 'three';
+        },
+      },
+    },
+  },
   server: {
     host: true,
     port: 3000,
