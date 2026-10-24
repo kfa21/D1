@@ -56,6 +56,7 @@ export const WARNING_CATALOG: Record<string, WarningSpec> = {
   'T650-06': { level: 'info', note: 'Internal floating roof — vapor-space venting & guider advisory (API 650 §5.8.2)' },
   'T650-08': { level: 'warning', note: 'Annular bottom plate below Table 5-1a requirement' },
   'T650-09': { level: 'info', note: 'Annular plate width ≥ 600 mm from shell advisory (§5.5.3)' },
+  'T650-10': { level: 'warning', note: 'Bottom plate below the 6 mm corroded minimum (§5.5.1)' },
   // Nozzle local loads — WRC 107 screening (wrc107.ts)
   'NL-01': { level: 'info', note: 'Nozzle local-load screening basis + utilisation (WRC 107 structure)' },
   'NL-02': { level: 'warning', note: 'Nozzle local-load screening utilisation over 1.5·S' },

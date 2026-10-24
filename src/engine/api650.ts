@@ -241,7 +241,18 @@ export function computeTank(equip: Equipment): EquipmentCalc {
     shellKg += Math.PI * Dm * (courseH / 1000) * (tMin / 1000) * 7850;
   }
 
-  const bottomThk = Math.max(6, tank.bottomThk || 6);
+  const bottomThkSel = Math.max(6, tank.bottomThk || 6);
+  // §5.5.1 — ALL bottom plates need 6 mm CORRODED, i.e. 6 + CA nominal. The old
+  // code floored the nominal thickness at 6 mm regardless of corrosion allowance.
+  const bottomThkMin = 6 + ca;
+  const bottomThk = Math.max(bottomThkSel, bottomThkMin);
+  if (!tank.annularBottom && bottomThkSel < bottomThkMin - 1e-9) {
+    warnings.push({
+      level: 'warning',
+      code: 'T650-10',
+      msg: `Bottom plate ${bottomThkSel} mm < required ${bottomThkMin} mm (6 mm corroded + ${ca} mm CA, API 650 §5.5.1) — auto-sized to ${bottomThk} mm`,
+    });
+  }
   // Annular bottom plates — Table 5-1a (SI): keyed on the first-course plate
   // thickness and the maximum stress in that course (greater of product and
   // hydrostatic-test per table note b), floored at 6 mm and plus corrosion
@@ -258,11 +269,11 @@ export function computeTank(equip: Equipment): EquipmentCalc {
       annularThicknessFromTable(c1.tNominal, sHyd)
     );
     const tb = tbTable + ca;
-    if (bottomThk < tb - 1e-9) {
+    if (bottomThkSel < tb - 1e-9) {
       warnings.push({
         level: 'warning',
         code: 'T650-08',
-        msg: `Annular plate ${bottomThk} mm < required ${tb.toFixed(1)} mm — Table 5-1a (t₁ corr. ${t1Corr.toFixed(1)} mm, σ = ${Math.max(sProd, sHyd).toFixed(0)} MPa → ${tbTable} mm) + ${ca} mm CA`,
+        msg: `Annular plate ${bottomThkSel} mm < required ${tb.toFixed(1)} mm — Table 5-1a (t₁ corr. ${t1Corr.toFixed(1)} mm, σ = ${Math.max(sProd, sHyd).toFixed(0)} MPa → ${tbTable} mm) + ${ca} mm CA`,
       });
     }
     warnings.push({
@@ -274,7 +285,16 @@ export function computeTank(equip: Equipment): EquipmentCalc {
   }
   const roofThk = Math.max(5, tank.roofThk || 5);
   const bottomArea = (Math.PI / 4) * Dm * Dm;
-  const bottomWeight = bottomArea * (bottomThk / 1000) * 7850 * (tank.annularBottom ? 1.02 : 1.0);
+  // Bottom plates: field area at the (inner) bottom thickness, plus the annular
+  // RING — 600 mm wide per §5.5.3 — at its own Table 5-1a thickness. The old
+  // code charged the whole floor at bottomThk with an unverified ×1.02 fudge.
+  const annularRingW = 0.6; // m, annular plate width from the shell
+  const ringArea = tank.annularBottom && Dm > 2 * annularRingW
+    ? (Math.PI / 4) * (Dm * Dm - Math.pow(Dm - 2 * annularRingW, 2))
+    : 0;
+  const bottomWeight =
+    bottomArea * (bottomThk / 1000) * 7850 +
+    ringArea * (Math.max(0, annularThk - bottomThk) / 1000) * 7850;
   const roofSlope = 1.055; // cone slope area factor for 1:20 (api) roofs ~2:1 pitch
   const roofDeckArea = (Math.PI / 4) * Math.pow(Dm * 1.02, 2); // m²
   const primarySeal = tank.primarySeal ?? 'shoe';

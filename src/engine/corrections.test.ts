@@ -595,6 +595,52 @@ describe('API 650 tank anchors (shared bolt-group sizing)', () => {
     expect(checkWarningCodes(c.warnings).problems).toEqual([]);
   });
 
+  it('bottom plate honours the 6 mm corroded minimum (non-annular, T650-10)', () => {
+    const tk = newEquipment('tank', 12);
+    tk.sections[0] = { ...tk.sections[0], dia: 12000, ttLength: 14000 };
+    tk.tank!.annularBottom = false;
+    tk.corrosionAllowance = 3;
+    tk.tank!.bottomThk = 0; // auto → old code would floor at 6 nominal (3 mm corroded)
+    const c = computeTank(tk);
+    expect(c.tank!.bottomThk).toBe(9); // 6 mm corroded + 3 mm CA
+    expect(c.warnings.some((w) => w.code === 'T650-10' && w.level === 'warning')).toBe(true);
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+
+    const ok = newEquipment('tank', 13);
+    ok.sections[0] = { ...ok.sections[0], dia: 12000, ttLength: 14000 };
+    ok.tank!.annularBottom = false;
+    ok.corrosionAllowance = 3;
+    ok.tank!.bottomThk = 10;
+    const c2 = computeTank(ok);
+    expect(c2.tank!.bottomThk).toBe(10); // explicit selection above the minimum kept
+    expect(c2.warnings.some((w) => w.code === 'T650-10')).toBe(false);
+  });
+
+  it('annular ring charged at its own thickness over the 600 mm width', () => {
+    // D = 45 m, H = 18 m, G = 0.5 → hydro test governs the first course
+    // (tTest = 4.9·45·17.7/195 = 20.01 mm), sHyd = 195 MPa → Table 5-1a row
+    // 19 < t ≤ 25, column 210 → tb = 7 mm > 6 mm field plates.
+    const tk = newEquipment('tank', 14);
+    tk.sections[0] = { ...tk.sections[0], dia: 45000, ttLength: 18000 };
+    tk.tank!.maxDesignLiquidLevel = 18000;
+    tk.tank!.specificGravity = 0.5;
+    tk.tank!.annularBottom = true;
+    tk.corrosionAllowance = 0;
+    tk.tank!.bottomThk = 0;
+    tk.materialKey = 'SA-516-70'; // St = 195 MPa → first-course test stress hits the 210 MPa column
+    tk.externalPressure = 0; // a 45 m shell has no UG-28 margin — keep the fixture clean
+    const c = computeTank(tk);
+    expect(c.tank!.bottomThk).toBe(6);
+    expect(c.tank!.annularThk).toBe(7); // Table 5-1a governs the ring
+    // weight = field 6 mm + ring (7 mm) over the 600 mm annular width
+    const area = (Math.PI / 4) * 45 * 45;
+    const ring = (Math.PI / 4) * (45 * 45 - 43.8 * 43.8);
+    const expectedKg = (area * 6 + ring * 1) * 7850 / 1000;
+    expect(c.tank!.bottomWeightKg).toBeCloseTo(expectedKg, -1); // ≈ 75 565 kg
+    expect(c.tank!.bottomWeightKg).toBeGreaterThan(area * 6 * 7850 / 1000); // ring adds mass
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+  });
+
   it('seismic (Sds input) governs, trips AB-01 and the chair advisory', () => {
     const tk = tank();
     tk.designLoads = { windPressureKpa: 1.0, sds: 0.8, seismicR: 3, seismicIe: 1 };
