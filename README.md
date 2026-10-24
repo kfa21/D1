@@ -73,13 +73,12 @@ src/
 
 ## Roadmap
 
-- WRC 107/537 local loads at nozzle/shell junctions
+- Full curve-based WRC 107/537 shell local stresses (the **screening** is implemented — WRC 107 shell-shear equations, nominal neck stresses, Kellogg equivalent pressure into the flange check; the response curves/precision equations are licensed bulletin data)
 - Saddle-stiffener **ring inertia** requirement (the Zick horn, shear and longitudinal cases plus a wear-plate advisory are implemented)
-- API 650 variable-design-point method (D > 61 m), annular-plate design
 - Bell–Delaware shell-side ΔP/U and tube-vibration screening for exchangers
 - PDF datasheet/BOQ export, imperial unit mode, ASME VIII-2 Part 5 toggle
 
-> The nozzle-reinforcement (UG-37/UG-45), saddle (Zick horn/shear/longitudinal) and anchor-bolt (wind/seismic) checks are **preliminary** engineering estimates built on published formulas with interpolated/tabulated coefficients. They are indicative starting points — verify the full method against the licensed code edition (ASME VIII-1/VIII-2 Annex G, ASCE 7) before fabrication.
+> The nozzle-reinforcement (UG-37/UG-45), saddle (Zick horn/shear/longitudinal), anchor-bolt (wind/seismic), nozzle local-load (WRC 107 screening at 1.5·S) and API 650 (variable design point §5.6.4, annular plates Table 5-1a) checks are **preliminary** engineering estimates built on published formulas with interpolated/tabulated coefficients. They are indicative starting points — verify the full method against the licensed code edition (ASME VIII-1/VIII-2 Annex G, ASCE 7, API 650 with addenda) before fabrication.
 
 ---
 

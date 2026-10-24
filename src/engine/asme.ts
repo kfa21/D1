@@ -21,6 +21,7 @@ import { flangeGroupForMat, verifyFlange } from './flange';
 import { flangeWeightKg, npsNumber, pipeMassKgPerM, studCount, wallForBore } from './pipes';
 import { clamp, interp } from './units';
 import { pwhtAdvice } from './pwht';
+import { loadWarnings, screenNozzleLoad } from './wrc107';
 
 export const JOINT_EFFICIENCY: Record<'full' | 'spot' | 'none', number> = {
   full: 1.0, // UW-12(a) full radiography
@@ -490,14 +491,32 @@ function calcNozzle(
   }
 
   const group = flangeGroupForMat(nozzle.flangeMatKey);
+  // Local-load screening (WRC 107 structure) — returns the Kellogg equivalent
+  // pressure, which is added to the design pressure for the B16.5 rating check.
+  const loadCalc = screenNozzleLoad({
+    loads: nozzle.loads ?? { fx: 0, fy: 0, fz: 0, mx: 0, my: 0, mz: 0 },
+    odMm: od,
+    padDiaMm: padDia,
+    boreCorrMm: d,
+    wallCorrMm: wallCorr,
+    tShellMm: ta,
+    shellDiaMm: section.spec.dia,
+    S,
+  });
+  if (loadCalc) loadWarnings(nozzle.tag, loadCalc, warnings);
   // P here is MPa (thickness formulas above); B16.5 ratings are bar — convert so the
   // comparison is like-for-like (10 bar = 1 MPa).
-  const fl = verifyFlange(group, nozzle.flangeClass, tC, P * 10);
+  const PdesignBar = P * 10 + (loadCalc?.equivPressureBar ?? 0);
+  const fl = verifyFlange(group, nozzle.flangeClass, tC, PdesignBar);
   if (!fl.ok) {
     warnings.push({
       level: 'error',
       code: 'FL-01',
-      msg: `Nozzle ${nozzle.tag}: Class ${nozzle.flangeClass} ${group} rated ${fl.ratingBar.toFixed(1)} bar @ ${tC} °C < design ${P.toFixed(1)} bar (B16.5)`,
+      msg: `Nozzle ${nozzle.tag}: Class ${nozzle.flangeClass} ${group} rated ${fl.ratingBar.toFixed(1)} bar @ ${tC} °C < design ${P.toFixed(1)} bar${
+        loadCalc && loadCalc.equivPressureBar > 0
+          ? ` + Pe ${loadCalc.equivPressureBar.toFixed(1)} bar (external loads)`
+          : ''
+      } (B16.5)`,
     });
   } else if (fl.margin > 0.5) {
     warnings.push({
@@ -529,6 +548,7 @@ function calcNozzle(
     reinforceOK,
     flangeRating: fl.ratingBar,
     flangeClassOK: fl.ok,
+    load: loadCalc ?? undefined,
     pipeLenM: neckLenM,
     pipeKg,
     flangeKg,

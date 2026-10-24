@@ -1,6 +1,7 @@
-// API 650 storage tank engine — one-foot method shell thickness, minimums,
-// cone roof, wind girder/anchor advisories, hydrostatic condition.
-// SI form of API 650 §5.6: t_d = 4.9·D·(H−0.3)·G/S_d + CA ; t_t = 4.9·D·(H−0.3)/S_t
+// API 650 storage tank engine — shell thickness (one-foot §5.6.3 or variable
+// design point §5.6.4 for D > 61 m), minimums, annular bottom plates
+// (Table 5-1a), cone roof, wind girder/anchor advisories, hydrostatic condition.
+// SI form: t_d = 4.9·D·(H−0.3)·G/S_d + CA ; t_t = 4.9·D·(H−0.3)/S_t
 // (D, H in m; S in MPa; t in mm). Verify against the governing edition.
 
 import type { Equipment, EquipmentCalc, TankCalc, Warning } from './types';
@@ -47,6 +48,102 @@ export function shellMinByDiameter(dM: number): number {
   return 10;
 }
 
+// ---------------------------------------------------------------------------
+// API 650 §5.6.4 variable design point method (SI units)
+// ---------------------------------------------------------------------------
+
+/** First (bottom) course of a variable-design-point design — API 650 §5.6.4
+ *  first-course equation (SI):
+ *    t1d = [1.06 − 0.0696·(D/H)·√(H·G/Sd)]·4.9·H·D·G/Sd + CA
+ *    t1t = [1.06 − 0.0696·(D/H)·√(H/St)]·4.9·H·D/St        (no CA)
+ *  with D, H in m, S in MPa, t in mm. Validated against a published worked
+ *  calculation (D = 11.5 m, H = 10.5 m, G = 1, Sd = 156.667, CA = 6 → 9.929 mm). */
+export function vdpFirstCourseThickness(
+  Dm: number,
+  Hm: number,
+  G: number,
+  Sd: number,
+  St: number,
+  ca: number
+): { td: number; tt: number } {
+  if (!(Hm > 0) || !(Dm > 0)) return { td: Math.max(0, ca), tt: 0 };
+  const base = 4.9 * Hm * Dm;
+  const kD = 1.06 - 0.0696 * (Dm / Hm) * Math.sqrt((Hm * G) / Math.max(1e-6, Sd));
+  const kT = 1.06 - 0.0696 * (Dm / Hm) * Math.sqrt(Hm / Math.max(1e-6, St));
+  return {
+    td: kD * ((base * G) / Math.max(1e-6, Sd)) + ca,
+    tt: kT * (base / Math.max(1e-6, St)),
+  };
+}
+
+/** Upper-course design point and required thicknesses — API 650 §5.6.4 (SI):
+ *    K  = tL/tu,  C = K(K−1)/(1 + K^1.5)
+ *    x1 = 0.61·√(R·tu) + 320·C·H,  x2 = 1000·C·H,  x3 = 1.22·√(R·tu)
+ *    x  = min(x1, x2, x3) (mm, clamped ≥ 0) above the course bottom
+ *    td = 4.9·D·(H − x/1000)·G/Sd + CA,  tt = 4.9·D·(H − x/1000)/St
+ *  R = tank radius (mm), tu = corroded trial thickness of this course (mm),
+ *  tL = thickness of the course below (mm), H = liquid head above this
+ *  course's bottom (m). The x3 (√R·t) candidate does not involve H; x2 does. */
+export function vdpUpperCourseThickness(p: {
+  Dm: number;
+  headM: number;
+  G: number;
+  Sd: number;
+  St: number;
+  ca: number;
+  RmMm: number;
+  tuMm: number;
+  tLMm: number;
+}): { K: number; C: number; x1: number; x2: number; x3: number; x: number; td: number; tt: number } {
+  const tu = Math.max(1e-3, p.tuMm);
+  const tL = Math.max(1e-3, p.tLMm);
+  const K = tL / tu;
+  const C = (K * (K - 1)) / (1 + Math.pow(K, 1.5));
+  const root = Math.sqrt(Math.max(0, p.RmMm * tu));
+  const H = Math.max(0, p.headM);
+  const x1 = 0.61 * root + 320 * C * H;
+  const x2 = 1000 * C * H;
+  const x3 = 1.22 * root;
+  const x = Math.max(0, Math.min(x1, x2, x3));
+  const head = Math.max(0, H - x / 1000);
+  return {
+    K,
+    C,
+    x1,
+    x2,
+    x3,
+    x,
+    td: (4.9 * p.Dm * head * p.G) / Math.max(1e-6, p.Sd) + p.ca,
+    tt: (4.9 * p.Dm * head) / Math.max(1e-6, p.St),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// API 650 Table 5-1a (SI) — annular bottom-plate thickness
+// ---------------------------------------------------------------------------
+/** Columns: stress in the first shell course (MPa). Rows: plate thickness of
+ *  the FIRST shell course (mm) — corroded thickness for the product condition,
+ *  nominal for the hydrostatic-test condition (table note a). The stress used
+ *  is the greater of the product and hydrostatic-test stresses (note b). */
+const ANNULAR_T5_1A_COLS = [190, 210, 220, 250];
+const ANNULAR_T5_1A_ROW_UB = [19, 25, 32, 40, 45];
+const ANNULAR_T5_1A: number[][] = [
+  [6, 6, 7, 9],
+  [6, 7, 10, 11],
+  [6, 9, 12, 14],
+  [8, 11, 14, 17],
+  [9, 13, 16, 19],
+];
+
+/** Required annular plate thickness tb (mm) from Table 5-1a. */
+export function annularThicknessFromTable(firstCourseT: number, stressMPa: number): number {
+  let row = ANNULAR_T5_1A_ROW_UB.findIndex((ub) => firstCourseT <= ub);
+  if (row < 0) row = ANNULAR_T5_1A_ROW_UB.length - 1; // > 45 mm not tabulated — use last band
+  let col = ANNULAR_T5_1A_COLS.findIndex((s) => stressMPa <= s);
+  if (col < 0) col = ANNULAR_T5_1A_COLS.length - 1; // stress > 250 MPa — use max column
+  return ANNULAR_T5_1A[row][col];
+}
+
 export function computeTank(equip: Equipment): EquipmentCalc {
   const base = computeVessel(equip); // reuse warnings, nozzle/flange checks
   const warnings: Warning[] = [...base.warnings];
@@ -63,15 +160,21 @@ export function computeTank(equip: Equipment): EquipmentCalc {
   const St = st.St;
   const minShell = shellMinByDiameter(Dm);
 
-  if (Dm > 61) {
+  const useVdp = Dm > 61; // one-foot method limited to D ≤ 61 m (§5.6.3)
+  if (useVdp) {
     warnings.push({
-      level: 'warning',
+      level: 'info',
       code: 'T650-01',
-      msg: 'API 650 one-foot method limited to D ≤ 61 m — use variable-design-point method',
+      msg: `Tank Ø${Dm} m > 61 m — one-foot method not permitted; variable design point method applied (API 650 §5.6.4)`,
     });
   }
 
-  // Courses (uniform width from plate catalogue, typically 1500–2000 mm)
+  // Courses (uniform width from plate catalogue, typically 1500–2000 mm).
+  // Course i is counted from the BOTTOM; the design head is the liquid height
+  // above that course's bottom (H_i = Hm − i·courseH). Both the one-foot
+  // method (point 0.3 m above the course bottom) and the variable-design-point
+  // method evaluate at/above that datum. The previous code used the course's
+  // top ELEVATION as the head, inverting the courses (thinnest at the bottom).
   const plateW = 2000;
   const nCourses = Math.max(1, Math.ceil(Hmm / plateW));
   const courseH = Hmm / nCourses;
@@ -79,16 +182,56 @@ export function computeTank(equip: Equipment): EquipmentCalc {
   let shellKg = 0;
   let tGov = 0;
   for (let i = 0; i < nCourses; i++) {
-    // course i counted from bottom; liquid head at top of course
-    const hTopM = ((i + 1) * courseH) / 1000;
-    const tDesign = (4.9 * Dm * Math.max(0, hTopM - 0.3) * G) / Sd + ca;
-    const tTest = (4.9 * Dm * Math.max(0, hTopM - 0.3) * 1.0) / St;
+    const designHeadM = Math.max(0, Hm - (i * courseH) / 1000);
+    let tDesign = 0;
+    let tTest = 0;
+    if (useVdp) {
+      if (i === 0) {
+        // bottom course: dedicated §5.6.4 first-course equation (no x point)
+        const f = vdpFirstCourseThickness(Dm, designHeadM, G, Sd, St, ca);
+        tDesign = f.td;
+        tTest = f.tt;
+      } else {
+        // upper courses: design point x = min(x1, x2, x3) above the course
+        // bottom; iterate because x depends on this course's corroded thickness.
+        let trial = Math.max(
+          (4.9 * Dm * Math.max(0, designHeadM - 0.3) * G) / Sd + ca,
+          (4.9 * Dm * Math.max(0, designHeadM - 0.3)) / St,
+          minShell
+        );
+        for (let k = 0; k < 5; k++) {
+          const r = vdpUpperCourseThickness({
+            Dm,
+            headM: designHeadM,
+            G,
+            Sd,
+            St,
+            ca,
+            RmMm: Dmm / 2,
+            tuMm: Math.max(0.5, trial - ca),
+            tLMm: Math.max(0.5, courses[i - 1].tNominal - ca),
+          });
+          tDesign = r.td;
+          tTest = r.tt;
+          const next = Math.max(minShell, r.td, r.tt);
+          if (Math.abs(next - trial) < 0.01) {
+            trial = next;
+            break;
+          }
+          trial = next;
+        }
+      }
+    } else {
+      const hPoint = designHeadM - 0.3; // one-foot method: 0.3 m above course bottom
+      tDesign = (4.9 * Dm * Math.max(0, hPoint) * G) / Sd + ca;
+      tTest = (4.9 * Dm * Math.max(0, hPoint)) / St;
+    }
     const tMin = Math.max(minShell, tDesign, tTest);
     tGov = Math.max(tGov, tMin);
     courses.push({
       courseNo: nCourses - i, // top course = 1
       heightMm: courseH,
-      hTopM: hTopM,
+      designHeadM,
       tDesign,
       tTest,
       tMinCode: minShell,
@@ -99,7 +242,36 @@ export function computeTank(equip: Equipment): EquipmentCalc {
   }
 
   const bottomThk = Math.max(6, tank.bottomThk || 6);
-  const annularThk = tank.annularBottom ? Math.max(bottomThk, 10) : bottomThk;
+  // Annular bottom plates — Table 5-1a (SI): keyed on the first-course plate
+  // thickness and the maximum stress in that course (greater of product and
+  // hydrostatic-test per table note b), floored at 6 mm and plus corrosion
+  // allowance. 600 mm minimum annular width from the shell (§5.5.3) advised.
+  let annularThk = bottomThk;
+  if (tank.annularBottom && courses.length > 0) {
+    const c1 = courses[0]; // bottom course
+    const t1Corr = Math.max(0.1, c1.tNominal - ca);
+    const sProd = (Math.max(0, c1.tDesign - ca) / t1Corr) * Sd;
+    const sHyd = (c1.tTest / Math.max(0.1, c1.tNominal)) * St;
+    const tbTable = Math.max(
+      6,
+      annularThicknessFromTable(t1Corr, sProd),
+      annularThicknessFromTable(c1.tNominal, sHyd)
+    );
+    const tb = tbTable + ca;
+    if (bottomThk < tb - 1e-9) {
+      warnings.push({
+        level: 'warning',
+        code: 'T650-08',
+        msg: `Annular plate ${bottomThk} mm < required ${tb.toFixed(1)} mm — Table 5-1a (t₁ corr. ${t1Corr.toFixed(1)} mm, σ = ${Math.max(sProd, sHyd).toFixed(0)} MPa → ${tbTable} mm) + ${ca} mm CA`,
+      });
+    }
+    warnings.push({
+      level: 'info',
+      code: 'T650-09',
+      msg: 'Annular plate — keep ≥ 600 mm clear of the shell before the first lap joint in the bottom (API 650 §5.5.3)',
+    });
+    annularThk = Math.max(bottomThk, tb);
+  }
   const roofThk = Math.max(5, tank.roofThk || 5);
   const bottomArea = (Math.PI / 4) * Dm * Dm;
   const bottomWeight = bottomArea * (bottomThk / 1000) * 7850 * (tank.annularBottom ? 1.02 : 1.0);
@@ -189,7 +361,7 @@ export function computeTank(equip: Equipment): EquipmentCalc {
   const weightDry = shellKg + bottomWeight + roofWeight + base.weightDryKg * 0.15; // + nozzles/attachments
   return {
     ...base,
-    codeRef: 'API 650 (12th/13th ed.): §5.6 shell one-foot method, §5.7 openings, §5.8 wind girder, §5.10 roofs, §5.11 anchors',
+    codeRef: `API 650 (12th/13th ed.): §5.6 ${useVdp ? 'variable design point (§5.6.4)' : 'one-foot'} shell method, §5.5.3 annular plates, §5.7 openings, §5.8 wind girder, §5.10 roofs, §5.11 anchors`,
     sections: base.sections,
     tank: tankCalc,
     weightDryKg: weightDry,
@@ -200,8 +372,11 @@ export function computeTank(equip: Equipment): EquipmentCalc {
     hydroTestBar: testPressureBar,
     hydroTestBottomBar: testPressureBar,
     mawpBar: 0,
-    mawpNote: `API 650 tank — fixed roof at ${equip.designPressure.toFixed(2)} bar g; shell designed by one-foot method, S_d = ${Sd} MPa`,
-    membraneUtil: Math.min(1, tGov / Math.max(1, courses[courses.length - 1].tDesign || tGov)),
+    mawpNote: `API 650 tank — fixed roof at ${equip.designPressure.toFixed(2)} bar g; shell designed by ${useVdp ? 'variable-design-point' : 'one-foot'} method, S_d = ${Sd} MPa`,
+    membraneUtil: Math.min(
+      1,
+      courses.reduce((m, c) => Math.max(m, Math.max(c.tDesign, c.tTest) / Math.max(1e-6, c.tNominal)), 0)
+    ),
     materialName: base.materialName,
     sAllow: Sd,
     warnings,

@@ -3,7 +3,7 @@
 // Right block: calculated (shell/head thickness, MAWP, hydrotest, weight, warnings).
 
 import { useMemo, useState } from 'react';
-import type { Equipment, EquipType, HeadType, NozzleSpec, InternalsSpec, SectionSpec } from '../engine/types';
+import type { Equipment, EquipType, HeadType, NozzleSpec, NozzleLoads, InternalsSpec, SectionSpec } from '../engine/types';
 import { computeEquipment } from '../engine/compute';
 import { MATERIALS } from '../engine/materials';
 import { PIPES, SCHEDULES } from '../engine/pipes';
@@ -510,9 +510,9 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
                         <td className="num calc">{nc ? nc.Areq.toFixed(0) : '—'}</td>
                         <td className="num calc">{nc ? nc.Aprov.toFixed(0) : '—'}</td>
                         <td className="num calc">{nc ? fmt(nc.flangeRating, 0) : '—'}</td>
-                        <td>{nc && (nc.reinforceOK && nc.flangeClassOK && nc.neckOK
+                        <td>{nc && (nc.reinforceOK && nc.flangeClassOK && nc.neckOK && (nc.load?.ok ?? true)
                           ? <span className="badge ok">OK</span>
-                          : <span className="badge err">{!nc.neckOK ? 'neck' : !nc.reinforceOK ? 'reinf' : 'flange'}</span>)}</td>
+                          : <span className="badge err">{!nc.neckOK ? 'neck' : !nc.reinforceOK ? 'reinf' : nc.load && !nc.load.ok ? 'loads' : 'flange'}</span>)}</td>
                         <td><button className="ghost danger" onClick={() => update(equip.id, { nozzles: equip.nozzles.filter((x) => x.id !== n.id) })}>✕</button></td>
                       </tr>
                     );
@@ -521,6 +521,57 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
               </table>
             </div>
             <div style={{ marginTop: 8 }}><button onClick={addNozzle}>＋ Add nozzle</button></div>
+            {(equip.equipType === 'vessel' || equip.equipType === 'column' || equip.equipType === 'tank') && equip.nozzles.length > 0 && (
+              <div style={{ marginTop: 16, border: '1px solid var(--line, #ddd)', borderRadius: 8, padding: 12 }}>
+                <h4 style={{ margin: '0 0 4px' }}>Local loads — WRC 107 screening</h4>
+                <p className="muted small" style={{ marginTop: 0 }}>
+                  Optional piping/external loads at the nozzle–shell junction, in nozzle local axes (fx axial,
+                  fy/fz transverse shear, mx torsion, my/mz overturning). Shell shear uses the exact WRC 107
+                  equations, the neck check is nominal, and the B16.5 flange rating is verified against design +
+                  Kellogg equivalent pressure. Full curve-based WRC 107/537 shell stresses require the licensed
+                  bulletin — this is a screening (NL-01), allowable 1.5·S.
+                </p>
+                <div className="grid2">
+                  {equip.nozzles.map((n, i) => {
+                    const lc = calc.nozzles[i]?.load;
+                    const l = n.loads;
+                    const set = (patch: Partial<NozzleLoads>) =>
+                      upNz(n.id, { loads: { fx: 0, fy: 0, fz: 0, mx: 0, my: 0, mz: 0, ...l, ...patch } });
+                    const fields = [
+                      ['fx', 'Fx axial (kN)'], ['fy', 'Fy shear (kN)'], ['fz', 'Fz shear (kN)'],
+                      ['mx', 'Mx torsion (kN·m)'], ['my', 'My overturn (kN·m)'], ['mz', 'Mz overturn (kN·m)'],
+                    ] as const;
+                    return (
+                      <div key={n.id} style={{ border: '1px solid var(--line, #ddd)', borderRadius: 8, padding: 8 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                          <strong className="small">{n.tag}{n.service ? ` · ${n.service}` : ''}</strong>
+                          {lc ? (
+                            <span className={`badge ${lc.ok ? 'ok' : 'err'}`}>
+                              util {(lc.util * 100).toFixed(0)}% · Pe {lc.equivPressureBar.toFixed(1)} bar
+                            </span>
+                          ) : (
+                            <span className="muted small">no loads</span>
+                          )}
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 4, marginTop: 6 }}>
+                          {fields.map(([k, label]) => (
+                            <label key={k} className="small" style={{ display: 'block' }}>
+                              <span className="muted">{label}</span>
+                              <input
+                                type="number"
+                                step="0.1"
+                                value={l?.[k] ?? 0}
+                                onChange={(e) => set({ [k]: +e.target.value } as unknown as Partial<NozzleLoads>)}
+                              />
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

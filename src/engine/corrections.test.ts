@@ -19,9 +19,10 @@ import {
 } from './tema';
 import { externalPressureCheck, externalRequiredThickness, zickHornStress, zickK3, zickK2, zickSaddle } from './asme';
 import { studCount } from './pipes';
-import { computeTank } from './api650';
+import { annularThicknessFromTable, computeTank, vdpFirstCourseThickness, vdpUpperCourseThickness } from './api650';
+import { kelloggEquivPressureBar, neckStresses, screenNozzleLoad, wrcShellShear } from './wrc107';
 import { computeEquipment } from './compute';
-import { demoProject } from '../defaults';
+import { demoProject, newEquipment } from '../defaults';
 import { checkWarningCodes } from './warnings';
 import type { Equipment } from './types';
 
@@ -353,5 +354,202 @@ describe('Anchor bolts — wind & seismic overturning (real inputs)', () => {
     expect(b.seismicMomentKNm).toBeCloseTo(Mseis, 3);
     expect(b.overturnMomentKNm).toBeCloseTo(Mseis, 3); // = max(wind, seismic), not the sum
     expect(b.overturnMomentKNm).toBeGreaterThan(b.windMomentKNm);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// API 650 variable design point method (§5.6.4) — D > 61 m
+// ---------------------------------------------------------------------------
+
+describe('API 650 variable design point method (§5.6.4)', () => {
+  it('bottom course matches the published first-course worked calculation', () => {
+    // 950 m³ worked example (SI): D = 11.5 m, H = 10.5 m, G = 1,
+    // Sd = 156.667 MPa, St = 176.25 MPa, CA = 6 mm → reported t₁ = 9.929 mm.
+    const r = vdpFirstCourseThickness(11.5, 10.5, 1, 156.667, 176.25, 6);
+    expect(r.td).toBeCloseTo(9.929, 3);
+    // hydrostatic side (no CA): [1.06 − 0.0696·(D/H)·√(H/St)]·4.9·H·D/St
+    expect(r.tt).toBeCloseTo(3.496, 3);
+  });
+
+  it('upper-course design point x = min(x1, x2, x3) — hand calculation', () => {
+    // Hand calc: R = 5750 mm, H = 9.0 m, tu = 3.125 mm (corroded trial),
+    // tL = 3.929 mm (course below, corroded), D = 11.5 m, G = 1, CA = 6 mm.
+    //   K = 3.929/3.125 = 1.25728, K^1.5 = 1.40977
+    //   C = K(K−1)/(1+K^1.5) = 0.323476/2.409769 = 0.134235
+    //   √(R·tu) = √17968.75 = 134.048
+    //   x1 = 0.61·134.048 + 320·0.134235·9.0 = 81.77 + 386.60 = 468.37 mm
+    //   x2 = 1000·0.134235·9.0 = 1208.12 mm
+    //   x3 = 1.22·134.048 = 163.54 mm  ← governs
+    //   head = 9.0 − 0.16354 = 8.83646 m
+    //   td = 4.9·11.5·8.83646/156.667 + 6 = 9.178 mm ; tt = 2.825 mm
+    const r = vdpUpperCourseThickness({
+      Dm: 11.5,
+      headM: 9,
+      G: 1,
+      Sd: 156.667,
+      St: 176.25,
+      ca: 6,
+      RmMm: 5750,
+      tuMm: 3.125,
+      tLMm: 3.929,
+    });
+    expect(r.K).toBeCloseTo(1.25728, 4);
+    expect(r.C).toBeCloseTo(0.134235, 4);
+    expect(r.x1).toBeCloseTo(468.4, 1);
+    expect(r.x3).toBeCloseTo(163.5, 1);
+    expect(r.x).toBeCloseTo(163.5, 1); // min of the three candidates
+    expect(r.td).toBeCloseTo(9.178, 2);
+    expect(r.tt).toBeCloseTo(2.825, 2);
+  });
+
+  it('a D = 70 m tank switches to the variable design point method', () => {
+    const tk = newEquipment('tank', 9);
+    tk.sections[0] = { ...tk.sections[0], dia: 70000, ttLength: 18000 };
+    tk.materialKey = 'SA-516-70'; // Sd = 173, St = 195 MPa
+    tk.corrosionAllowance = 0;
+    tk.tank!.maxDesignLiquidLevel = 0; // → Hm = TT = 18 m
+    tk.tank!.specificGravity = 0.85;
+    const c = computeTank(tk);
+    expect(c.warnings.some((w) => w.code === 'T650-01' && w.level === 'info')).toBe(true);
+    expect(c.codeRef).toContain('variable design point');
+    const courses = c.tank!.shellCourses;
+    expect(courses.length).toBe(9); // ceil(18000/2000)
+    // Bottom course hand-pinned to the §5.6.4 first-course equation:
+    // kD = 1.06 − 0.0696·(70/18)·√(18·0.85/173) = 0.97951
+    // td = 0.97951 · 4.9·18·70·0.85/173 = 29.71 mm
+    expect(courses[0].designHeadM).toBeCloseTo(18, 6);
+    expect(courses[0].tDesign).toBeCloseTo(29.71, 1);
+    // thickness decreases with height and heads fall 2 m per course
+    for (let i = 1; i < courses.length; i++) {
+      expect(courses[i].tDesign, `course ${i}`).toBeLessThan(courses[i - 1].tDesign);
+      expect(courses[i].designHeadM).toBeCloseTo(18 - i * 2, 6);
+    }
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+  });
+
+  it('the one-foot path measures heads above each course bottom (inversion regression)', () => {
+    // D = 12 m, H = 14 m in 7 × 2000 mm courses: the BOTTOM course carries the
+    // full 14 m head. Previously the course top elevation was used as the head,
+    // so the top course was thickest — a physically inverted shell.
+    const tk = newEquipment('tank', 10);
+    tk.sections[0] = { ...tk.sections[0], dia: 12000, ttLength: 14000 };
+    tk.tank!.maxDesignLiquidLevel = 14000;
+    tk.tank!.specificGravity = 0.9;
+    const c = computeTank(tk);
+    const courses = c.tank!.shellCourses;
+    expect(courses.length).toBe(7);
+    expect(courses[0].designHeadM).toBeCloseTo(14, 6);
+    expect(courses[courses.length - 1].designHeadM).toBeCloseTo(2, 6);
+    expect(courses[0].tDesign).toBeGreaterThan(courses[courses.length - 1].tDesign);
+    expect(c.warnings.some((w) => w.code === 'T650-01')).toBe(false); // D ≤ 61 m → one-foot
+  });
+});
+
+// ---------------------------------------------------------------------------
+// API 650 annular bottom plates — Table 5-1a
+// ---------------------------------------------------------------------------
+
+describe('API 650 annular bottom plates (Table 5-1a)', () => {
+  it('reproduces the table row/column lookup', () => {
+    expect(annularThicknessFromTable(10, 180)).toBe(6); // t ≤ 19, σ ≤ 190
+    expect(annularThicknessFromTable(15, 200)).toBe(6); // t ≤ 19, σ ≤ 210
+    expect(annularThicknessFromTable(22, 195)).toBe(7); // 19 < t ≤ 25, σ ≤ 210
+    expect(annularThicknessFromTable(30, 215)).toBe(12); // 25 < t ≤ 32, σ ≤ 220
+    expect(annularThicknessFromTable(30, 230)).toBe(14); // 25 < t ≤ 32, σ ≤ 250
+    expect(annularThicknessFromTable(42, 250)).toBe(19); // 40 < t ≤ 45, σ ≤ 250
+    expect(annularThicknessFromTable(50, 999)).toBe(19); // beyond table → last band/column
+  });
+
+  it('annular ring sized from the first course (+CA) with T650-08/09', () => {
+    const tk = demoProject().find((e) => e.equipType === 'tank')!;
+    tk.corrosionAllowance = 3;
+    tk.tank!.annularBottom = true;
+    const c = computeTank(tk);
+    // tb = max(6 mm, Table 5-1a) + CA ≥ 9 mm → the 6 mm bottom plate is short
+    expect(c.tank!.annularThk).toBeGreaterThanOrEqual(9);
+    expect(c.tank!.annularThk).toBeGreaterThanOrEqual(c.tank!.bottomThk);
+    expect(c.warnings.some((w) => w.code === 'T650-08' && w.level === 'warning')).toBe(true);
+    expect(c.warnings.some((w) => w.code === 'T650-09' && w.level === 'info')).toBe(true);
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Nozzle local loads — WRC 107 structure + Kellogg equivalent pressure
+// ---------------------------------------------------------------------------
+
+describe('WRC 107 nozzle local-load screening', () => {
+  it('nominal neck stresses match the published simplified-forms example', () => {
+    // r = 50 mm, tn = 10 mm, P = 10 kN, V = 5 kN, M = 1 kN·m, Mt = 0.5 kN·m
+    // → axial 3.18, bending 12.73, transverse shear 1.59, torsion 3.18 MPa
+    const n = neckStresses(10000, 5000, 1e6, 0.5e6, 50, 10);
+    expect(n.axial).toBeCloseTo(3.18, 2);
+    expect(n.bend).toBeCloseTo(12.73, 2);
+    expect(n.shear).toBeCloseTo(1.59, 2);
+    expect(n.torsion).toBeCloseTo(3.18, 2);
+  });
+
+  it('WRC 107 shell shear equations for a round attachment', () => {
+    // τ = V/(π·r0·T) + Mt/(2π·r0²·T): V = 50 kN, Mt = 1 kN·m, r0 = 100, T = 12
+    // = 50000/3769.91 + 1e6/753982 = 13.263 + 1.326 MPa
+    expect(wrcShellShear(50000, 0, 1e6, 100, 12)).toBeCloseTo(14.589, 2);
+    expect(wrcShellShear(0, 0, 1e6, 100, 12)).toBeCloseTo(1.326, 3);
+  });
+
+  it('Kellogg equivalent pressure from external loads', () => {
+    // F = 10 kN, M = 1 kN·m, G = 200 mm → 4F/(π·G²) + 16M/(π·G³)
+    // = 0.31831 + 0.63662 = 0.95492 MPa = 9.55 bar
+    expect(kelloggEquivPressureBar(10000, 1e6, 200)).toBeCloseTo(9.55, 2);
+  });
+
+  it('screens a loaded demo nozzle (NL-01) and skips no-load nozzles', () => {
+    const v = demoProject().find((e) => e.tag === 'V-101')!;
+    v.nozzles.forEach((n) => (n.loads = undefined));
+    const clean = computeEquipment(v);
+    expect(clean.nozzles.every((n) => n.load === undefined)).toBe(true);
+    expect(clean.warnings.some((w) => w.code === 'NL-01')).toBe(false);
+
+    const v2 = demoProject().find((e) => e.tag === 'V-101')!;
+    v2.nozzles[0].loads = { fx: 3, fy: 4, fz: 3, mx: 0.1, my: 0.1, mz: 0.05 };
+    const c = computeEquipment(v2);
+    const nc = c.nozzles.find((n) => n.spec.tag === 'N1')!;
+    expect(nc.load).toBeTruthy();
+    expect(nc.load!.util).toBeGreaterThan(0);
+    expect(nc.load!.gamma).toBeGreaterThan(1);
+    expect(nc.load!.beta).toBeGreaterThan(0);
+    expect(nc.load!.shellShearMPa).toBeGreaterThan(0);
+    expect(nc.load!.equivPressureBar).toBeGreaterThan(0);
+    expect(c.warnings.some((w) => w.code === 'NL-01' && w.level === 'info')).toBe(true);
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+  });
+
+  it('extreme loads fail the screening (NL-02) and Pe reaches the flange check', () => {
+    const v = demoProject().find((e) => e.tag === 'V-101')!;
+    v.nozzles[0].loads = { fx: 500, fy: 0, fz: 0, mx: 0, my: 100, mz: 0 };
+    const c = computeEquipment(v);
+    const nc = c.nozzles.find((n) => n.spec.tag === 'N1')!;
+    expect(nc.load).toBeTruthy();
+    expect(nc.load!.ok).toBe(false);
+    expect(nc.load!.util).toBeGreaterThan(1);
+    expect(c.warnings.some((w) => w.code === 'NL-02' && w.level === 'warning')).toBe(true);
+    // the equivalent pressure must reach the B16.5 rating comparison
+    expect(nc.flangeClassOK).toBe(false);
+    expect(c.warnings.some((w) => w.code === 'FL-01' && w.msg.includes('external loads'))).toBe(true);
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+  });
+
+  it('returns null when the nozzle carries no loads', () => {
+    expect(
+      screenNozzleLoad({
+        loads: { fx: 0, fy: 0, fz: 0, mx: 0, my: 0, mz: 0 },
+        odMm: 114.3,
+        padDiaMm: 0,
+        boreCorrMm: 100,
+        wallCorrMm: 5,
+        tShellMm: 10,
+        shellDiaMm: 1200,
+        S: 173,
+      })
+    ).toBeNull();
   });
 });

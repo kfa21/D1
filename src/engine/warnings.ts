@@ -48,12 +48,18 @@ export const WARNING_CATALOG: Record<string, WarningSpec> = {
   'SD-06': { level: 'info', note: 'High saddle horn utilisation — wear plate / stiffener ring advised' },
   'MD-01': { level: 'error', note: 'Cone transition missing between differing diameters' },
   // API 650 tanks (api650.ts)
-  'T650-01': { level: 'warning', note: 'One-foot method beyond D ≤ 61 m — use variable-design-point' },
+  'T650-01': { level: 'info', note: 'D > 61 m — variable design point method applied (§5.6.4)' },
   'T650-02': { level: 'info', note: 'Wind girder recommended' },
   'T650-03': { level: 'info', note: 'Anchor bolt chairs advised (API 650 §5.11)' },
   'T650-04': { level: 'info', note: 'External floating roof — seals, stability & roof-drain advisory (API 650 §5.8.3)' },
   'T650-05': { level: 'info', note: 'Upper wind girder mandatory for external floating roof (API 650 §5.8.7)' },
   'T650-06': { level: 'info', note: 'Internal floating roof — vapor-space venting & guider advisory (API 650 §5.8.2)' },
+  'T650-08': { level: 'warning', note: 'Annular bottom plate below Table 5-1a requirement' },
+  'T650-09': { level: 'info', note: 'Annular plate width ≥ 600 mm from shell advisory (§5.5.3)' },
+  // Nozzle local loads — WRC 107 screening (wrc107.ts)
+  'NL-01': { level: 'info', note: 'Nozzle local-load screening basis + utilisation (WRC 107 structure)' },
+  'NL-02': { level: 'warning', note: 'Nozzle local-load screening utilisation over 1.5·S' },
+  'NL-03': { level: 'info', note: 'Nozzle attachment ratio β beyond common WRC 107 chart range' },
   // API 661 fin-fans (api661.ts)
   'AF-01': { level: 'warning', note: 'Face velocity above 6 m/s — noise/erosion' },
   'AF-02': { level: 'info', note: 'Rows per bank outside common 6–9 practice' },

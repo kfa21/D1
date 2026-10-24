@@ -110,13 +110,27 @@ describe('independent recalculation', () => {
     const calc = computeTank(tank);
     const st = API650_STRESSES[tank.materialKey] ?? API650_STRESSES.default;
     const Dm = 12, ca = tank.corrosionAllowance;
-    for (const c of calc.tank!.shellCourses) {
+    const Hm = 14; // m design liquid height (maxDesignLiquidLevel = 14000 mm)
+    const n = Math.ceil(14000 / 2000); // 7 courses of 2000 mm
+    const courses = calc.tank!.shellCourses;
+    expect(courses.length).toBe(n);
+    courses.forEach((c, i) => {
+      // index 0 = BOTTOM course: the design head is the liquid height above the
+      // course's own bottom (Hm − i·courseH), and the one-foot point sits 0.3 m
+      // above that bottom — not the course's top elevation.
+      const headM = Hm - i * 2;
+      expect(c.designHeadM, `course ${i} design head`).toBeCloseTo(headM, 6);
       const expected = Math.max(
         shellMinByDiameter(Dm),
-        (4.9 * Dm * Math.max(0, c.hTopM - 0.3) * 0.9) / st.Sd + ca,
-        (4.9 * Dm * Math.max(0, c.hTopM - 0.3) * 1.0) / st.St,
+        (4.9 * Dm * Math.max(0, headM - 0.3) * 0.9) / st.Sd + ca,
+        (4.9 * Dm * Math.max(0, headM - 0.3) * 1.0) / st.St,
       );
-      expect(c.tNominal).toBeCloseTo(expected, 4);
+      expect(c.tNominal, `course ${i} thickness`).toBeCloseTo(expected, 4);
+    });
+    // design thickness must decrease going up — regression guard for the
+    // inverted-head bug (previously the TOP course carried the full head)
+    for (let i = 1; i < courses.length; i++) {
+      expect(courses[i].tDesign, `course ${i} < course ${i - 1}`).toBeLessThan(courses[i - 1].tDesign);
     }
   });
 

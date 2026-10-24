@@ -187,13 +187,13 @@ export default function Reports() {
           <>
             <h3>API 650 shell courses</h3>
             <table className="grid" style={{ marginBottom: 12 }}>
-              <thead><tr><th>Course (from top)</th><th className="num">Height (mm)</th><th className="num">h at top (m)</th><th className="num">t design (mm)</th><th className="num">t test (mm)</th><th className="num">t nominal (mm)</th></tr></thead>
+              <thead><tr>                    <th>Course (from top)</th><th className="num">Height (mm)</th><th className="num">Design head (m)</th><th className="num">t design (mm)</th><th className="num">t test (mm)</th><th className="num">t nominal (mm)</th></tr></thead>
               <tbody>
                 {calc.tank.shellCourses.map((c) => (
                   <tr key={c.courseNo}>
                     <td className="num">{c.courseNo}</td>
                     <td className="num">{fmt(c.heightMm, 0)}</td>
-                    <td className="num">{fmt(c.hTopM, 2)}</td>
+                    <td className="num">{fmt(c.designHeadM, 2)}</td>
                     <td className="num calc">{fmt(c.tDesign, 2)}</td>
                     <td className="num">{fmt(c.tTest, 2)}</td>
                     <td className="num">{fmt(c.tNominal, 1)}</td>

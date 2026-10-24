@@ -183,6 +183,8 @@ export function demoProject(): Equipment[] {
       id: uid('nz'), tag: 'N2', service: 'Liquid out', dn: 150, schKey: '40', sectionId: v.sections[0].id,
       elevation: 300, azimuth: 180, kind: 'process', flangeClass: 300, flangeMatKey: 'SA-105',
       padDia: 320, padThk: 12, projOutside: 200,
+      // modest piping loads exercising the WRC 107 local-load screening
+      loads: { fx: 4, fy: 5, fz: 4, mx: 0.2, my: 0.3, mz: 0.15 },
     },
     {
       id: uid('nz'), tag: 'MW1', service: 'Manway', dn: 500, schKey: '40', sectionId: v.sections[0].id,

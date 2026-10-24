@@ -94,6 +94,20 @@ export interface NozzleSpec {
   padThk: number;
   /** Neck length from shell OD to flange face (mm) */
   projOutside: number;
+  /** Optional external piping/attachment loads at the nozzle–shell junction for
+   *  WRC 107 screening (kN / kN·m, nozzle local axes: fx axial along the nozzle
+   *  centreline, fy/fz transverse shears, mx torsion about the axis, my/mz
+   *  overturning moments). Absent/zero => no screening. */
+  loads?: NozzleLoads;
+}
+
+export interface NozzleLoads {
+  fx: number; // kN axial (along nozzle centreline)
+  fy: number; // kN transverse shear
+  fz: number; // kN transverse shear
+  mx: number; // kN·m torsion about nozzle axis
+  my: number; // kN·m overturning
+  mz: number; // kN·m overturning
 }
 
 export type InternalsKind =
@@ -415,9 +429,48 @@ export interface NozzleCalc {
   reinforceOK: boolean;
   flangeRating: number; // bar at design T
   flangeClassOK: boolean;
+  /** local-load screening (WRC 107 structure) — present when nozzle.loads set */
+  load?: NozzleLoadCalc;
   pipeLenM: number;
   pipeKg: number;
   flangeKg: number;
+}
+
+/** Nozzle local-load screening result. Structure per WRC 107 (2002 update):
+ *  the exact bulletin shell-shear equations plus nominal thin-wall nozzle-neck
+ *  stresses; the Kellogg equivalent pressure feeds the flange rating check.
+ *  The full curve-based WRC 107/537 shell membrane/bending stresses are
+ *  licensed bulletin data and are NOT reproduced here. */
+export interface NozzleLoadCalc {
+  /** WRC four-load set at the junction: P axial (N), V1/V2 transverse shears (N),
+   *  Mt torsion (N·mm), Mo1/Mo2 overturning (N·mm) — nozzle local axes */
+  P: number;
+  V1: number;
+  V2: number;
+  Mt: number;
+  Mo1: number;
+  Mo2: number;
+  /** attachment outside radius (pad OD/2 when padded), shell mean radius, corroded shell wall (mm) */
+  r0Mm: number;
+  RmMm: number;
+  tShellMm: number;
+  /** WRC cylindrical-shell parameters: gamma = Rm/T, beta = 0.875·r0/Rm */
+  gamma: number;
+  beta: number;
+  /** exact WRC 107 shell shear at a round attachment: V/(π·r0·T) + Mt/(2π·r0²·T) (MPa) */
+  shellShearMPa: number;
+  /** nominal nozzle-neck stresses (MPa) */
+  neckAxialMPa: number;
+  neckBendMPa: number;
+  neckTorsionMPa: number;
+  neckShearMPa: number;
+  neckVonMisesMPa: number;
+  /** Kellogg equivalent pressure from the external loads (bar) */
+  equivPressureBar: number;
+  /** screening utilisation vs 1.5·S (typical local-load criterion) */
+  util: number;
+  allowMPa: number;
+  ok: boolean;
 }
 
 export interface BoltCalc {
@@ -491,7 +544,9 @@ export interface TankCalc {
   shellCourses: {
     courseNo: number;
     heightMm: number;
-    hTopM: number; // head of liquid at top of course
+    /** liquid head above the course BOTTOM (m) — the design datum for the
+     *  one-foot (0.3 m above bottom) and variable-design-point evaluations */
+    designHeadM: number;
     tDesign: number;
     tTest: number;
     tMinCode: number;
