@@ -118,6 +118,60 @@ export function vdpUpperCourseThickness(p: {
   };
 }
 
+/** Iterate one VDP upper course to convergence: the design point x depends on
+ *  this course's own (trial) thickness, so sizing needs a fixed-point pass.
+ *  Returns converged = false when maxIter is exhausted — the caller warns
+ *  (T650-11) and keeps the last iterate. In practice the loop converges in
+ *  2–3 passes because |d(next)/d(trial)| < 1 for normal geometry. */
+export function iterateVdpCourse(
+  p: {
+    Dm: number;
+    headM: number;
+    G: number;
+    Sd: number;
+    St: number;
+    ca: number;
+    RmMm: number;
+    /** one-foot trial thickness of this course (mm) */
+    trial0: number;
+    /** thickness of the course below (mm) */
+    tLMm: number;
+    /** code minimum shell thickness (mm) */
+    minShell: number;
+  },
+  maxIter = 5,
+  tol = 0.01
+): { tDesign: number; tTest: number; x: number; converged: boolean } {
+  let trial = Math.max(p.trial0, p.minShell);
+  let tDesign = trial;
+  let tTest = trial;
+  let x = 0;
+  let converged = false;
+  for (let k = 0; k < maxIter; k++) {
+    const r = vdpUpperCourseThickness({
+      Dm: p.Dm,
+      headM: p.headM,
+      G: p.G,
+      Sd: p.Sd,
+      St: p.St,
+      ca: p.ca,
+      RmMm: p.RmMm,
+      tuMm: Math.max(0.5, trial - p.ca),
+      tLMm: p.tLMm,
+    });
+    tDesign = r.td;
+    tTest = r.tt;
+    x = r.x;
+    const next = Math.max(p.minShell, r.td, r.tt);
+    if (Math.abs(next - trial) < tol) {
+      converged = true;
+      break;
+    }
+    trial = next;
+  }
+  return { tDesign, tTest, x, converged };
+}
+
 // ---------------------------------------------------------------------------
 // API 650 Table 5-1a (SI) — annular bottom-plate thickness
 // ---------------------------------------------------------------------------
@@ -181,10 +235,15 @@ export function computeTank(equip: Equipment): EquipmentCalc {
   const courses: TankCalc['shellCourses'] = [];
   let shellKg = 0;
   let tGov = 0;
+  const nonConverged: number[] = [];
   for (let i = 0; i < nCourses; i++) {
     const designHeadM = Math.max(0, Hm - (i * courseH) / 1000);
     let tDesign = 0;
     let tTest = 0;
+    /** where the stress is evaluated above the course bottom (mm):
+     *  300 for the one-foot method, x for VDP upper courses, undefined for the
+     *  VDP bottom course (its dedicated first-course equation has no point) */
+    let designPointMm: number | undefined;
     if (useVdp) {
       if (i === 0) {
         // bottom course: dedicated §5.6.4 first-course equation (no x point)
@@ -194,37 +253,33 @@ export function computeTank(equip: Equipment): EquipmentCalc {
       } else {
         // upper courses: design point x = min(x1, x2, x3) above the course
         // bottom; iterate because x depends on this course's corroded thickness.
-        let trial = Math.max(
+        const trial0 = Math.max(
           (4.9 * Dm * Math.max(0, designHeadM - 0.3) * G) / Sd + ca,
           (4.9 * Dm * Math.max(0, designHeadM - 0.3)) / St,
           minShell
         );
-        for (let k = 0; k < 5; k++) {
-          const r = vdpUpperCourseThickness({
-            Dm,
-            headM: designHeadM,
-            G,
-            Sd,
-            St,
-            ca,
-            RmMm: Dmm / 2,
-            tuMm: Math.max(0.5, trial - ca),
-            tLMm: Math.max(0.5, courses[i - 1].tNominal - ca),
-          });
-          tDesign = r.td;
-          tTest = r.tt;
-          const next = Math.max(minShell, r.td, r.tt);
-          if (Math.abs(next - trial) < 0.01) {
-            trial = next;
-            break;
-          }
-          trial = next;
-        }
+        const it = iterateVdpCourse({
+          Dm,
+          headM: designHeadM,
+          G,
+          Sd,
+          St,
+          ca,
+          RmMm: Dmm / 2,
+          trial0,
+          tLMm: Math.max(0.5, courses[i - 1].tNominal - ca),
+          minShell,
+        });
+        tDesign = it.tDesign;
+        tTest = it.tTest;
+        designPointMm = it.x;
+        if (!it.converged) nonConverged.push(i);
       }
     } else {
       const hPoint = designHeadM - 0.3; // one-foot method: 0.3 m above course bottom
       tDesign = (4.9 * Dm * Math.max(0, hPoint) * G) / Sd + ca;
       tTest = (4.9 * Dm * Math.max(0, hPoint)) / St;
+      designPointMm = 300;
     }
     const tMin = Math.max(minShell, tDesign, tTest);
     tGov = Math.max(tGov, tMin);
@@ -232,6 +287,7 @@ export function computeTank(equip: Equipment): EquipmentCalc {
       courseNo: nCourses - i, // top course = 1
       heightMm: courseH,
       designHeadM,
+      designPointMm,
       tDesign,
       tTest,
       tMinCode: minShell,
@@ -239,6 +295,15 @@ export function computeTank(equip: Equipment): EquipmentCalc {
       material: equip.materialKey,
     });
     shellKg += Math.PI * Dm * (courseH / 1000) * (tMin / 1000) * 7850;
+  }
+  if (nonConverged.length > 0) {
+    warnings.push({
+      level: 'warning',
+      code: 'T650-11',
+      msg: `VDP design-point iteration did not converge in 5 passes for course(s) ${nonConverged
+        .map((i) => nCourses - i)
+        .join(', ')} (numbering from top) — thicknesses taken from the last iterate; verify`,
+    });
   }
 
   const bottomThkSel = Math.max(6, tank.bottomThk || 6);
@@ -388,6 +453,7 @@ export function computeTank(equip: Equipment): EquipmentCalc {
 
   const tankCalc: TankCalc = {
     shellCourses: courses,
+    shellMethod: useVdp ? 'vdp' : 'oneFoot',
     bottomThk,
     annularThk,
     roofThk,

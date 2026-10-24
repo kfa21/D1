@@ -185,15 +185,16 @@ export default function Reports() {
 
         {calc.tank && (
           <>
-            <h3>API 650 shell courses</h3>
+            <h3>API 650 shell courses — {calc.tank!.shellMethod === 'vdp' ? 'variable design point (§5.6.4)' : 'one-foot (§5.6.3)'}</h3>
             <table className="grid" style={{ marginBottom: 12 }}>
-              <thead><tr>                    <th>Course (from top)</th><th className="num">Height (mm)</th><th className="num">Design head (m)</th><th className="num">t design (mm)</th><th className="num">t test (mm)</th><th className="num">t nominal (mm)</th></tr></thead>
+              <thead><tr>                    <th>Course (from top)</th><th className="num">Height (mm)</th><th className="num">Design head (m)</th><th className="num">Design pt (mm)</th><th className="num">t design (mm)</th><th className="num">t test (mm)</th><th className="num">t nominal (mm)</th></tr></thead>
               <tbody>
                 {calc.tank.shellCourses.map((c) => (
                   <tr key={c.courseNo}>
                     <td className="num">{c.courseNo}</td>
                     <td className="num">{fmt(c.heightMm, 0)}</td>
                     <td className="num">{fmt(c.designHeadM, 2)}</td>
+                    <td className="num">{c.designPointMm !== undefined ? fmt(c.designPointMm, 0) : '—'}</td>
                     <td className="num calc">{fmt(c.tDesign, 2)}</td>
                     <td className="num">{fmt(c.tTest, 2)}</td>
                     <td className="num">{fmt(c.tNominal, 1)}</td>

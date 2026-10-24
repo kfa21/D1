@@ -541,12 +541,18 @@ export interface PwhtAdvice {
 }
 
 export interface TankCalc {
+  /** shell sizing method actually applied (§5.6.3 one-foot vs §5.6.4 VDP) */
+  shellMethod?: 'oneFoot' | 'vdp';
   shellCourses: {
     courseNo: number;
     heightMm: number;
     /** liquid head above the course BOTTOM (m) — the design datum for the
      *  one-foot (0.3 m above bottom) and variable-design-point evaluations */
     designHeadM: number;
+    /** stress evaluation point above the course bottom (mm): 300 for the
+     *  one-foot method, x for VDP upper courses; undefined for the VDP bottom
+     *  course (dedicated first-course equation) */
+    designPointMm?: number;
     tDesign: number;
     tTest: number;
     tMinCode: number;

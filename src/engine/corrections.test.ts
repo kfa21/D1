@@ -19,7 +19,7 @@ import {
 } from './tema';
 import { externalPressureCheck, externalRequiredThickness, zickHornStress, zickK3, zickK2, zickSaddle } from './asme';
 import { studCount } from './pipes';
-import { annularThicknessFromTable, computeTank, vdpFirstCourseThickness, vdpUpperCourseThickness } from './api650';
+import { annularThicknessFromTable, computeTank, iterateVdpCourse, vdpFirstCourseThickness, vdpUpperCourseThickness } from './api650';
 import { kelloggEquivPressureBar, neckStresses, screenNozzleLoad, wrcShellShear } from './wrc107';
 import { computeEquipment } from './compute';
 import { demoProject, newEquipment } from '../defaults';
@@ -419,10 +419,16 @@ describe('API 650 variable design point method (§5.6.4)', () => {
     // td = 0.97951 · 4.9·18·70·0.85/173 = 29.71 mm
     expect(courses[0].designHeadM).toBeCloseTo(18, 6);
     expect(courses[0].tDesign).toBeCloseTo(29.71, 1);
-    // thickness decreases with height and heads fall 2 m per course
+    expect(c.tank!.shellMethod).toBe('vdp');
+    // bottom course uses the special equation (no evaluation point); upper
+    // courses report their converged design point x above the course bottom
+    expect(courses[0].designPointMm).toBeUndefined();
     for (let i = 1; i < courses.length; i++) {
       expect(courses[i].tDesign, `course ${i}`).toBeLessThan(courses[i - 1].tDesign);
       expect(courses[i].designHeadM).toBeCloseTo(18 - i * 2, 6);
+      // x ≥ 0: equal-thickness courses give C = 0 → x = 0 (point at the girth)
+      expect(courses[i].designPointMm, `course ${i} point`).toBeGreaterThanOrEqual(0);
+      expect(courses[i].designPointMm!, `course ${i} point`).toBeLessThan(5000);
     }
     expect(checkWarningCodes(c.warnings).problems).toEqual([]);
   });
@@ -442,6 +448,37 @@ describe('API 650 variable design point method (§5.6.4)', () => {
     expect(courses[courses.length - 1].designHeadM).toBeCloseTo(2, 6);
     expect(courses[0].tDesign).toBeGreaterThan(courses[courses.length - 1].tDesign);
     expect(c.warnings.some((w) => w.code === 'T650-01')).toBe(false); // D ≤ 61 m → one-foot
+    expect(c.tank!.shellMethod).toBe('oneFoot');
+    // one-foot evaluates 0.3 m above every course bottom — surfaced per course
+    for (const course of courses) expect(course.designPointMm).toBe(300);
+  });
+
+  it('VDP course iteration converges, and the guard reports exhaustion', () => {
+    const base = {
+      Dm: 11.5,
+      headM: 9,
+      G: 1,
+      Sd: 156.667,
+      St: 176.25,
+      ca: 6,
+      RmMm: 5750,
+      trial0: 9.125, // one-foot trial
+      tLMm: 3.929, // course below, corroded
+      minShell: 5,
+    };
+    const it = iterateVdpCourse(base);
+    expect(it.converged).toBe(true);
+    expect(it.x).toBeGreaterThan(0);
+    // converged answer ≈ the direct design-point equation at the fixed point
+    const direct = vdpUpperCourseThickness({
+      Dm: base.Dm, headM: base.headM, G: base.G, Sd: base.Sd, St: base.St, ca: base.ca,
+      RmMm: base.RmMm, tuMm: it.tDesign - base.ca, tLMm: base.tLMm,
+    });
+    expect(Math.abs(it.tDesign - direct.td)).toBeLessThan(0.05);
+    // guard plumbing: a single pass from a far starting point cannot converge
+    const one = iterateVdpCourse({ ...base, trial0: 5 }, 1);
+    expect(one.converged).toBe(false);
+    expect(one.tDesign).toBeGreaterThan(5); // last iterate still usable
   });
 });
 
