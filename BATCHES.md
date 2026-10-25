@@ -26,7 +26,7 @@ This file is the single source of truth for incremental work on this project.
 - [x] **B4** UI surfacing: annular readout, nozzle local loads in Reports, AiReview prompt, loads-grid layout — `d708e7c`
 - [x] **B5** Code-split Viewer3D + three.js vendor chunk (clears >500 kB warning) — `364a3bb`
 - [x] **B6** WRC screening: pressure membrane × shell shear interaction — `b1418b6`
-- [x] **B7a** Shell-side rating + tube-vibration screening — ESDU 73031 ideal bank × Bell Jc/JL/JB/JR, Kern shell ΔP, fₙ/Connors/Strouhal/acoustic screen (`src/engine/shellside.ts`, warnings HX-12…HX-18) — see commit below
+- [x] **B7a** Shell-side rating + tube-vibration screening — ESDU 73031 ideal bank × Bell Jc/JL/JB/JR, Kern shell ΔP, fₙ/Connors/Strouhal/acoustic screen (`src/engine/shellside.ts`, warnings HX-12…HX-18) — `9aecbde`
 - [ ] **B7b** Full Delaware ΔP: ideal-bank j/f charts + Delaware ΔP correction charts (licensed/hand-read data — the remaining half of the original B7)
 - [ ] **B8** Saddle-stiffener ring inertia check (`I/c ≥ M/S`)
 
