@@ -238,6 +238,39 @@ export interface StructureRecommendation {
   enabled: boolean;
 }
 
+/**
+ * Shell-side process data for the Bell–Delaware rating and tube-vibration
+ * screening. Everything is optional so saved projects stay loadable; when it
+ * is absent the engine skips the shell-side calculation and says so.
+ * Units follow the internal convention: kg/s, kg/m³, cP, kJ/kg·K, W/m·K.
+ */
+export interface ShellSideFlow {
+  /** Shell-side mass flow (kg/s) */
+  massFlowKgS: number;
+  /** Shell-fluid density at bulk temperature (kg/m³) */
+  densityKgM3: number;
+  /** Shell-fluid dynamic viscosity at bulk temperature (cP) */
+  viscCp: number;
+  /** Shell-fluid specific heat (kJ/kg·K) */
+  cpKjKgK: number;
+  /** Shell-fluid thermal conductivity (W/m·K) */
+  condWmK: number;
+  /** Viscosity at wall temperature (cP, 0 => = bulk) */
+  viscWallCp?: number;
+  /** Speed of sound in the shell fluid (m/s, 0 => acoustic screening skipped) */
+  soundSpeedMs?: number;
+  /** Connors fluid-elastic instability constant (0 => 3.3, conservative screen) */
+  connorsK?: number;
+  /** Logarithmic decrement of the tube span (0 => 0.1) */
+  logDecrement?: number;
+  /** Strouhal number for vortex shedding (0 => 0.2, isolated-cylinder value) */
+  strouhal?: number;
+  /** Added-mass coefficient for the shell fluid (0 => 1.0) */
+  addedMassCoef?: number;
+  /** Tube Young's modulus (GPa, 0 => 193, typical steel) */
+  youngGPa?: number;
+}
+
 export interface HXSpec {
   temaType: string;
   /** Tube-to-tubesheet joint: expanded, strength welded, seal welded + expanded, fully welded */
@@ -276,6 +309,8 @@ export interface HXSpec {
   uOverall: number;
   tubeSideDP: number; // bar (0 => typical guidance only)
   baffleCount: number; // 0 => auto
+  /** Shell-side process data — drives the Bell–Delaware rating + vibration screen */
+  shellFlow?: ShellSideFlow;
 }
 
 export interface FinFanSpec {
@@ -580,6 +615,54 @@ export interface TankCalc {
   testPressureBar: number;
 }
 
+/** Tube-vibration screening result (per unsupported span between baffles). */
+export interface TubeVibCalc {
+  /** Unsupported span, baffle spacing (m) */
+  spanM: number;
+  /** Tube first natural frequency, pinned-pinned with added mass (Hz) */
+  naturalHz: number;
+  /** Maximum shell crossflow velocity (m/s) */
+  velocityMs: number;
+  /** Connors critical velocity (m/s) */
+  criticalMs: number;
+  /** V/Vcr fluid-elastic instability ratio (screen limit 0.8) */
+  feiRatio: number;
+  /** Vortex shedding frequency (Hz) */
+  shedHz: number;
+  /** Shedding / natural frequency ratio */
+  shedRatio: number;
+  /** Acoustic mode frequency (Hz), null when no speed of sound supplied */
+  acousticHz: number | null;
+  /** Acoustic Mach number, null when no speed of sound supplied */
+  mach: number | null;
+}
+
+/** Shell-side Bell–Delaware rating + Kern ΔP + vibration screening. */
+export interface ShellSideCalc {
+  reynolds: number;
+  prandtl: number;
+  /** Crossflow velocity at bundle face (m/s) */
+  crossVelocityMs: number;
+  /** Maximum velocity through the tube gap (m/s) */
+  maxVelocityMs: number;
+  /** Ideal-bank (ESDU 73031) film coefficient (W/m²K) */
+  hIdeal: number;
+  /** Bell-corrected shell-side film coefficient (W/m²K) */
+  hShell: number;
+  /** Bell correction factors */
+  jC: number;
+  jL: number;
+  jB: number;
+  jR: number;
+  /** Shell-side bundle ΔP (bar, Kern equivalent-diameter method) */
+  dPBar: number;
+  /** Bundle bypass flow fraction (shell-to-bundle gap / crossflow area) */
+  bypassFraction: number;
+  /** Ligament (crossflow tube fraction) correction input */
+  crossflowTubes: number;
+  vibration: TubeVibCalc | null;
+}
+
 export interface HXCalc {
   shellOD: number;
   shellID: number;
@@ -603,6 +686,8 @@ export interface HXCalc {
   saddleSpan: number;
   weightOperatingKg: number;
   nozzleOK: boolean;
+  /** Present when shell-side flow data was supplied */
+  shellSide?: ShellSideCalc;
 }
 
 export interface FinFanCalc {

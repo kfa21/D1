@@ -5,6 +5,7 @@
 import type { Equipment, EquipmentCalc, HXCalc, Warning } from './types';
 import { allowableAt, getMat } from './materials';
 import { computeVessel, zickSaddle } from './asme';
+import { shellSideRating } from './shellside';
 import { mpaToPsi } from './units';
 
 export const SHELL_ODS = [
@@ -242,6 +243,82 @@ export function computeHX(equip: Equipment): EquipmentCalc {
   const typicalTubeDP = 0.35; // bar guidance
   const typicalShellDP = 0.15 + rows * 0.03;
 
+  // Shell-side Bell–Delaware rating (ESDU ideal bank × Bell corrections),
+  // Kern bundle ΔP and tube-vibration screening. Runs only with flow data;
+  // without it the guidance-only values above stay in force (HX-05/HX-13).
+  const flow = hx.shellFlow;
+  const shellSide = flow
+    ? shellSideRating({
+        hx,
+        flow,
+        shellID,
+        bundleOD: bundleDia,
+        baffleSpacing: spacing,
+        baffleCount,
+        tubeCount: n,
+        tubeDensityKgM3: tubeMat.density,
+      })
+    : null;
+  if (!flow) {
+    warnings.push({
+      level: 'info',
+      code: 'HX-13',
+      msg: 'No shell-side flow data entered — Bell–Delaware film coefficient, shell ΔP and tube-vibration screening are skipped (add mass flow, density, viscosity, cp and conductivity in the exchanger editor)',
+    });
+  } else if (!shellSide) {
+    warnings.push({
+      level: 'info',
+      code: 'HX-13',
+      msg: 'Shell-side flow data incomplete or non-physical — Bell–Delaware rating and vibration screening skipped',
+    });
+  }
+  if (shellSide) {
+    const ss = shellSide;
+    if (ss.flags.uOverFilm) {
+      warnings.push({
+        level: 'warning',
+        code: 'HX-12',
+        msg: `Design U = ${U} W/m²K exceeds the computed shell-side film coefficient h = ${ss.hShell.toFixed(0)} W/m²K (ESDU/Bell–Delaware) — the shell side alone cannot support that duty; re-check U, baffle spacing or duty`,
+      });
+    }
+    if (ss.flags.pitchOutOfRange) {
+      warnings.push({
+        level: 'info',
+        code: 'HX-17',
+        msg: `Pitch/OD ratio ${(pitch / hx.tubeOD).toFixed(2)} is outside the ESDU 73031 validity band (1.2–4 in-line, 1–4 staggered) — extrapolating the ideal-bank correlation`,
+      });
+    }
+    if (ss.flags.bypassHigh) {
+      warnings.push({
+        level: 'info',
+        code: 'HX-18',
+        msg: `Bundle bypass fraction ${ss.bypassFraction.toFixed(2)} > 0.15 (shell-to-bundle gap) — seal strips would raise the shell-side coefficient; this rating assumes none are fitted`,
+      });
+    }
+    const vib = ss.vibration;
+    if (vib && ss.flags.feiHigh) {
+      warnings.push({
+        level: 'warning',
+        code: 'HX-14',
+        msg: `Fluid-elastic instability ratio V/Vcr = ${vib.feiRatio.toFixed(2)} > 0.80 (HTRI guidance) at fn = ${vib.naturalHz.toFixed(1)} Hz, V = ${vib.velocityMs.toFixed(2)} m/s, Vcr = ${vib.criticalMs.toFixed(2)} m/s — shorten the span, change baffle spacing or re-rate`,
+      });
+    }
+    if (vib && ss.flags.shedResonant) {
+      warnings.push({
+        level: 'warning',
+        code: 'HX-15',
+        msg: `Vortex shedding ${vib.shedHz.toFixed(1)} Hz is within 10% of the tube natural frequency ${vib.naturalHz.toFixed(1)} Hz (ratio ${vib.shedRatio.toFixed(2)}) — resonance screening / response analysis advised (HTRI identifies fn match as maximum displacement)`,
+      });
+    }
+    if (vib && ss.flags.acousticResonant) {
+      warnings.push({
+        level: 'warning',
+        code: 'HX-16',
+        msg: `Shell acoustic mode ${(vib.acousticHz ?? 0).toFixed(1)} Hz is within 20% of the shedding frequency ${vib.shedHz.toFixed(1)} Hz (Mach ${vib.mach?.toFixed(3)}) — acoustic resonance screening advised; acoustic prediction is inherently imprecise`,
+      });
+    }
+  }
+
   // Expansion joint advisory (fixed TS + differential ΔT)
   const dTshell = (hx.tShellIn + hx.tShellOut) / 2;
   const dTtube = (hx.tTubeIn + hx.tTubeOut) / 2;
@@ -309,8 +386,9 @@ export function computeHX(equip: Equipment): EquipmentCalc {
     bundleWeightKg: bundleWeight,
     tubeWeightKg: tubeWeight,
     tubeSideDP: hx.tubeSideDP > 0 ? hx.tubeSideDP : typicalTubeDP,
-    shellSideDP: typicalShellDP,
+    shellSideDP: shellSide ? shellSide.dPBar : typicalShellDP,
     tubeSideVelocity: 0,
+    shellSide: shellSide ?? undefined,
     lmtd: lmtd * F,
     requiredArea: Areq,
     providedArea: n * perTubeArea,
@@ -341,7 +419,13 @@ export function computeHX(equip: Equipment): EquipmentCalc {
   if (expansionJointSuggested) {
     warnings.push({ level: 'info', code: 'HX-04', msg: `Differential expansion ≈ ${dL.toFixed(1)} mm — expansion joint or floating head advised (fixed tubesheet)` });
   }
-  warnings.push({ level: 'info', code: 'HX-05', msg: 'Pressure drops shown are typical guidance only — recheck with process flow data (TEMA RCB pressure-loss methods / Bell–Delaware)' });
+  warnings.push({
+    level: 'info',
+    code: 'HX-05',
+    msg: shellSide
+      ? `Shell ΔP ${shellSide.dPBar.toFixed(3)} bar from Kern's equivalent-diameter method (ESDU ideal bank + Bell corrections, no Delaware ΔP charts) — confirm with a licensed rating before specifying`
+      : 'Pressure drops shown are typical guidance only — recheck with process flow data (TEMA RCB pressure-loss methods / Bell–Delaware)',
+  });
 
   return {
     ...base,

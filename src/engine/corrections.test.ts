@@ -21,6 +21,7 @@ import { externalPressureCheck, externalRequiredThickness, zickHornStress, zickK
 import { studCount } from './pipes';
 import { annularThicknessFromTable, computeTank, iterateVdpCourse, vdpFirstCourseThickness, vdpUpperCourseThickness } from './api650';
 import { kelloggEquivPressureBar, neckStresses, screenNozzleLoad, wrcShellShear } from './wrc107';
+import { bellJB, bellJC, bellJL, esduNusselt, kernFriction, tubeVibration } from './shellside';
 import { computeEquipment } from './compute';
 import { demoProject, newEquipment } from '../defaults';
 import { checkWarningCodes } from './warnings';
@@ -715,6 +716,116 @@ describe('API 650 tank anchors (shared bolt-group sizing)', () => {
     expect(b.reqArea).toBeGreaterThan(30000);
     expect(c.warnings.some((w) => w.code === 'AB-01' && w.level === 'warning')).toBe(true);
     expect(c.warnings.some((w) => w.code === 'T650-03' && w.level === 'info')).toBe(true);
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+  });
+});
+
+describe('Shell-side Bell–Delaware rating & tube-vibration screening (Batch 7a)', () => {
+  it('ESDU 73031 ideal-bank Nusselt reproduces the published worked example', () => {
+    // ht docstring: Nu_ESDU_73031(Re=1.32e4, Pr=0.71, rows=8, sL=0.09, sT=0.05)
+    //   = 98.2563319140594 (staggered bank, no wall-property correction)
+    const nu = esduNusselt(1.32e4, 0.71, 8, true);
+    expect(nu).toBeCloseTo(98.2563319140594, 3);
+  });
+
+  it('ESDU row correction saturates at 10 rows and rises monotonically', () => {
+    const at4 = esduNusselt(1e4, 1, 4, true);
+    const at9 = esduNusselt(1e4, 1, 9, true);
+    const at12 = esduNusselt(1e4, 1, 12, true);
+    expect(at4).toBeLessThan(at9);
+    expect(at9).toBeLessThan(at12);
+    expect(at12).toBeCloseTo(esduNusselt(1e4, 1, 999, true), 6); // F2 = 1 for ≥10 rows
+  });
+
+  it('Bell/HEDH correction fits reproduce their published worked examples', () => {
+    expect(bellJC(0.82)).toBeCloseTo(0.55 + 0.72 * 0.82, 12); // HEDH linear fit
+    // ht: baffle_leakage_Bell(1, 3, 8, 'HEDH') = 0.5530236260777
+    //   rs = 1/4, rlm = 4/8 → 0.44·0.75 + 0.67·exp(−1.1)
+    expect(bellJL(0.25, 0.5)).toBeCloseTo(0.5530236260777, 9);
+    expect(bellJB(0.5, 0)).toBeCloseTo(Math.exp(-0.625), 12); // no seal strips
+    expect(bellJB(0.5, 1)).toBe(1); // fully sealed gap caps the bypass penalty
+  });
+
+  it('Kern friction chart + ΔP matches ht worked example within chart accuracy', () => {
+    // ht dP_Kern(m=11, rho=995, mu=0.000803, Ds=0.584, B=0.1524, p=0.0254,
+    //            Do=0.019, Nb=22) = 18980.58768759033 Pa (their digitised chart)
+    const m = 11;
+    const rho = 995;
+    const mu = 0.000803;
+    const ds = 0.584;
+    const b = 0.1524;
+    const pitch = 0.0254;
+    const doo = 0.019;
+    const nb = 22;
+    const ss = (ds * (pitch - doo) * b) / pitch;
+    const de = (4 * (pitch * pitch - (Math.PI * doo * doo) / 4)) / (Math.PI * doo);
+    const vs = m / ss / rho;
+    const re = (rho * de * vs) / mu;
+    expect(re).toBeCloseTo(14803, -2);
+    const dP = (kernFriction(re) * (vs * rho) ** 2 * ds * (nb + 1)) / (2 * rho * de);
+    const rel = dP / 18980.58768759033 - 1;
+    expect(Math.abs(rel)).toBeLessThan(0.03);
+  });
+
+  it('vibration screen: beam frequency, Connors Vcr and shedding on a fixture span', () => {
+    const v = tubeVibration({
+      spanM: 0.25,
+      doM: 0.019,
+      diM: 0.0157,
+      tubeDensityKgM3: 7900,
+      shellDensity: 900,
+      velocityMs: 1,
+      acousticPathM: 0.5,
+      flow: { massFlowKgS: 1, densityKgM3: 900, viscCp: 1, cpKjKgK: 2, condWmK: 0.15, soundSpeedMs: 1400 },
+    });
+    expect(v).toBeTruthy();
+    expect(v!.naturalHz).toBeGreaterThan(500);
+    expect(v!.naturalHz).toBeLessThan(800);
+    // Vcr = K·fn·sqrt(μeff·δ/ρ) — a heavily sub-critical approach at 1 m/s
+    expect(v!.criticalMs).toBeGreaterThan(10);
+    expect(v!.feiRatio).toBeLessThan(0.1);
+    // St = 0.2 → fv = 0.2·V/D = 10.5 Hz, far below fn for this span
+    expect(v!.shedHz).toBeCloseTo((0.2 * 1) / 0.019, 6);
+    expect(v!.shedRatio).toBeLessThan(0.1);
+    expect(v!.acousticHz).toBeCloseTo(1400 / (2 * 0.5), 6); // half-wave across 0.5 m
+    expect(v!.mach).toBeCloseTo(1 / 1400, 6);
+  });
+
+  it('acoustic check stays silent without a speed of sound', () => {
+    const v = tubeVibration({
+      spanM: 0.3,
+      doM: 0.019,
+      diM: 0.0157,
+      tubeDensityKgM3: 7900,
+      shellDensity: 900,
+      velocityMs: 1,
+      acousticPathM: 0.5,
+      flow: { massFlowKgS: 1, densityKgM3: 900, viscCp: 1, cpKjKgK: 2, condWmK: 0.15 },
+    });
+    expect(v!.acousticHz).toBeNull();
+    expect(v!.mach).toBeNull();
+  });
+
+  it('end-to-end: demo exchanger carries a Bell rating, ΔP and vibration block', () => {
+    const eq = demoProject().find((e) => e.equipType === 'hx');
+    expect(eq).toBeTruthy();
+    const c = computeEquipment(eq!);
+    const ss = c.hx?.shellSide;
+    expect(ss).toBeTruthy();
+    expect(ss!.hShell).toBeGreaterThan(0);
+    expect(ss!.hShell).toBeLessThan(ss!.hIdeal * 1.2); // Jc ≤ ~1.15, all other J ≤ 1
+    expect(ss!.jC).toBeGreaterThan(0);
+    expect(ss!.dPBar).toBeGreaterThan(0);
+    expect(ss!.vibration!.naturalHz).toBeGreaterThan(0);
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+  });
+
+  it('without shell flow data the screen is skipped and HX-13 says why', () => {
+    const eq = demoProject().find((e) => e.equipType === 'hx')!;
+    delete (eq.hx as { shellFlow?: unknown }).shellFlow;
+    const c = computeEquipment(eq);
+    expect(c.hx?.shellSide).toBeUndefined();
+    expect(c.warnings.some((w) => w.code === 'HX-13' && w.level === 'info')).toBe(true);
     expect(checkWarningCodes(c.warnings).problems).toEqual([]);
   });
 });

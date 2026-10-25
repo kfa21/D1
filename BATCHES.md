@@ -26,7 +26,8 @@ This file is the single source of truth for incremental work on this project.
 - [x] **B4** UI surfacing: annular readout, nozzle local loads in Reports, AiReview prompt, loads-grid layout — `d708e7c`
 - [x] **B5** Code-split Viewer3D + three.js vendor chunk (clears >500 kB warning) — `364a3bb`
 - [x] **B6** WRC screening: pressure membrane × shell shear interaction — `b1418b6`
-- [ ] **B7** Bell–Delaware shell-side ΔP/U + tube-vibration screening *(see "B7 research notes" below)*
+- [x] **B7a** Shell-side rating + tube-vibration screening — ESDU 73031 ideal bank × Bell Jc/JL/JB/JR, Kern shell ΔP, fₙ/Connors/Strouhal/acoustic screen (`src/engine/shellside.ts`, warnings HX-12…HX-18) — see commit below
+- [ ] **B7b** Full Delaware ΔP: ideal-bank j/f charts + Delaware ΔP correction charts (licensed/hand-read data — the remaining half of the original B7)
 - [ ] **B8** Saddle-stiffener ring inertia check (`I/c ≥ M/S`)
 
 ## Phase B — Features
@@ -55,7 +56,7 @@ This file is the single source of truth for incremental work on this project.
 
 ---
 
-## B7 research notes (Bell–Delaware) — already gathered
+## B7 research notes (Bell–Delaware) — used in B7a, source material for B7b
 
 Verified and safe to implement:
 
@@ -66,7 +67,29 @@ Verified and safe to implement:
 
 **Honesty constraint**: the original 1963/64 Bell–Delaware ideal-bank `j`/`f` charts are *not* reproduced. Ship it as **"ESDU ideal bank + Bell–Delaware correction structure"** and label it that way in the code, in `README.md`, and in the on-screen caveat.
 
-Code landing zone: `src/engine/tema.ts` (`computeHX`) — add a new `src/engine/shellside.ts` rather than bloating `tema.ts`.
+Code landing zone: `src/engine/shellside.ts` (called from `computeHX` in `tema.ts`); `tema.ts` holds the geometry.
+
+### What B7a actually shipped (so B7b does not redo it)
+
+- **Heat transfer**: `esduNusselt()` — ESDU 73031 (a/m tables, Pr^0.34, F2 row table,
+  F1 wall correction (Pr/Prw)^0.26), × `bellJC` (HEDH fit 0.55+0.72·Fc), `bellJL`
+  (HEDH fit), `bellJB` (HEDH fit, no seal strips credited ⇒ conservative),
+  `bellJR` (20 < Re < 100 band), Js = 1. Golden-tested against ht's published
+  worked example: Nu(Re=1.32e4, Pr=0.71, 8 rows) = 98.2563319140594.
+- **ΔP**: Kern equivalent-diameter method using `kernFriction()` — the Kern chart
+  digitised as a cubic B-spline by `ht` (MIT, Caleb Bell), de Boor ported.
+  **Known deviation:** reproduces ht's own worked example to ~2.9 % (19 521 vs
+  18 981 Pa) because the knot-padding convention of `implementation_optimize_tck`
+  could not be recovered; the chart itself is read to ±10 %. B7b should settle this
+  (either recover the convention from ht's source, or licence the Delaware charts).
+- **Vibration**: pinned-pinned `fn = (π/2L²)·√(EI/μeff)` with added mass
+  `C_a·ρ·πD²/4`; Connors `Vcr = K·fn·√(μeff·δ/ρ)`, K = 3.3, δ = 0.1, St = 0.2
+  (all three overridable in `ShellSideFlow`); Strouhal shedding; half-wave
+  acoustic mode across the shell diameter. Screens: V/Vcr > 0.8 (HTRI guidance),
+  shedding within 10 % of fn, acoustic mode within 20 % of shedding.
+- **Not implemented on purpose**: seal-strip credit, Delaware ΔP correction
+  factors, tube-side fluid mass in μeff, a liquid crossflow velocity cap (no
+  verified public source for one — do not invent one in B7b).
 
 ---
 

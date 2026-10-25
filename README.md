@@ -14,7 +14,7 @@
 |---|---|---|
 | **Vessels & columns** | ASME VIII-1 — UG-16/27/28/32/37/45/47/99, UCS-56, UW-12 | Shell & head thickness, MAWP, external pressure (UG-28), nozzle reinforcement (UG-37), UG-45 neck minimums, anchor bolts, PWHT advisories, clad/lining, hydrotest |
 | **Storage tanks** | API 650 | One-foot method shell courses, minimums, cone/dome & floating roofs with seals, wind-girder advisory, anchor chairs |
-| **Shell & tube exchangers** | TEMA RCB + ASME | Tube count & bundle layout, tubesheet thickness (RCB-7.131/7.132), LMTD + 1-2 correction factor, expansion-joint advisory, tube-to-tubesheet joints, tubesheet cladding |
+| **Shell & tube exchangers** | TEMA RCB + ASME | Tube count & bundle layout, tubesheet thickness (RCB-7.131/7.132), LMTD + 1-2 correction factor, expansion-joint advisory, tube-to-tubesheet joints, tubesheet cladding, **shell-side Bell–Delaware rating (ESDU ideal bank × Jc/JL/JB/JR), Kern shell ΔP and tube-vibration screening (fₙ, Connors, Strouhal, acoustics)** |
 | **Air coolers** | API 661 + ASME | Bay/bundle geometry, finned area, air flow & ΔP, fan BHP, thermal duty check |
 
 Beyond sizing, every tag flows through a full **fabrication & cost model**:
@@ -75,7 +75,7 @@ src/
 
 - Full curve-based WRC 107/537 shell local stresses (the **screening** is implemented — WRC 107 shell-shear equations, nominal neck stresses, Kellogg equivalent pressure into the flange check; the response curves/precision equations are licensed bulletin data)
 - Saddle-stiffener **ring inertia** requirement (the Zick horn, shear and longitudinal cases plus a wear-plate advisory are implemented)
-- Bell–Delaware shell-side ΔP/U and tube-vibration screening for exchangers
+- Shell-side rating is **ESDU 73031 ideal bank + the Bell–Delaware correction structure**, and ΔP is **Kern's equivalent-diameter method** — the Delaware ideal-bank j/f charts and the Delaware ΔP correction charts are licensed/hand-read data and are deliberately not reproduced. Extend to the full Delaware j/f + ΔP charts if you can licence them.
 - PDF datasheet/BOQ export, imperial unit mode, ASME VIII-2 Part 5 toggle
 
 > The nozzle-reinforcement (UG-37/UG-45), saddle (Zick horn/shear/longitudinal), anchor-bolt (wind/seismic), nozzle local-load (WRC 107 screening at 1.5·S) and API 650 (variable design point §5.6.4, annular plates Table 5-1a) checks are **preliminary** engineering estimates built on published formulas with interpolated/tabulated coefficients. They are indicative starting points — verify the full method against the licensed code edition (ASME VIII-1/VIII-2 Annex G, ASCE 7, API 650 with addenda) before fabrication.

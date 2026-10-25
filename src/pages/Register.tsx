@@ -735,8 +735,30 @@ function SupportEditor({ equip }: { equip: Equipment }) {
   );
 }
 
-import { HXSpec, TankSpec, FinFanSpec } from '../engine/types';
+import { HXSpec, TankSpec, FinFanSpec, ShellSideFlow } from '../engine/types';
 import { SHELL_ODS } from '../engine/tema';
+
+const EMPTY_SHELL_FLOW: ShellSideFlow = {
+  massFlowKgS: 0,
+  densityKgM3: 0,
+  viscCp: 0,
+  cpKjKgK: 0,
+  condWmK: 0,
+};
+
+/** Shell-side flow inputs: [field, label, step]. */
+const SHELL_FLOW_FIELDS: [keyof ShellSideFlow, string, string][] = [
+  ['massFlowKgS', 'Shell mass flow (kg/s)', '0.1'],
+  ['densityKgM3', 'Shell fluid density (kg/m³)', '1'],
+  ['viscCp', 'Shell fluid viscosity (cP)', '0.01'],
+  ['viscWallCp', 'Wall viscosity (cP, 0 = bulk)', '0.01'],
+  ['cpKjKgK', 'Shell fluid cp (kJ/kg·K)', '0.01'],
+  ['condWmK', 'Shell fluid conductivity (W/m·K)', '0.01'],
+  ['soundSpeedMs', 'Speed of sound (m/s, 0 = no acoustic check)', '1'],
+  ['logDecrement', 'Log decrement δ (0 = 0.1)', '0.01'],
+  ['strouhal', 'Strouhal number (0 = 0.2)', '0.01'],
+  ['connorsK', 'Connors K (0 = 3.3)', '0.1'],
+];
 
 function HxEqEditor({ equip }: { equip: Equipment }) {
   const hx = equip.hx!;
@@ -816,6 +838,20 @@ function HxEqEditor({ equip }: { equip: Equipment }) {
         <label className="f"><span>Baffle material</span>
           <select value={hx.baffleMatKey} onChange={(e) => p({ baffleMatKey: e.target.value })}>{MATERIALS.map((m) => <option key={m.key} value={m.key}>{m.name}</option>)}</select>
         </label>
+        <p className="muted small" style={{ gridColumn: '1 / -1', margin: '10px 0 0' }}>
+          <strong>Shell-side flow — Bell–Delaware rating &amp; tube-vibration screen</strong> (enter process data to replace the guidance-only ΔP)
+        </p>
+        {SHELL_FLOW_FIELDS.map(([key, label, step]) => (
+          <label className="f" key={key}>
+            <span>{label}</span>
+            <input
+              type="number"
+              step={step}
+              value={(hx.shellFlow?.[key] as number | undefined) ?? 0}
+              onChange={(e) => p({ shellFlow: { ...(hx.shellFlow ?? EMPTY_SHELL_FLOW), [key]: +e.target.value } })}
+            />
+          </label>
+        ))}
       </div>
       <p className="muted small" style={{ marginTop: 8 }}>Available shell ODs (mm): {SHELL_ODS.join(', ')}</p>
     </div>

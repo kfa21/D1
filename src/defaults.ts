@@ -117,6 +117,17 @@ export function newEquipment(type: EquipType, srNo: number): Equipment {
             tTubeOut: 42,
             uOverall: 0,
             tubeSideDP: 0,
+            // Shell-side process data → Bell–Delaware rating + vibration screen.
+            // Sized to the demo duty: 1500 kW over a 20 °C oil-side range at cp 2.0.
+            shellFlow: {
+              massFlowKgS: 37.5,
+              densityKgM3: 860,
+              viscCp: 0.9,
+              cpKjKgK: 2.0,
+              condWmK: 0.14,
+              viscWallCp: 0,
+              soundSpeedMs: 1400,
+            },
             baffleCount: 0,
           },
         }

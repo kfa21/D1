@@ -77,6 +77,13 @@ export const WARNING_CATALOG: Record<string, WarningSpec> = {
   'HX-09': { level: 'info', note: 'Welded tube-to-tubesheet joints require PT/MT' },
   'HX-10': { level: 'warning', note: 'HX material is not a tube grade (form ≠ pipe) — re-select tube material' },
   'HX-11': { level: 'error', note: 'Temperature cross — LMTD correction factor F undefined for the arrangement' },
+  'HX-12': { level: 'warning', note: 'Design U above the computed shell-side film coefficient (ESDU/Bell)' },
+  'HX-13': { level: 'info', note: 'Shell-side flow data absent/incomplete — Bell–Delaware rating skipped' },
+  'HX-14': { level: 'warning', note: 'Fluid-elastic instability ratio V/Vcr above 0.8 (HTRI guidance)' },
+  'HX-15': { level: 'warning', note: 'Vortex shedding frequency within 10% of the tube natural frequency' },
+  'HX-16': { level: 'warning', note: 'Shell acoustic mode within 20% of the vortex shedding frequency' },
+  'HX-17': { level: 'info', note: 'Pitch/OD ratio outside the ESDU 73031 validity band' },
+  'HX-18': { level: 'info', note: 'Bundle bypass fraction above 0.15 — seal strips advised' },
   // Dispatcher (compute.ts)
   'SYS': { level: 'error', note: 'Calculation exception captured by dispatcher' },
 };

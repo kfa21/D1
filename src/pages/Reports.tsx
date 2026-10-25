@@ -235,6 +235,41 @@ export default function Reports() {
                 </tr>
               </tbody>
             </table>
+
+            {calc.hx.shellSide && (
+              <>
+                <h3>Shell side — Bell–Delaware rating &amp; vibration screen</h3>
+                <table className="grid" style={{ marginBottom: 12 }}>
+                  <thead><tr><th className="num">Re (shell)</th><th className="num">Pr</th><th className="num">h ideal (W/m²K)</th><th className="num">h shell (W/m²K)</th><th className="num">Jc · JL · JB · JR</th><th className="num">Crossflow V (m/s)</th><th className="num">Shell ΔP (bar)</th></tr></thead>
+                  <tbody>
+                    <tr>
+                      <td className="num">{fmt(calc.hx.shellSide.reynolds, 0)}</td>
+                      <td className="num">{fmt(calc.hx.shellSide.prandtl, 2)}</td>
+                      <td className="num">{fmt(calc.hx.shellSide.hIdeal, 0)}</td>
+                      <td className="num"><strong>{fmt(calc.hx.shellSide.hShell, 0)}</strong></td>
+                      <td className="num small">{fmt(calc.hx.shellSide.jC, 3)} · {fmt(calc.hx.shellSide.jL, 3)} · {fmt(calc.hx.shellSide.jB, 3)} · {fmt(calc.hx.shellSide.jR, 3)}</td>
+                      <td className="num">{fmt(calc.hx.shellSide.crossVelocityMs, 2)} / max {fmt(calc.hx.shellSide.maxVelocityMs, 2)}</td>
+                      <td className="num">{fmt(calc.hx.shellSide.dPBar, 3)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p className="small muted" style={{ marginTop: -6 }}>
+                  Basis: ESDU 73031 ideal tube bank × Bell correction structure (Jc/JL/JB/JR), shell ΔP by Kern's equivalent-diameter method — the Delaware ideal-bank j/f charts and ΔP correction charts are not reproduced. Verify against a licensed rating before specifying.
+                </p>
+                {calc.hx.shellSide.vibration && (
+                  <div className="kpi" style={{ marginTop: 8 }}>
+                    <span className="v">
+                      V/Vcr {fmt(calc.hx.shellSide.vibration.feiRatio, 2)} · fₙ {fmt(calc.hx.shellSide.vibration.naturalHz, 1)} Hz · shed {fmt(calc.hx.shellSide.vibration.shedHz, 1)} Hz{' '}
+                      {calc.hx.shellSide.vibration.feiRatio <= 0.8 ? <span className="badge ok">OK</span> : <span className="badge err">review</span>}
+                    </span>
+                    <span className="l">
+                      Connors screen at span {fmt(calc.hx.shellSide.vibration.spanM, 2)} m, Vcr {fmt(calc.hx.shellSide.vibration.criticalMs, 2)} m/s; shedding ratio f_v/fₙ = {fmt(calc.hx.shellSide.vibration.shedRatio, 2)}
+                      {calc.hx.shellSide.vibration.acousticHz !== null ? ` · acoustic mode ${fmt(calc.hx.shellSide.vibration.acousticHz, 1)} Hz (Mach ${fmt(calc.hx.shellSide.vibration.mach, 3)})` : ' · acoustic check needs a speed of sound'}
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
           </>
         )}
 
