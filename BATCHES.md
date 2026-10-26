@@ -27,14 +27,21 @@ This file is the single source of truth for incremental work on this project.
 - [x] **B5** Code-split Viewer3D + three.js vendor chunk (clears >500 kB warning) — `364a3bb`
 - [x] **B6** WRC screening: pressure membrane × shell shear interaction — `b1418b6`
 - [x] **B7a** Shell-side rating + tube-vibration screening — ESDU 73031 ideal bank × Bell Jc/JL/JB/JR, Kern shell ΔP, fₙ/Connors/Strouhal/acoustic screen (`src/engine/shellside.ts`, warnings HX-12…HX-18) — `9aecbde`
-- [ ] **B7b** Full Delaware ΔP: ideal-bank j/f charts + Delaware ΔP correction charts (licensed/hand-read data — the remaining half of the original B7)
-- [ ] **B8** Saddle-stiffener ring inertia check (`I/c ≥ M/S`)
+- [x] **B7b** Full Delaware ΔP: ideal-bank j/f + ΔP correction charts — **closed as unimplementable**: licensed chart data and ht's knot-padding convention unrecoverable; Kern ΔP (B7a) ships as the documented ~2.9 % approximation — `340a915`
+- [x] **B8** External-pressure stiffening-ring inertia (49 CFR 179.400-9: `W = 0.78√(Rt)`, `I`, `I′`, combined section) — `src/engine/rings.ts`, codes RG-01…03; saddle/Zick ring sizing still licensed (SD-06 stays advisory) — `340a915`
 
 ## Phase B — Features
 
-- [ ] **B9** PDF datasheet / BOQ export
-- [ ] **B10** Imperial unit mode (display/entry only; internal units stay mm/bar/°C/MPa)
-- [ ] **B11** ASME VIII-2 Part 5 design-by-analysis toggle (Design Margin screen)
+- [x] **B9** PDF datasheet / BOQ + plate-procurement export (jsPDF, lazy 388 kB chunk) — `340a915`
+- [x] **B10** Imperial unit mode — reporting only (engine stays SI; editor/entry untouched) — `340a915`
+- [x] **B11** ASME VIII-2 Part 5 design-by-analysis screen — limited to plainly-sourced primary limits (S = min(Su/2.4, Sy/1.5)); fatigue screening deliberately not implemented — `340a915`
+
+## Phase A2 — Action points requested in session (NDT / man-hours / click-to-fix)
+
+- [x] **A1** Remove the per-weld "NDT plan (per weld method)" editor from the Register — the plan stays engine-derived and is read-only on Inspection & ITP — `fbfd9d9`
+- [x] **A2** ITP stage phase boxes actually add/reduce hours: effective hours apportioned by ticked/default phases, per-row delta shown; default coverage still equals the engine hours exactly — `a2384ed`
+- [x] **A3** Settings documents every man-hour considered (25 basis entries with derivations) and accepts a manual input per item; the difference is booked as an explicit `Manual manhour adjustment` line — `8330eb3`
+- [x] **A4** Clickable errors/warnings — `fixes.ts` maps every catalog code to tab + field + correction hint; clicking jumps to the Register, selects the tag, opens the tab, focuses/pulses the field and shows the hint below it (no-field codes show the hint inline) — `bebfa1a`
 
 ## Phase C — Known code-review defects (fix before/with the batch noted)
 
