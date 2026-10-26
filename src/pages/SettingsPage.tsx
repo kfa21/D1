@@ -1,7 +1,7 @@
 // Settings — project info, units, currency & FX, plate stock, rate card, Gemini key, data backup.
 
 import { useMemo } from 'react';
-import { useStore, setSettings, setState, money, defaultSettings } from '../store';
+import { useStore, setSettings, setState, money, defaultSettings, exportProjectJson, importProjectData } from '../store';
 import { CURRENCIES, CurrencyCode } from '../engine/currency';
 import type { PlateSize } from '../engine/plates';
 import { MATERIALS } from '../engine/materials';
@@ -31,9 +31,7 @@ export default function SettingsPage() {
   };
 
   const exportData = () => {
-    const { _datasheetData, ...rest } = useStoreSnapshot();
-    void _datasheetData;
-    const blob = new Blob([JSON.stringify(rest, null, 2)], { type: 'application/json' });
+    const blob = new Blob([exportProjectJson()], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'staticsuite_project.json';
@@ -45,7 +43,8 @@ export default function SettingsPage() {
     fr.onload = () => {
       try {
         const parsed = JSON.parse(String(fr.result));
-        setState({ equipment: parsed.equipment ?? [], settings: { ...s, ...(parsed.settings ?? {}) }, reviews: parsed.reviews ?? [], datasheets: parsed.datasheets ?? [] });
+        importProjectData(parsed);
+        alert('Project imported.\n\nNote: attached datasheet files are never stored in the export — re-attach them on the AI Review page.');
       } catch {
         alert('Invalid project file');
       }
@@ -190,6 +189,7 @@ export default function SettingsPage() {
       <div className="card">
         <h3>Data</h3>
         <p className="small muted">{equipment.length} tags stored in this browser ({(JSON.stringify(equipment).length / 1024).toFixed(0)} KB). Auto-saved on every change.</p>
+        <p className="muted small">The export contains project data only — the Gemini API key and attached datasheet files stay in this browser and are never written to the file. Imported legacy (USD-base) files are converted to the BHD base automatically.</p>
         <div className="row">
           <button onClick={exportData}>Export project JSON</button>
           <label className="btn" style={{ cursor: 'pointer' }}>
@@ -281,10 +281,4 @@ export default function SettingsPage() {
       </div>
     </div>
   );
-}
-
-function useStoreSnapshot() {
-  // avoid importing getStore name clash; simple local snapshot
-  const raw = localStorage.getItem('static-equip-suite-v1');
-  return raw ? JSON.parse(raw) : {};
 }

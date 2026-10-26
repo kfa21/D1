@@ -44,6 +44,11 @@ export interface AppState {
   selectedEquipId: string | null;
   reviews: ReviewNote[];
   datasheets: DatasheetRef[];
+  /**
+   * Attachment names whose file content is gone (payloads are memory-only, so
+   * every ref that outlives a reload/import is stale). Shown as a re-attach hint.
+   */
+  staleDatasheets: DatasheetRef[];
   /** base64 payloads kept in memory only (too large for localStorage) */
   _datasheetData: Record<string, string>;
 }
@@ -117,8 +122,20 @@ let state: AppState = {
   selectedEquipId: null,
   reviews: [],
   datasheets: [],
+  staleDatasheets: [],
   _datasheetData: {},
 };
+
+/** merge stale attachment lists, newest first, without duplicates */
+function mergeStale(...lists: DatasheetRef[][]): DatasheetRef[] {
+  const out: DatasheetRef[] = [];
+  for (const list of lists) {
+    for (const d of list) {
+      if (!out.some((x) => x.equipId === d.equipId && x.name === d.name)) out.push(d);
+    }
+  }
+  return out;
+}
 
 function load() {
   try {
@@ -129,6 +146,9 @@ function load() {
         ...state,
         ...parsed,
         settings: migrateToBhdBase({ ...defaultSettings, ...(parsed.settings ?? {}) }) as Settings,
+        // file payloads live only in memory: every saved ref is stale after a reload
+        datasheets: [],
+        staleDatasheets: mergeStale(parsed.staleDatasheets ?? [], parsed.datasheets ?? []),
         _datasheetData: {},
       };
     }
@@ -159,6 +179,60 @@ export function setState(patch: Partial<AppState> | ((s: AppState) => Partial<Ap
 
 export function setSettings(patch: Partial<Settings>) {
   setState((s) => ({ settings: { ...s.settings, ...patch } }));
+}
+
+/**
+ * Project file for download — excludes the Gemini API key (never ship a
+ * credential in a file that may be shared) and the in-memory file payloads
+ * (attachment names are kept so an import can prompt for a re-attach).
+ */
+export function exportProjectJson(): string {
+  const { _datasheetData, ...rest } = state;
+  void _datasheetData;
+  const { geminiKey, ...settings } = rest.settings;
+  void geminiKey;
+  return JSON.stringify({ ...rest, settings }, null, 2);
+}
+
+/** Restore a project file: legacy USD exports are migrated to the BHD base
+ *  (the old importer skipped this) and attachment payloads are dropped to the
+ *  stale list because they are never saved in the file. */
+/**
+ * Settings from an imported file, with legacy USD-base files converted to BHD
+ * (the old importer skipped migrateToBhdBase entirely). Migration runs on the
+ * incoming values alone so the current project's BHD rates are never scaled;
+ * the imported file then wins for every field it actually contains.
+ */
+function migrateImportedSettings(incoming: Partial<Settings>): Partial<Settings> {
+  const hasRates = incoming.rates != null;
+  const hasFx = incoming.fxRates != null;
+  // a file from before the BHD base has no rateBase at all → it is a USD file
+  const usdBase = 'rateBase' in incoming ? incoming.rateBase !== 'BHD' : Object.keys(incoming).length > 0;
+  if (!usdBase) {
+    const out: Partial<Settings> = { ...incoming };
+    if (hasRates) out.rates = { ...DEFAULT_RATES, ...incoming.rates };
+    return out;
+  }
+  const m = migrateToBhdBase({
+    ...incoming,
+    rateBase: 'USD',
+    rates: incoming.rates ?? ({} as RateCard),
+    fxRates: incoming.fxRates ?? {},
+  });
+  const out: Partial<Settings> = { ...incoming, rateBase: 'BHD' };
+  if (hasRates) out.rates = m.rates;
+  if (hasFx) out.fxRates = m.fxRates;
+  return out;
+}
+
+export function importProjectData(parsed: Partial<AppState>) {
+  setState({
+    equipment: parsed.equipment ?? [],
+    settings: { ...state.settings, ...migrateImportedSettings(parsed.settings ?? {}) } as Settings,
+    reviews: parsed.reviews ?? [],
+    datasheets: [],
+    staleDatasheets: mergeStale(state.staleDatasheets, parsed.datasheets ?? []),
+  });
 }
 
 function subscribe(l: () => void) {

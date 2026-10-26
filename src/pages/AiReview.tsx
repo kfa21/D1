@@ -29,6 +29,7 @@ export default function AiReview() {
   const selectedId = useStore((s) => s.selectedEquipId);
   const settings = useStore((s) => s.settings);
   const datasheets = useStore((s) => s.datasheets);
+  const staleDatasheets = useStore((s) => s.staleDatasheets);
   const reviews = useStore((s) => s.reviews);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -47,6 +48,7 @@ export default function AiReview() {
     getStore()._datasheetData[equip.id] = data;
     setState((s) => ({
       datasheets: [...s.datasheets.filter((d) => d.equipId !== equip.id), { equipId: equip.id, name: file.name, mime: file.type || 'application/octet-stream', size: file.size }],
+      staleDatasheets: s.staleDatasheets.filter((d) => d.equipId !== equip.id),
     }));
   };
 
@@ -187,6 +189,13 @@ export default function AiReview() {
           Attached: {datasheets.find((d) => d.equipId === equip.id)!.name} (
           {(datasheets.find((d) => d.equipId === equip.id)!.size / 1024).toFixed(0)} KB)
         </p>
+      )}
+
+      {equip && !datasheets.some((d) => d.equipId === equip.id) && staleDatasheets.some((d) => d.equipId === equip.id) && (
+        <div className="finding warning">
+          ⚠ “{staleDatasheets.find((d) => d.equipId === equip.id)!.name}” was attached earlier, but its file content is
+          not saved in this browser — it will be <strong>omitted</strong> from the review. Re-attach the file to include it.
+        </div>
       )}
 
       {review && (
