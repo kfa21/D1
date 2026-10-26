@@ -49,6 +49,12 @@ This file is the single source of truth for incremental work on this project.
 - [x] **A6** Supports placed where they attach — saddles symmetric about the **shell** centre (not the bottom-head tip) at the local course radius; legs/skirt hang below the datum to grade; lifting lugs follow the surface (on a drum: on the crown, spread along the axis); guy lines attach to the shell and to the deadman at grade — `82334bd`
 - [x] **A7** CAD export parity — OBJ and DXF build from the same layout: OBJ gains the bottom head and the cone transitions (multi-dia was loose floating cylinders) and uses the engine head depths; DXF draws full 180° head arcs, closes diameter steps with the cone flanks, and measures nozzle elevations from the bottom tangent like the viewer — `9e67b13`
 
+## Phase A4 — Estimate for management (requested in session)
+
+- [x] **A8** Estimate screen presentation + interactivity — `src/engine/estimateSummary.ts` (pure: cost groups, four-bucket split, markup ladder, top drivers, unit metrics; closure-tested against the real estimate) drives a document header, unit-ratio KPI row, stacked cost-structure bar, per-category table, markup build-up, sortable per-tag table with share bars, top-cost-drivers panel, "basis of estimate" rate-card reference, and a detail table with search/tag/group filters plus collapsible group-by buckets — `734635f`
+- [x] **A9** Cost-estimate PDF (jsPDF, on demand) — summary, cost structure, category, build-up, per-tag, drivers, rate-card basis, every detail line with repeating headers, caveat and sign-off block; built and asserted in `pdfexport.test.ts` — `8fd3997`
+- [x] **A10** Titled spreadsheet exports — `exportSheet()` (title block → headings → data → totals → notes, RFC-4180 quoting, `sheetMeta()` context) applied to all seven CSV exports: estimate, BOM, plate procurement, optimized procurement, calculation data, ITP and stage schedule — `4d63664`
+
 ## Phase C — Known code-review defects (fix before/with the batch noted)
 
 - [ ] **C1** Non-annular bottom plates: confirm the 6 mm floor is applied as `6 + CA` (corroded) and not nominal — *verify B2 landed correctly; fix if not.*

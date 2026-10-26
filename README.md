@@ -19,6 +19,7 @@
 
 Beyond sizing, every tag flows through a full **fabrication & cost model**:
 
+- **Management cost estimate** — headline KPIs and unit ratios (cost per kg of steel, per weld metre, hours per tag), a cost-structure bar with per-category shares, markup build-up, sortable per-tag breakdown with share bars, top cost drivers and a "basis of estimate" card quoting the rate card in force; exportable as a **PDF report** and as titled spreadsheets
 - **BOM / MTO** with market plate sizes, plate nesting and a procurement optimizer (cross-tag part merging, thickness harmonisation, wastage reporting)
 - **Man-hour estimation** with structured weld breakdowns — SAW vs SMAW fill models, GTAW roots, fit-up, rolling, forming, supports, NDT, PWHT, hydro, painting. Settings documents every man-hour considered (how its auto hours are derived) with a manual input per item.
 - **NDT planning** (MT/PT, UT, RT, PaUT/TOFD) derived from RT category, thickness and clad, plus ITP stage scheduling where ticking a phase box adds that stage's hours and unticking removes them
@@ -51,10 +52,10 @@ src/
 │   ├── materials.ts   # material DB: S(T) tables, P-No., PWHT rules, fillers
 │   ├── flange.ts      # B16.5 pressure-temperature ratings
 │   ├── bom.ts / plates.ts / optimize.ts   # BOM, plate nesting, procurement
-│   ├── estimate.ts    # cost & man-hour engine
+│   ├── estimate.ts / estimateSummary.ts   # cost & man-hour engine + roll-ups
 │   ├── pwht.ts / ndt.ts / itp.ts / supports.ts / layout3d.ts
 │   ├── warnings.ts    # warning-code catalog (registry-validated)
-│   └── *.test.ts      # 167 tests incl. hand-calculated golden values
+│   └── *.test.ts      # 177 tests incl. hand-calculated golden values
 ├── pages/             # Register, BomPage, EstimatePage, Inspection, Reports, Viewer3D, Settings, AiReview
 ├── store.ts           # tiny external store + localStorage persistence
 └── App.tsx            # shell & navigation
