@@ -364,13 +364,21 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
           </div>
         )}
 
-        {tab === 'general' && equip.orientation === 'vertical' && (equip.equipType === 'vessel' || equip.equipType === 'column') && (
+        {tab === 'general' && equip.orientation === 'vertical' && (equip.equipType === 'vessel' || equip.equipType === 'column' || equip.equipType === 'tank') && (
           <div style={{ marginTop: 14 }}>
             <h3>Design Loads — anchor-bolt overturning (wind / seismic)</h3>
             <div className="grid2">
-              <label className="f"><span>Wind pressure (kPa)</span>
-                <input type="number" step="0.05" value={equip.designLoads?.windPressureKpa ?? 0} onChange={(e) => update(equip.id, { designLoads: { ...(equip.designLoads ?? { windPressureKpa: 0, sds: 0, seismicR: 3, seismicIe: 1 }), windPressureKpa: +e.target.value } })} />
-              </label>
+              {equip.equipType === 'tank' ? (
+                <div className="small muted" style={{ gridColumn: 'span 2' }}>
+                  Wind pressure is entered on the Tank data tab — that single value drives both the
+                  wind-girder check and the anchor wind case (API 650 §5.11). Sds / R / Ie below feed
+                  the seismic anchor case; leave Sds at 0 for wind-only design.
+                </div>
+              ) : (
+                <label className="f"><span>Wind pressure (kPa)</span>
+                  <input type="number" step="0.05" value={equip.designLoads?.windPressureKpa ?? 0} onChange={(e) => update(equip.id, { designLoads: { ...(equip.designLoads ?? { windPressureKpa: 0, sds: 0, seismicR: 3, seismicIe: 1 }), windPressureKpa: +e.target.value } })} />
+                </label>
+              )}
               <label className="f"><span>Seismic Sds (g · 0 = none)</span>
                 <input type="number" step="0.05" value={equip.designLoads?.sds ?? 0} onChange={(e) => update(equip.id, { designLoads: { ...(equip.designLoads ?? { windPressureKpa: 0, sds: 0, seismicR: 3, seismicIe: 1 }), sds: +e.target.value } })} />
               </label>
