@@ -24,6 +24,8 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test # a green test suite gates the deploy (README)
       - run: npm run build # tsc --noEmit && vite build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
