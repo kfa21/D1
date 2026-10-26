@@ -11,6 +11,7 @@ import { computeEquipment } from '../engine/compute';
 import type { SectionCalc } from '../engine/types';
 import { fmt } from '../engine/units';
 import { exportOBJ } from '../cad';
+import { buildBodyLayout, locateNozzle, radialDirection } from '../engine/layout3d';
 
 function utilColor(u: number): THREE.Color {
   // green (low util) -> amber -> red (near/over limit)
@@ -116,13 +117,6 @@ export default function Viewer3D() {
     };
     const steel = (color = 0x556275) => new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0.35, side: THREE.DoubleSide });
 
-    const headDepth = (h: { type: string; tMinNominal: number }, R: number) => {
-      if (h.type === 'none') return 0;
-      if (h.type === 'hemi') return R; // full hemispherical depth = ID/2
-      if (h.type === 'ellip2') return R / 2; // 2:1 ellipsoidal depth = ID/4
-      if (h.type === 'toriD') return 0.152 * R * 2; // torispherical D: depth 0.304 × D (matches asme.ts)
-      return 0.1935 * R * 2 + h.tMinNominal; // torispherical F&D: depth 0.387 × D + head t
-    };
     /** Dome geometry pointing +Y, depth d on radius R (sphere-cap approximation). */
     const headGeo = (type: string, R: number, d: number) => {
       let geo: THREE.BufferGeometry;
@@ -137,71 +131,44 @@ export default function Viewer3D() {
       return geo;
     };
 
-    // ---------- pressure boundary: bottom head → sections → top head ----------
-    // Local Y runs continuously 0 (bottom tip) → totalLen (top tip); vessel datum (nozzle
-    // elevations) = local Y − bottomDepth, where bottomDepth is the bottom head depth.
-    interface SecSpan { y0: number; y1: number; R: number }
-    const spans: SecSpan[] = [];
+    // ---------- pressure boundary: bottom head → sections → cones → top head ----------
+    // All spans come from buildBodyLayout(), so the drawn geometry, the nozzle
+    // elevations, the support stations and the camera framing agree on one length.
     const sections: SectionCalc[] = calc.sections.length
       ? calc.sections
       : equip.sections.map((sp) => ({ spec: sp, utilization: 0, tNominal: 0 }) as SectionCalc);
-    const first = sections[0];
-    const bottomDepth = first?.headBot && first.headBot.type !== 'none' ? headDepth(first.headBot, first.spec.dia / 2) : 0;
-    const totalLen = sections.reduce((len, sc) => {
-      let add = sc.spec.ttLength;
-      const nx = sections[sections.indexOf(sc) + 1];
-      if (nx && sc.cone && Math.abs(sc.spec.dia / 2 - nx.spec.dia / 2) > 0.5) {
-        const half = (Math.max(3, sc.cone.theta / 2) * Math.PI) / 180;
-        add += Math.max(120, Math.abs(sc.spec.dia / 2 - nx.spec.dia / 2) / Math.tan(half));
-      }
-      if (sc.headTop && sc.headTop.type !== 'none') add += headDepth(sc.headTop, sc.spec.dia / 2);
-      return len + add;
-    }, bottomDepth);
-    let y = bottomDepth; // top of bottom head = start of first shell section
-    if (bottomDepth > 0 && first) {
+    const layout = buildBodyLayout(sections);
+    const bottomDepth = layout.bottomDepth;
+    const totalLen = layout.totalLen;
+
+    // bottom head: rim on the shell datum, apex on the ground (local Y 0 … bottomDepth)
+    if (bottomDepth > 0 && sections[0]) {
+      const first = sections[0];
       const R = first.spec.dia / 2;
       const head = new THREE.Mesh(headGeo(first.headBot!.type, R, bottomDepth), matFor(first.headBot!.utilization ?? 0));
-      head.rotation.x = Math.PI; // dome points down; spans localY 0 .. bottomDepth
-      head.position.y = 0;
+      head.rotation.x = Math.PI; // flip the cap so the apex points down
+      head.position.y = bottomDepth; // rim lands exactly on the shell start — no gap
       g.add(head);
     }
-    sections.forEach((sc, i) => {
-      const R = sc.spec.dia / 2;
-      const L = sc.spec.ttLength;
-      const u = sc.utilization ?? 0;
-      const shell = new THREE.Mesh(new THREE.CylinderGeometry(R, R, L, 64, 1, false), matFor(u)); // closed ends → no see-through gaps
-      shell.position.y = y + L / 2;
-      g.add(shell);
-      spans.push({ y0: y, y1: y + L, R });
-      y += L;
-
-      // cone transition to the next section — the cone belongs to the UPPER section
-      const next = sections[i + 1];
-      if (next) {
-        const Rn = next.spec.dia / 2;
-        const cone = next.cone;
-        const dR = R - Rn;
-        if (cone && Math.abs(dR) > 0.5) {
-          const half = (Math.max(3, cone.theta / 2) * Math.PI) / 180; // deg → rad
-          const hC = Math.max(120, Math.abs(dR) / Math.tan(half));
-          const coneMesh = new THREE.Mesh(
-            new THREE.CylinderGeometry(Math.min(R, Rn), Math.max(R, Rn), hC, 64, 1, false),
-            matFor(next.utilization ?? u)
-          );
-          coneMesh.position.y = y + hC / 2;
-          g.add(coneMesh);
-          y += hC;
-        }
-      }
+    // shell courses and cone transitions, drawn as one continuous stack
+    layout.segments.forEach((seg) => {
+      const sc = sections[seg.sectionIndex];
+      const h = seg.y1 - seg.y0;
+      const mesh = new THREE.Mesh(
+        // radiusTop = r1 (upper end) so a reducing cone narrows upward, widening otherwise
+        new THREE.CylinderGeometry(seg.r1, seg.r0, h, 64, 1, false),
+        matFor(sc?.utilization ?? 0)
+      );
+      mesh.position.y = (seg.y0 + seg.y1) / 2;
+      g.add(mesh);
     });
-    // top head on the last section
+    // top head sits on the top of the stack
     const last = sections[sections.length - 1];
     const ht = last?.headTop;
     if (ht && ht.type !== 'none' && last) {
       const R = last.spec.dia / 2;
-      const d = headDepth(ht, R);
-      const head = new THREE.Mesh(headGeo(ht.type, R, d), matFor(ht.utilization ?? 0));
-      head.position.y = y; // spans localY y .. y + d (never below the datum line)
+      const head = new THREE.Mesh(headGeo(ht.type, R, layout.topHeadDepth), matFor(ht.utilization ?? 0));
+      head.position.y = layout.stackTop;
       g.add(head);
     }
 
@@ -285,12 +252,13 @@ export default function Viewer3D() {
 
     // ---------- nozzles (radial, by elevation & azimuth) ----------
     if (showNozzles) {
-      for (const n of calc.nozzles) {          const span = spans.find((sp) => bottomDepth + n.spec.elevation >= sp.y0 && bottomDepth + n.spec.elevation <= sp.y1) ?? spans[0];
-          if (!span) continue;
-          const R = span.R;
-          const yNoz = Math.max(span.y0, Math.min(span.y1, bottomDepth + n.spec.elevation));
-        const az = (n.spec.azimuth * Math.PI) / 180;
-        const dirV = new THREE.Vector3(Math.sin(az), 0, Math.cos(az)); // clockwise from north (+Z)
+      for (const n of calc.nozzles) {
+        const place = locateNozzle(layout, n.spec.elevation);
+        if (!place) continue;
+        const R = place.r;
+        const yNoz = place.y;
+        const [dxv, dyv, dzv] = radialDirection(n.spec.azimuth, vertical);
+        const dirV = new THREE.Vector3(dxv, dyv, dzv);
         const outer = n.spec.dn + 2 * (n.wall ?? 8);
         const len = Math.max(60, n.spec.projOutside);
         const nozzleMat = new THREE.MeshStandardMaterial({ color: n.reinforceOK ? 0x3fa9f5 : 0xe85c5c, roughness: 0.4, metalness: 0.6 });
