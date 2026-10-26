@@ -208,6 +208,12 @@ export interface TankSpec {
   seismic: boolean;
   shellAllowableOverride: number; // MPa, 0 = use API table
   stiffenerRings: boolean;
+  /** cone-roof plate slope expressed as 1:N rise:run (API 650 standard slope is 1:16) */
+  roofSlope?: '1:16' | '1:20' | 'custom';
+  /** run N when roofSlope === 'custom' (rise 1 : N) */
+  roofSlopeCustom?: number;
+  /** annular bottom-plate width measured from the shell, mm (§5.5.3 minimum 600) */
+  annularRingWidthMm?: number;
   maxDesignLiquidLevel: number; // mm, 0 = use TT height
   /** primary seal (internal / external floating roof) — API 650 §5.8.3 */
   primarySeal?: TankSealPrimary;
@@ -630,7 +636,11 @@ export interface TankCalc {
   }[];
   bottomThk: number;
   annularThk: number;
+  /** annular ring width actually used in the bottom weight, mm */
+  annularRingWidthMm: number;
   roofThk: number;
+  /** cone-roof slope run N (plate slope 1:N) used for the deck area factor */
+  roofSlopeRun: number;
   shellWeightKg: number;
   bottomWeightKg: number;
   roofWeightKg: number;

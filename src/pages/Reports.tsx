@@ -245,7 +245,7 @@ export default function Reports() {
                 ))}
               </tbody>
             </table>
-            <p className="small">Bottom plate {calc.tank.bottomThk} mm{calc.tank.annularThk > calc.tank.bottomThk ? ` (annular ${calc.tank.annularThk} mm)` : ''} · roof {calc.tank.roofThk} mm · volume {fmt(calc.tank.volumeM3, 0)} m³ · test water {fmt(calc.tank.hydroWaterKg / 1000, 0)} m³{calc.tank.windGirderRequired ? ' · wind girder recommended' : ''}</p>
+            <p className="small">Bottom plate {calc.tank.bottomThk} mm{calc.tank.annularThk > calc.tank.bottomThk ? ` (annular ${calc.tank.annularThk} mm)` : ''} · roof {calc.tank.roofThk} mm, slope 1:{calc.tank.roofSlopeRun} · volume {fmt(calc.tank.volumeM3, 0)} m³ · test water {fmt(calc.tank.hydroWaterKg / 1000, 0)} m³{calc.tank.windGirderRequired ? ' · wind girder recommended' : ''}</p>
           </>
         )}
 

@@ -70,6 +70,8 @@ export const WARNING_FIX: Record<string, FieldFix> = {
   'T650-09': { tab: 'type', field: 'tankAnnularBottom', suggest: 'Annular plate width should be ≥ 600 mm from the shell (§5.5.3): enable the annular bottom plate on the Tank data tab.' },
   'T650-10': { tab: 'type', field: 'tankBottomThk', suggest: 'Bottom plate below the 6 mm corroded minimum (§5.5.1): enter a larger Bottom t (0 = auto already applies 6 mm + CA).' },
   'T650-11': { tab: '', field: '', suggest: 'The variable-design-point iteration did not converge in 5 passes (very large tank): treat the reported course stresses as indicative and verify by hand, or reduce the design liquid level.' },
+  'T650-12': { tab: 'type', field: 'tankAnnularRingWidth', suggest: 'API 650 §5.5.3 needs the annular ring at least 600 mm wide from the shell before the first lap joint: raise the Annular ring width field on the Tank data tab to ≥ 600 mm (the ring mass and Table 5-1a area follow that width), or turn the annular bottom plate off if the bottom is uniform.' },
+  'T650-13': { tab: 'type', field: 'tankStiffenerRings', suggest: 'Informational: the tag declares stiffening rings / wind girders, so the girder check is satisfied by provision rather than by calculation — include the top and intermediate girders in the structural scope per API 650 §5.8.7 and untick the box if they are not being provided.' },
 
   // ---- nozzle local loads (WRC 107) ----
   'NL-01': { tab: '', field: '', suggest: 'Informational: reports the nozzle local-load utilisation from the entered piping loads (WRC 107 structure). No field to change.' },

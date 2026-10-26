@@ -19,7 +19,7 @@ import {
 } from './tema';
 import { externalPressureCheck, externalRequiredThickness, zickHornStress, zickK3, zickK2, zickSaddle } from './asme';
 import { studCount } from './pipes';
-import { annularThicknessFromTable, computeTank, iterateVdpCourse, vdpFirstCourseThickness, vdpUpperCourseThickness } from './api650';
+import { annularThicknessFromTable, coneRoofAreaFactor, computeTank, iterateVdpCourse, roofSlopeRun, vdpFirstCourseThickness, vdpUpperCourseThickness } from './api650';
 import { kelloggEquivPressureBar, neckStresses, screenNozzleLoad, wrcShellShear } from './wrc107';
 import { bellJB, bellJC, bellJL, esduNusselt, kernFriction, tubeVibration } from './shellside';
 import { combinedRingSection, effectiveShellWidth, requiredRingInertia, stiffenerRingCheck } from './rings';
@@ -997,5 +997,89 @@ describe('API 661 — site air density & fan block (data-entry batch)', () => {
     expect(c.faceVelMs).toBeGreaterThan(0);
     expect(Number.isFinite(c.thermalMarginPct)).toBe(true);
     expect(c.thermalOK).toBe(c.thermalMarginPct >= 0); // same comparison as the AF-03 check
+  });
+});
+
+describe('F3 — tank roof/bottom data-entry fields', () => {
+  it('cone-roof deck factor is derived from the entered 1:N slope (golden)', () => {
+    // slant √(1+(1/N)²) × 1.05 lap allowance: 1:16 → 1.05204878, 1:20 → 1.05131168
+    // (the old fixed 1.055 matched neither slope)
+    expect(coneRoofAreaFactor(16)).toBeCloseTo(1.05204878, 7);
+    expect(coneRoofAreaFactor(20)).toBeCloseTo(1.05131168, 7);
+    expect(coneRoofAreaFactor(16)).toBeGreaterThan(coneRoofAreaFactor(20)); // steeper = more plate
+  });
+
+  it('roofSlope defaults to 1:16 for legacy tags and honours the selector', () => {
+    const tk = newEquipment('tank', 15);
+    expect(roofSlopeRun(tk.tank!)).toBe(16); // saved projects predate the field
+    tk.tank!.roofSlope = '1:20';
+    expect(roofSlopeRun(tk.tank!)).toBe(20);
+    tk.tank!.roofSlope = 'custom';
+    tk.tank!.roofSlopeCustom = 12;
+    expect(roofSlopeRun(tk.tank!)).toBe(12);
+    tk.tank!.roofSlopeCustom = 0; // unusable custom run falls back to the standard slope
+    expect(roofSlopeRun(tk.tank!)).toBe(16);
+  });
+
+  it('roof weight follows the slope factor', () => {
+    const base = newEquipment('tank', 16);
+    const steep = { ...base, tank: { ...base.tank!, roofSlope: '1:16' as const } };
+    const shallow = { ...base, tank: { ...base.tank!, roofSlope: '1:20' as const } };
+    const wSteep = computeTank(steep).tank!.roofWeightKg;
+    const wShallow = computeTank(shallow).tank!.roofWeightKg;
+    expect(wSteep).toBeGreaterThan(wShallow);
+    expect(wSteep / wShallow).toBeCloseTo(coneRoofAreaFactor(16) / coneRoofAreaFactor(20), 10);
+  });
+
+  it('annular ring width drives the ring mass and warns below 600 mm (T650-12)', () => {
+    const fixture = (): Equipment => {
+      const tk = newEquipment('tank', 14);
+      tk.sections[0] = { ...tk.sections[0], dia: 45000, ttLength: 18000 };
+      tk.tank!.maxDesignLiquidLevel = 18000;
+      tk.tank!.specificGravity = 0.5;
+      tk.tank!.annularBottom = true;
+      tk.corrosionAllowance = 0;
+      tk.tank!.bottomThk = 0;
+      tk.materialKey = 'SA-516-70';
+      tk.externalPressure = 0;
+      return tk;
+    };
+    const fieldArea = (Math.PI / 4) * 45 * 45;
+    const ringArea = (wM: number) => (Math.PI / 4) * (45 * 45 - Math.pow(45 - (2 * wM) / 1000, 2)); // ring on both sides
+
+    const wide = fixture();
+    wide.tank!.annularRingWidthMm = 900;
+    const c900 = computeTank(wide);
+    // 6 mm field + 7 mm ring → 1 mm of ring steel over the entered width
+    expect(c900.tank!.bottomWeightKg).toBeCloseTo(((fieldArea * 6 + ringArea(900) * 1) * 7850) / 1000, -1);
+    expect(c900.warnings.some((w) => w.code === 'T650-09')).toBe(true);
+    expect(c900.warnings.some((w) => w.code === 'T650-12')).toBe(false);
+
+    const narrow = fixture();
+    narrow.tank!.annularRingWidthMm = 400;
+    const c400 = computeTank(narrow);
+    expect(c400.tank!.annularRingWidthMm).toBe(400);
+    expect(c400.tank!.bottomWeightKg).toBeLessThan(c900.tank!.bottomWeightKg); // less ring steel
+    expect(c400.warnings.some((w) => w.code === 'T650-12' && w.level === 'warning')).toBe(true);
+    expect(c400.warnings.some((w) => w.code === 'T650-09')).toBe(false);
+    expect(checkWarningCodes(c400.warnings).problems).toEqual([]);
+
+    const missing = fixture(); // no field at all → the §5.5.3 default applies
+    expect(computeTank(missing).tank!.annularRingWidthMm).toBe(600);
+  });
+
+  it('declared stiffener rings force the girder provision (T650-13, §5.8.7)', () => {
+    const off = newEquipment('tank', 17);
+    off.tank!.stiffenerRings = false;
+    const offC = computeTank(off);
+    expect(offC.warnings.some((w) => w.code === 'T650-13')).toBe(false);
+
+    const on = newEquipment('tank', 17);
+    on.tank!.stiffenerRings = true;
+    const c = computeTank(on);
+    expect(c.tank!.windGirderRequired).toBe(true); // provision, not calculation, satisfies the check
+    expect(c.warnings.some((w) => w.code === 'T650-13' && w.level === 'info')).toBe(true);
+    expect(c.warnings.some((w) => w.code === 'T650-02')).toBe(false); // no duplicate "recommended" advisory
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
   });
 });

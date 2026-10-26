@@ -4,7 +4,7 @@
 // SI form: t_d = 4.9·D·(H−0.3)·G/S_d + CA ; t_t = 4.9·D·(H−0.3)/S_t
 // (D, H in m; S in MPa; t in mm). Verify against the governing edition.
 
-import type { Equipment, EquipmentCalc, TankCalc, Warning } from './types';
+import type { Equipment, EquipmentCalc, TankCalc, TankSpec, Warning } from './types';
 import { allowableAt, getMat } from './materials';
 import { computeVessel, sizeAnchorBolts } from './asme';
 
@@ -323,6 +323,9 @@ export function computeTank(equip: Equipment): EquipmentCalc {
   // hydrostatic-test per table note b), floored at 6 mm and plus corrosion
   // allowance. 600 mm minimum annular width from the shell (§5.5.3) advised.
   let annularThk = bottomThk;
+  // §5.5.3 — annular ring width measured from the shell (tank field, 600 mm minimum)
+  const annularRingWidthMm = tank.annularRingWidthMm && tank.annularRingWidthMm > 0 ? tank.annularRingWidthMm : 600;
+  const annularRingW = annularRingWidthMm / 1000; // m
   if (tank.annularBottom && courses.length > 0) {
     const c1 = courses[0]; // bottom course
     const t1Corr = Math.max(0.1, c1.tNominal - ca);
@@ -341,26 +344,34 @@ export function computeTank(equip: Equipment): EquipmentCalc {
         msg: `Annular plate ${bottomThkSel} mm < required ${tb.toFixed(1)} mm — Table 5-1a (t₁ corr. ${t1Corr.toFixed(1)} mm, σ = ${Math.max(sProd, sHyd).toFixed(0)} MPa → ${tbTable} mm) + ${ca} mm CA`,
       });
     }
-    warnings.push({
-      level: 'info',
-      code: 'T650-09',
-      msg: 'Annular plate — keep ≥ 600 mm clear of the shell before the first lap joint in the bottom (API 650 §5.5.3)',
-    });
+    if (annularRingWidthMm < 600 - 1e-9) {
+      warnings.push({
+        level: 'warning',
+        code: 'T650-12',
+        msg: `Annular ring width ${annularRingWidthMm} mm < the 600 mm minimum from the shell (API 650 §5.5.3) — widen the ring or disable the annular bottom plate`,
+      });
+    } else {
+      warnings.push({
+        level: 'info',
+        code: 'T650-09',
+        msg: `Annular plate — keep the ${annularRingWidthMm} mm ring ≥ 600 mm clear of the shell before the first lap joint in the bottom (API 650 §5.5.3)`,
+      });
+    }
     annularThk = Math.max(bottomThk, tb);
   }
   const roofThk = Math.max(5, tank.roofThk || 5);
   const bottomArea = (Math.PI / 4) * Dm * Dm;
   // Bottom plates: field area at the (inner) bottom thickness, plus the annular
-  // RING — 600 mm wide per §5.5.3 — at its own Table 5-1a thickness. The old
-  // code charged the whole floor at bottomThk with an unverified ×1.02 fudge.
-  const annularRingW = 0.6; // m, annular plate width from the shell
+  // RING — its width is a tank field (default 600 mm, the §5.5.3 minimum) — at
+  // its own Table 5-1a thickness. The old code charged the whole floor at
+  // bottomThk with an unverified ×1.02 fudge.
   const ringArea = tank.annularBottom && Dm > 2 * annularRingW
     ? (Math.PI / 4) * (Dm * Dm - Math.pow(Dm - 2 * annularRingW, 2))
     : 0;
   const bottomWeight =
     bottomArea * (bottomThk / 1000) * 7850 +
     ringArea * (Math.max(0, annularThk - bottomThk) / 1000) * 7850;
-  const roofSlope = 1.055; // cone slope area factor for 1:20 (api) roofs ~2:1 pitch
+  const roofSlope = coneRoofAreaFactor(roofSlopeRun(tank)); // slant × lap, from the entered 1:N slope
   const roofDeckArea = (Math.PI / 4) * Math.pow(Dm * 1.02, 2); // m²
   const primarySeal = tank.primarySeal ?? 'shoe';
   const secondarySeal = tank.secondarySeal ?? 'metal';
@@ -368,14 +379,14 @@ export function computeTank(equip: Equipment): EquipmentCalc {
   const sealKg = seals.primary + seals.secondary;
   const roofWeight =
     tank.roofType === 'cone'
-      ? roofDeckArea * roofSlope * (roofThk / 1000) * 7850 * 1.05
+      ? roofDeckArea * roofSlope * (roofThk / 1000) * 7850
       : tank.roofType === 'dome'
-      ? roofDeckArea * 0.6 * (roofThk / 1000) * 7850
+      ? roofDeckArea * DOME_ROOF_DECK * (roofThk / 1000) * 7850
       : tank.roofType === 'externalFloating'
       ? // steel deck plates + pontoon buoyancy ring (≈12 % extra steel) + seal assembly mass
-        roofDeckArea * (roofThk / 1000) * 7850 * 1.12 + sealKg
+        roofDeckArea * (roofThk / 1000) * 7850 * EXTERNAL_ROOF_PONTOON + sealKg
       : // internal floating roof: pan/deck + supporting legs + primary seal
-        roofDeckArea * (roofThk / 1000) * 7850 * 0.85 + sealKg;
+        roofDeckArea * (roofThk / 1000) * 7850 * INTERNAL_ROOF_DECK + sealKg;
 
   if (tank.roofType === 'externalFloating') {
     warnings.push({
@@ -405,8 +416,15 @@ export function computeTank(equip: Equipment): EquipmentCalc {
   const shellAllowComp = 0.125 * syTank; // MPa (indicative; girder I per §5.8.7.2)
   const Zshell = Math.PI * Math.pow(Dm / 2, 2) * (tGov / 1000); // m³
   const windGirderStressMPa = (windMoment * 1000) / Math.max(1e-6, Zshell) / 1e6; // MPa
-  const windGirderRequired = windGirderStressMPa > shellAllowComp || Hm > 12;
-  if (windGirderRequired) {
+  const windGirderRequired = windGirderStressMPa > shellAllowComp || Hm > 12 || tank.stiffenerRings === true;
+  if (tank.stiffenerRings) {
+    warnings.push({
+      level: 'info',
+      code: 'T650-13',
+      msg: 'Stiffening rings / wind girders declared on the tag — the girder is treated as provided and carried in the structural scope (API 650 §5.8.7)',
+    });
+  }
+  if (windGirderRequired && !tank.stiffenerRings) {
     warnings.push({
       level: 'info',
       code: 'T650-02',
@@ -456,7 +474,9 @@ export function computeTank(equip: Equipment): EquipmentCalc {
     shellMethod: useVdp ? 'vdp' : 'oneFoot',
     bottomThk,
     annularThk,
+    annularRingWidthMm,
     roofThk,
+    roofSlopeRun: roofSlopeRun(tank),
     sealWeightKg: sealKg,
     shellWeightKg: shellKg,
     bottomWeightKg: bottomWeight,
@@ -492,6 +512,41 @@ export function computeTank(equip: Equipment): EquipmentCalc {
     sAllow: Sd,
     warnings,
   };
+}
+
+/**
+ * Cone-roof deck constants.
+ * ROOF_DECK_LAP — empirical allowance for roof-plate laps, seams and cut-outs
+ * (retained from the original model; documented per review point C2).
+ * DOME_ROOF_DECK / EXTERNAL_ROOF_PONTOON / INTERNAL_ROOF_DECK — empirical
+ * steel allowances for the other roof forms, also retained from the original
+ * model and now named so they are visible instead of magic numbers.
+ */
+const ROOF_DECK_LAP = 1.05;
+const DOME_ROOF_DECK = 0.6;
+const EXTERNAL_ROOF_PONTOON = 1.12;
+const INTERNAL_ROOF_DECK = 0.85;
+
+/**
+ * Run N of the cone-roof plate slope (rise 1 : N). API 650 uses 1:16 as the
+ * standard slope; 1:20 is the shallow structurally-supported alternative, and
+ * 'custom' lets any run be entered. Old projects without the field default to
+ * 1:16 (the value closest to the previous fixed factor).
+ */
+export function roofSlopeRun(tank: TankSpec): number {
+  const sel = tank.roofSlope ?? '1:16';
+  if (sel === 'custom') return Math.max(4, tank.roofSlopeCustom && tank.roofSlopeCustom > 0 ? tank.roofSlopeCustom : 16);
+  return sel === '1:20' ? 20 : 16;
+}
+
+/**
+ * Deck area factor for a cone roof of slope 1:N: the slant (developed) length
+ * over the plan radius, √(1 + (1/N)²), times the lap/seam allowance.
+ * 1:16 → 1.0521, 1:20 → 1.0513 (the old fixed 1.055 matched neither).
+ */
+export function coneRoofAreaFactor(runN: number, lap = ROOF_DECK_LAP): number {
+  const n = Math.max(4, runN);
+  return Math.sqrt(1 + 1 / (n * n)) * lap;
 }
 
 /** Quick API 650 check against ASME allowable usage (materials page helper) */

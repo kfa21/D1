@@ -78,6 +78,8 @@ export function newEquipment(type: EquipType, srNo: number): Equipment {
             seismic: false,
             shellAllowableOverride: 0,
             stiffenerRings: false,
+            roofSlope: '1:16' as const,
+            annularRingWidthMm: 600,
             maxDesignLiquidLevel: 0,
           },
         }

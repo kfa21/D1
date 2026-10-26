@@ -969,12 +969,29 @@ function TankEqEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
       )}
       <label className="f"><span>Bottom t (mm, 0=auto)</span><input id={fid('tankBottomThk')} type="number" value={tk.bottomThk} onChange={(e) => p({ bottomThk: +e.target.value })} /><FixNote equipId={equip.id} field="tankBottomThk" /></label>
       <label className="f"><span>Roof t (mm)</span><input type="number" value={tk.roofThk} onChange={(e) => p({ roofThk: +e.target.value })} /></label>
+      <label className="f"><span>Cone roof slope (rise 1 : N)</span>
+        <select id={fid('tankRoofSlope')} value={tk.roofSlope ?? '1:16'} onChange={(e) => p({ roofSlope: e.target.value as never })}>
+          <option value="1:16">1:16 — API 650 standard slope</option>
+          <option value="1:20">1:20 — shallow (structurally supported)</option>
+          <option value="custom">Custom…</option>
+        </select>
+        <FixNote equipId={equip.id} field="tankRoofSlope" />
+      </label>
+      {tk.roofSlope === 'custom' && (
+        <label className="f"><span>Custom slope run N (1:N)</span><input type="number" min={4} step={1} value={tk.roofSlopeCustom ?? 16} onChange={(e) => p({ roofSlopeCustom: +e.target.value })} /></label>
+      )}
       <label className="f"><span>Wind pressure (kPa)</span><input type="number" step="0.1" value={tk.windPressure} onChange={(e) => p({ windPressure: +e.target.value })} /></label>
       <label className="f"><span>Annular bottom plate</span><input id={fid('tankAnnularBottom')} type="checkbox" checked={tk.annularBottom} onChange={(e) => p({ annularBottom: e.target.checked })} /><FixNote equipId={equip.id} field="tankAnnularBottom" /></label>
+      {tk.annularBottom && (
+        <label className="f"><span>Annular ring width from shell (mm, ≥ 600 §5.5.3)</span>
+          <input id={fid('tankAnnularRingWidth')} type="number" min={100} step={50} value={tk.annularRingWidthMm ?? 600} onChange={(e) => p({ annularRingWidthMm: +e.target.value })} />
+          <FixNote equipId={equip.id} field="tankAnnularRingWidth" />
+        </label>
+      )}
       <label className="f"><span>Annular / field thickness (calc)</span>
         <b className="small">
           {tk.annularBottom
-            ? `${fmt(calc.tank!.annularThk, 1)} mm ring (Table 5-1a) · ${fmt(calc.tank!.bottomThk, 1)} mm field`
+            ? `${fmt(calc.tank!.annularThk, 1)} mm ring (Table 5-1a) · ${fmt(calc.tank!.bottomThk, 1)} mm field · ${tk.annularRingWidthMm ?? 600} mm ring width`
             : `${fmt(calc.tank!.bottomThk, 1)} mm field (6 mm corroded + CA)`}
         </b>
       </label>
@@ -982,6 +999,7 @@ function TankEqEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
         <b className="small">{calc.tank!.shellMethod === 'vdp' ? 'Variable design point §5.6.4 (D > 61 m)' : 'One-foot §5.6.3'}</b>
       </label>
       <label className="f"><span>Seismic design</span><input type="checkbox" checked={tk.seismic} onChange={(e) => p({ seismic: e.target.checked })} /></label>
+      <label className="f"><span>Wind / stiffening rings provided (§5.8.7)</span><input id={fid('tankStiffenerRings')} type="checkbox" checked={tk.stiffenerRings} onChange={(e) => p({ stiffenerRings: e.target.checked })} /><FixNote equipId={equip.id} field="tankStiffenerRings" /></label>
       <label className="f"><span>Shell allowable override (MPa, 0=table)</span><input type="number" step="0.1" value={tk.shellAllowableOverride} onChange={(e) => p({ shellAllowableOverride: +e.target.value })} /></label>
       <label className="f"><span>Max liquid level (mm, 0=TT)</span><input type="number" value={tk.maxDesignLiquidLevel} onChange={(e) => p({ maxDesignLiquidLevel: +e.target.value })} /></label>
     </div>

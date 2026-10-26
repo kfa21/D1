@@ -65,6 +65,8 @@ export const WARNING_CATALOG: Record<string, WarningSpec> = {
   'T650-09': { level: 'info', note: 'Annular plate width ≥ 600 mm from shell advisory (§5.5.3)' },
   'T650-10': { level: 'warning', note: 'Bottom plate below the 6 mm corroded minimum (§5.5.1)' },
   'T650-11': { level: 'warning', note: 'VDP design-point iteration did not converge in 5 passes' },
+  'T650-12': { level: 'warning', note: 'Annular ring width below the 600 mm §5.5.3 minimum' },
+  'T650-13': { level: 'info', note: 'Stiffening rings / wind girders declared on the tag — treated as provided (§5.8.7)' },
   // Nozzle local loads — WRC 107 screening (wrc107.ts)
   'NL-01': { level: 'info', note: 'Nozzle local-load screening basis + utilisation (WRC 107 structure)' },
   'NL-02': { level: 'warning', note: 'Nozzle local-load screening utilisation over 1.5·S' },
