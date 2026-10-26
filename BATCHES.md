@@ -73,6 +73,25 @@ This file is the single source of truth for incremental work on this project.
 - [ ] **D3** Verify VDP upper-course `x` equations and annular `+CA` treatment against a licensed API 650 edition.
 - [ ] **D4** K₂/K₃ saddle coefficients published only at 120°/150° — currently interpolated; document or replace.
 
+## Phase E — Code-review scan findings (fix first — E1/E2 change numbers)
+
+- [ ] **E1** Nozzle shell-course correctness — `sectionId` is hard-set to `sections[0].id` on creation (`Register.tsx` addNozzle) with **no editor field**, so every nozzle reinforces against the bottom course (`asme.ts` nozzle map) while the viewer places it by elevation. Derive the section from elevation (pure helper over `SectionCalc` bounds, mirroring `layout3d.locateNozzle`), add a "Shell course" select to the nozzle table as an explicit override, and fix `dupRow` to keep an old→new section-id map instead of collapsing all copied nozzles to `sections[0]`. Golden test: a nozzle on a thinner upper course checks against that course's t. Keep the smallest-diameter fallback only for genuinely orphaned legacy data (warn code).
+- [ ] **E2** Tank design loads are unreachable — the Design Loads block (Sds / R / Ie) renders only for vertical vessels & columns, yet `api650.ts` reads `equip.designLoads.sds/R/Ie` for tank anchor bolts, so tanks always fall back to defaults. Show the block for tanks, and resolve the duplicated wind input: tanks use `tank.windPressure` (girder + anchors), vessels use `designLoads.windPressureKpa` — one field or a labelled "same as above" link.
+- [ ] **E3** Project file hygiene — `exportData` currently ships `geminiKey` in the JSON (strip it, or warn first); `importData` bypasses `migrateToBhdBase` for legacy USD exports; stale `datasheets` refs survive reload while their payloads are memory-only, so AiReview shows "Attached …" and silently omits the file — drop refs on load with a "re-attach" hint.
+- [ ] **E4** Deploy gating — `deploy-pages.yml` runs on every `main` push with only `npm run build`; tests never gate the deploy (README claims a green build does). Add `npm test` to the build job or trigger via `workflow_run` on green CI; also de-duplicate CI on `push` + `pull_request` for same-repo PRs.
+- [ ] **E5** Compute cache — memo `computeEquipment` in a `WeakMap<Equipment, EquipmentCalc>` (pure function) and delete the redundant calls: Reports re-runs every non-selected tag 3× per render, Inspection recomputes all tags twice inside render despite its `summary` memo, `SupportEditor` recomputes per keystroke.
+- [ ] **E6** Store feedback — `persist()` swallows `localStorage` quota errors (silent data loss): surface a persistent "project not saved" notice; split the status strip so errors aren't counted inside the "Warnings" chip.
+- [ ] **E7** Dependency & lint hygiene — jspdf 3.x → 4.x (1 critical advisory, breaking API; touches `pdfexport.ts` + tests) and the dev-only tinypool/vitest advisories; ESLint flat config wired into CI (tsc strict alone is the only lint today).
+
+## Phase F — Tank & fin-fan data entry (requested in session)
+
+- [ ] **F1** Fin-fan datasheet fields — `FinFanSpec.airRiseC` exists but has **no editor field** (silently defaults to 15 °C). Add: air temperature rise / air outlet, site design data (elevation → air density replacing the hard-coded 1.2 kg/m³, relative humidity), fin type (L-footed / serrated / G-footed / integral) feeding fin efficiency in the area model, explicit fouling factor (U is currently "0 = auto 55" with fouling folded in), and a fan block (fan diameter or auto-size with the ≥40 % coverage readout, drive type, motor rating). New fields need `warnings.ts` codes + `fixes.ts` targets + golden tests per the batch rules.
+- [ ] **F2** Fin-fan live readouts in the editor — surface face velocity, air flow (CMH), finned area, actual tube count, fan BHP/kW and thermal margin (today they surface only in `mawpNote` on Reports), reusing the engine's discarded `fanDia` / `plenumDia` / `fanAreaMin`; remove the unused `d1` "placeholder" in `api661.ts` LMTD and tidy the uncertain `bundleWidth` comment.
+- [ ] **F3** Tank roof/bottom fields — roof slope selector (1:16 / 1:20 / custom) replacing the hard-coded `roofSlope = 1.055`, named and sourced dome factor (retires **C2**), annular ring width field (default 600 mm per §5.5.3, currently a literal), and decide `stiffenerRings` — it's in `TankSpec` + defaults but has no UI and no engine read: wire it to the §5.8.7 girder advisory or delete it.
+- [ ] **F4** *(optional, larger — split if started)* per-course shell plate grade for tanks (API 650 allows different grades per course; engine, BOM and Reports all assume one `materialKey`) + hydrotest medium density (hard-coded 997 kg/m³).
+
+**Suggested order:** E1 → E2 → F1 → F2 → E3 → E4 → E5 → F3 → E6 → E7; F4 only on request. E1/E2 and F1/F3 change calculated results — land their golden tests before UI polish.
+
 ---
 
 ## B7 research notes (Bell–Delaware) — used in B7a, source material for B7b
@@ -121,4 +140,5 @@ grep -n "^- \[ \]\|^- \[~\]" BATCHES.md   # what is next
 npx tsc --noEmit && npx vitest run        # confirm green before editing
 ```
 
-Start with the first unchecked batch in Phase A, then Phase C items that are cheap, then Phase B.
+Start with the first unchecked batch in Phase E (E1 first — it changes calculated numbers),
+then Phase F for the requested tank/fin-fan data entry, then the cheap Phase C items.
