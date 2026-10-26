@@ -2,7 +2,7 @@
 // Left block: user inputs (Sr, Tag, Name, Orientation, #Dia, Dia, TT, heads, CA, mat, P, T).
 // Right block: calculated (shell/head thickness, MAWP, hydrotest, weight, warnings).
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Equipment, EquipType, HeadType, NozzleSpec, NozzleLoads, InternalsSpec, SectionSpec } from '../engine/types';
 import { computeEquipment } from '../engine/compute';
 import { MATERIALS } from '../engine/materials';
@@ -13,6 +13,8 @@ import { suggestNdtMethod } from '../engine/ndt';
 import { recommendStructure } from '../engine/supports';
 import type { CladSpec } from '../engine/types';
 import { useStore, setState, getStore } from '../store';
+import { requestFixFor, subscribeFix, getFix, useFix, FixNote, focusField } from '../fixNav';
+import { fieldId, fixFor } from '../fixes';
 
 /** Human labels for nozzle kinds (SR = safety relief). */
 export const NOZZLE_KIND_LABELS: Record<string, string> = {
@@ -102,6 +104,21 @@ export default function Register() {
   };
 
   const selected = rows.find((r) => r.e.id === selectedId);
+
+  // Click-to-fix: jump to the tag and type tab that host the offending field
+  // (applies on mount too — the request may arrive just as this page opens).
+  useEffect(() => {
+    const apply = () => {
+      const r = getFix();
+      if (!r) return;
+      const e = getStore().equipment.find((x) => x.id === r.equipId);
+      if (!e) return;
+      setState((s) => (s.selectedEquipId === e.id ? s : { selectedEquipId: e.id }));
+      setTypeTab((prev) => (prev === e.equipType ? prev : e.equipType));
+    };
+    apply();
+    return subscribeFix(apply);
+  }, []);
 
   return (
     <div>
@@ -221,6 +238,19 @@ export default function Register() {
 
 function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<typeof computeEquipment> }) {
   const [tab, setTab] = useState<'general' | 'sections' | 'nozzles' | 'internals' | 'type'>('general');
+  const [openCode, setOpenCode] = useState<string | null>(null);
+  const fix = useFix();
+  const fid = (f: string) => fieldId(equip.id, f);
+
+  // a click-to-fix opens the tab that hosts the field, then scrolls to and focuses it
+  useEffect(() => {
+    if (fix && fix.equipId === equip.id) setTab(fix.tab);
+  }, [fix, equip.id]);
+  useEffect(() => {
+    if (!fix || fix.equipId !== equip.id || fix.tab !== tab) return;
+    const t = window.setTimeout(() => focusField(fix), 90);
+    return () => window.clearTimeout(t);
+  }, [fix, tab, equip.id]);
 
   const addNozzle = () => {
     const n: NozzleSpec = {
@@ -264,24 +294,29 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
         {tab === 'general' && (
           <div className="grid2">
             <label className="f"><span>Material</span>
-              <select value={equip.materialKey} onChange={(e) => update(equip.id, { materialKey: e.target.value })}>
+              <select id={fid('materialKey')} value={equip.materialKey} onChange={(e) => update(equip.id, { materialKey: e.target.value })}>
                 {MATERIALS.map((m) => <option key={m.key} value={m.key}>{m.name}</option>)}
               </select>
+              <FixNote equipId={equip.id} field="materialKey" />
             </label>
             <label className="f"><span>Corrosion allowance (mm)</span>
-              <input type="number" value={equip.corrosionAllowance} onChange={(e) => update(equip.id, { corrosionAllowance: +e.target.value })} />
+              <input id={fid('corrosionAllowance')} type="number" value={equip.corrosionAllowance} onChange={(e) => update(equip.id, { corrosionAllowance: +e.target.value })} />
+              <FixNote equipId={equip.id} field="corrosionAllowance" />
             </label>
             <label className="f"><span>Design pressure (bar g)</span>
-              <input type="number" value={equip.designPressure} onChange={(e) => update(equip.id, { designPressure: +e.target.value })} />
+              <input id={fid('designPressure')} type="number" value={equip.designPressure} onChange={(e) => update(equip.id, { designPressure: +e.target.value })} />
+              <FixNote equipId={equip.id} field="designPressure" />
             </label>
             <label className="f"><span>Design temp (°C)</span>
               <input type="number" value={equip.designTemp} onChange={(e) => update(equip.id, { designTemp: +e.target.value })} />
             </label>
             <label className="f"><span>MDMT (°C)</span>
-              <input type="number" value={equip.mdmt} onChange={(e) => update(equip.id, { mdmt: +e.target.value })} />
+              <input id={fid('mdmt')} type="number" value={equip.mdmt} onChange={(e) => update(equip.id, { mdmt: +e.target.value })} />
+              <FixNote equipId={equip.id} field="mdmt" />
             </label>
             <label className="f"><span>External / vacuum press (bar)</span>
-              <input type="number" step="0.05" value={equip.externalPressure} onChange={(e) => update(equip.id, { externalPressure: +e.target.value })} />
+              <input id={fid('externalPressure')} type="number" step="0.05" value={equip.externalPressure} onChange={(e) => update(equip.id, { externalPressure: +e.target.value })} />
+              <FixNote equipId={equip.id} field="externalPressure" />
             </label>
             <label className="f"><span>RT category (UW-11)</span>
               <select value={equip.rtCategory} onChange={(e) => update(equip.id, { rtCategory: e.target.value as never })}>
@@ -297,11 +332,12 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
               </select>
             </label>
             <label className="f"><span>PWHT</span>
-              <select value={equip.pwhtOverride === null ? 'auto' : equip.pwhtOverride ? 'yes' : 'no'} onChange={(e) => update(equip.id, { pwhtOverride: e.target.value === 'auto' ? null : e.target.value === 'yes' })}>
+              <select id={fid('pwhtOverride')} value={equip.pwhtOverride === null ? 'auto' : equip.pwhtOverride ? 'yes' : 'no'} onChange={(e) => update(equip.id, { pwhtOverride: e.target.value === 'auto' ? null : e.target.value === 'yes' })}>
                 <option value="auto">Auto (per UCS-56)</option>
                 <option value="yes">Force PWHT</option>
                 <option value="no">Waive PWHT</option>
               </select>
+              <FixNote equipId={equip.id} field="pwhtOverride" />
             </label>
             <label className="f"><span>Test pressure factor (UG-99)</span>
               <input type="number" step="0.05" value={equip.testPressureFactor} onChange={(e) => update(equip.id, { testPressureFactor: +e.target.value })} />
@@ -343,11 +379,12 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
             <h3>Cladding / Lining</h3>
             <div className="grid2">
               <label className="f"><span>Coverage</span>
-                <select value={equip.clad?.mode ?? 'none'} onChange={(e) => update(equip.id, { clad: { ...(equip.clad ?? defaultClad()), mode: e.target.value as never } })}>
+                <select id={fid('cladMode')} value={equip.clad?.mode ?? 'none'} onChange={(e) => update(equip.id, { clad: { ...(equip.clad ?? defaultClad()), mode: e.target.value as never } })}>
                   <option value="none">None</option>
                   <option value="full">Full length (shell + heads)</option>
                   <option value="partial">Partial length</option>
                 </select>
+                <FixNote equipId={equip.id} field="cladMode" />
               </label>
               <label className="f"><span>Type</span>
                 <select value={equip.clad?.kind ?? 'weldOverlay'} disabled={(equip.clad?.mode ?? 'none') === 'none'} onChange={(e) => update(equip.id, { clad: { ...(equip.clad ?? defaultClad()), kind: e.target.value as never } })}>
@@ -363,11 +400,13 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
                 </select>
               </label>
               <label className="f"><span>Thickness (mm)</span>
-                <input type="number" step="0.5" value={equip.clad?.thicknessMm ?? 3} disabled={(equip.clad?.mode ?? 'none') === 'none'} onChange={(e) => update(equip.id, { clad: { ...(equip.clad ?? defaultClad()), thicknessMm: +e.target.value } })} />
+                <input id={fid('cladThk')} type="number" step="0.5" value={equip.clad?.thicknessMm ?? 3} disabled={(equip.clad?.mode ?? 'none') === 'none'} onChange={(e) => update(equip.id, { clad: { ...(equip.clad ?? defaultClad()), thicknessMm: +e.target.value } })} />
+                <FixNote equipId={equip.id} field="cladThk" />
               </label>
               {(equip.clad?.mode ?? 'none') === 'partial' && (
                 <label className="f"><span>Covered length from bottom (mm)</span>
-                  <input type="number" value={equip.clad?.partialLengthMm ?? 0} onChange={(e) => update(equip.id, { clad: { ...(equip.clad ?? defaultClad()), partialLengthMm: +e.target.value } })} />
+                  <input id={fid('cladLength')} type="number" value={equip.clad?.partialLengthMm ?? 0} onChange={(e) => update(equip.id, { clad: { ...(equip.clad ?? defaultClad()), partialLengthMm: +e.target.value } })} />
+                  <FixNote equipId={equip.id} field="cladLength" />
                 </label>
               )}
               {equip.clad && equip.clad.mode !== 'none' && calc.clad && (
@@ -415,15 +454,15 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
                     return (
                       <tr key={s.id}>
                         <td className="num">{i + 1}</td>
-                        <td><input type="number" className="num" value={s.dia} onChange={(e) => updateSection(equip.id, s.id, { dia: +e.target.value })} /></td>
-                        <td><input type="number" className="num" value={s.ttLength} onChange={(e) => updateSection(equip.id, s.id, { ttLength: +e.target.value })} /></td>
-                        <td><select value={s.headTop} onChange={(e) => updateSection(equip.id, s.id, { headTop: e.target.value as HeadType })}>
-                          {Object.entries(HEAD_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></td>
+                        <td><input id={fid(`sec${i}-dia`)} type="number" className="num" value={s.dia} onChange={(e) => updateSection(equip.id, s.id, { dia: +e.target.value })} /><FixNote equipId={equip.id} field={`sec${i}-dia`} /></td>
+                        <td><input id={fid(`sec${i}-ttLength`)} type="number" className="num" value={s.ttLength} onChange={(e) => updateSection(equip.id, s.id, { ttLength: +e.target.value })} /><FixNote equipId={equip.id} field={`sec${i}-ttLength`} /></td>
+                        <td><select id={fid(`sec${i}-headTop`)} value={s.headTop} onChange={(e) => updateSection(equip.id, s.id, { headTop: e.target.value as HeadType })}>
+                          {Object.entries(HEAD_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select><FixNote equipId={equip.id} field={`sec${i}-headTop`} /></td>
                         <td><select value={s.headBottom} onChange={(e) => updateSection(equip.id, s.id, { headBottom: e.target.value as HeadType })}>
                           {Object.entries(HEAD_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></td>
-                        <td><input type="number" className="num" value={s.shellThk} placeholder="0=auto" onChange={(e) => updateSection(equip.id, s.id, { shellThk: +e.target.value })} /></td>
-                        <td><input type="number" className="num" value={s.coneAngleDeg} disabled={i === 0} onChange={(e) => updateSection(equip.id, s.id, { coneAngleDeg: +e.target.value })} /></td>
-                        <td><input type="number" className="num" value={s.coneThk} onChange={(e) => updateSection(equip.id, s.id, { coneThk: +e.target.value })} /></td>
+                        <td><input id={fid(`sec${i}-shellThk`)} type="number" className="num" value={s.shellThk} placeholder="0=auto" onChange={(e) => updateSection(equip.id, s.id, { shellThk: +e.target.value })} /><FixNote equipId={equip.id} field={`sec${i}-shellThk`} /></td>
+                        <td><input id={fid(`sec${i}-coneAngleDeg`)} type="number" className="num" value={s.coneAngleDeg} disabled={i === 0} onChange={(e) => updateSection(equip.id, s.id, { coneAngleDeg: +e.target.value })} /><FixNote equipId={equip.id} field={`sec${i}-coneAngleDeg`} /></td>
+                        <td><input id={fid(`sec${i}-coneThk`)} type="number" className="num" value={s.coneThk} onChange={(e) => updateSection(equip.id, s.id, { coneThk: +e.target.value })} /><FixNote equipId={equip.id} field={`sec${i}-coneThk`} /></td>
                         <td className="num calc">{fmt(cc?.tReq, 2)}</td>
                         <td className="num calc">{fmt(cc?.tNominal, 1)}</td>
                         <td className="num calc">{cc ? (cc.utilization * 100).toFixed(0) : '—'}</td>
@@ -469,20 +508,18 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
                         <td><select value={n.kind} onChange={(e) => upNz(n.id, { kind: e.target.value as never })}>
                           {Object.keys(NOZZLE_KIND_LABELS).map((k) => <option key={k} value={k}>{NOZZLE_KIND_LABELS[k]}</option>)}
                         </select></td>
-                        <td><input type="number" className="num" value={n.dn} onChange={(e) => upNz(n.id, { dn: +e.target.value })} /></td>
+                        <td><input id={fid(`nz${i}-dn`)} type="number" className="num" value={n.dn} onChange={(e) => upNz(n.id, { dn: +e.target.value })} /><FixNote equipId={equip.id} field={`nz${i}-dn`} /></td>
                         <td><select value={n.schKey} onChange={(e) => upNz(n.id, { schKey: e.target.value })}>
                           {SCHEDULES.map((s) => <option key={s} value={s}>Sch {s}</option>)}
                         </select></td>
                         <td><input type="number" className="num" value={n.elevation} onChange={(e) => upNz(n.id, { elevation: +e.target.value })} /></td>
-                        <td><input type="number" className="num" value={n.azimuth} onChange={(e) => upNz(n.id, { azimuth: +e.target.value })} /></td>
-                        <td><select value={n.flangeClass} onChange={(e) => upNz(n.id, { flangeClass: +e.target.value as never })}>
-                          {[150, 300, 600, 900, 1500, 2500].map((c) => <option key={c} value={c}>Cl {c0label(c)}</option>)}
-                        </select></td>
+                        <td><input type="number" className="num" value={n.azimuth} onChange={(e) => upNz(n.id, { azimuth: +e.target.value })} /></td>                        <td><select id={fid(`nz${i}-flangeClass`)} value={n.flangeClass} onChange={(e) => upNz(n.id, { flangeClass: +e.target.value as never })}>
+                          {[150, 300, 600, 900, 1500, 2500].map((c) => <option key={c} value={c}>Cl {c0label(c)}</option>)}</select><FixNote equipId={equip.id} field={`nz${i}-flangeClass`} /></td>
                         <td><select value={n.flangeMatKey} onChange={(e) => upNz(n.id, { flangeMatKey: e.target.value })}>
                           {MATERIALS.filter((m) => m.form === 'forging' || m.key === 'SA-105').map((m) => <option key={m.key} value={m.key}>{m.name}</option>)}
                         </select></td>
                         <td><input type="number" className="num" value={n.padDia} onChange={(e) => upNz(n.id, { padDia: +e.target.value })} /></td>
-                        <td><input type="number" className="num" value={n.padThk} onChange={(e) => upNz(n.id, { padThk: +e.target.value })} /></td>
+                        <td><input id={fid(`nz${i}-padThk`)} type="number" className="num" value={n.padThk} onChange={(e) => upNz(n.id, { padThk: +e.target.value })} /><FixNote equipId={equip.id} field={`nz${i}-padThk`} /></td>
                         <td className="num calc">{nc ? fmt(nc.wall, 2) : '—'}</td>
                         <td className="num calc">{nc ? nc.Areq.toFixed(0) : '—'}</td>
                         <td className="num calc">{nc ? nc.Aprov.toFixed(0) : '—'}</td>
@@ -593,9 +630,28 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
         {calc.warnings.length > 0 && (
           <>
             <hr className="sep" />
-            {calc.warnings.map((w, i) => (
-              <div key={i} className={`finding ${w.level}`}>[{w.level.toUpperCase()}] {w.code}: {w.msg}</div>
-            ))}
+            <p className="muted small" style={{ marginTop: 0 }}>
+              Click a finding to jump to the field that needs correcting — its correction hint appears below that field.
+            </p>
+            {calc.warnings.map((w, i) => {
+              const fx = fixFor(w.code);
+              return (
+                <div
+                  key={i}
+                  className={`finding ${w.level} clickable`}
+                  title="Click to go to the field to correct"
+                  onClick={() => {
+                    setOpenCode(w.code);
+                    requestFixFor(equip.id, w.code);
+                  }}
+                >
+                  [{w.level.toUpperCase()}] {w.code}: {w.msg}
+                  {openCode === w.code && fx && (
+                    <div className="fix-inline">→ {fx.suggest}</div>
+                  )}
+                </div>
+              );
+            })}
           </>
         )}
       </div>
@@ -623,31 +679,34 @@ function SupportEditor({ equip }: { equip: Equipment }) {
   const calc = computeEquipment(equip);
   const rec = recommendStructure(equip, calc);
   const sup = calc.supports;
+  const fid = (f: string) => fieldId(equip.id, f);
   const p = (patch: Partial<Equipment['support']>) => update(equip.id, { support: { ...s, ...patch } });
   return (
     <div style={{ marginTop: 14 }}>
       <h3>Supports — every type selectable, each calculated separately (hours · material · cost)</h3>
       <div className="grid2">
         <label className="f"><span>Primary support type</span>
-          <select value={s.type} onChange={(e) => p({ type: e.target.value as never })}>
+          <select id={fid('supType')} value={s.type} onChange={(e) => p({ type: e.target.value as never })}>
             <option value="legs">Legs (vertical vessels)</option>
             <option value="saddle">Saddles (horizontal vessels / HX)</option>
             <option value="skirt">Skirt (columns, vertical vessels)</option>
             <option value="ring">Base ring</option>
             <option value="none">None</option>
           </select>
+          <FixNote equipId={equip.id} field="supType" />
         </label>
         <label className="f"><span>Legs / saddle count</span><input type="number" value={s.legCount} onChange={(e) => p({ legCount: +e.target.value })} /></label>
-        <label className="f"><span>Saddle span (mm)</span><input type="number" value={s.saddleSpan} onChange={(e) => p({ saddleSpan: +e.target.value })} /></label>
-        <label className="f"><span>Saddle angle (°)</span><input type="number" value={s.saddleAngle} onChange={(e) => p({ saddleAngle: +e.target.value })} /></label>
+        <label className="f"><span>Saddle span (mm)</span><input id={fid('supSaddleSpan')} type="number" value={s.saddleSpan} onChange={(e) => p({ saddleSpan: +e.target.value })} /><FixNote equipId={equip.id} field="supSaddleSpan" /></label>
+        <label className="f"><span>Saddle angle (°)</span><input id={fid('supSaddleAngle')} type="number" value={s.saddleAngle} onChange={(e) => p({ saddleAngle: +e.target.value })} /><FixNote equipId={equip.id} field="supSaddleAngle" /></label>
         <label className="f"><span>Skirt / leg height (mm)</span><input type="number" value={s.skirtH} onChange={(e) => p({ skirtH: +e.target.value })} /></label>
         <label className="f"><span>Leg plate t (mm)</span><input type="number" value={s.legPlateThk} onChange={(e) => p({ legPlateThk: +e.target.value })} /></label>
         <label className="f"><span>Auxiliary (each costed separately)</span>
           <span style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <label className="small"><input type="checkbox" checked={!!s.baseRing} onChange={(e) => p({ baseRing: e.target.checked })} /> Base ring + anchors</label>
+            <label className="small"><input id={fid('supBaseRing')} type="checkbox" checked={!!s.baseRing} onChange={(e) => p({ baseRing: e.target.checked })} /> Base ring + anchors</label>
             <label className="small"><input type="checkbox" checked={!!s.padeyes} onChange={(e) => p({ padeyes: e.target.checked })} /> Lifting lugs / padeyes</label>
             <label className="small"><input type="checkbox" checked={!!s.guyLines} onChange={(e) => p({ guyLines: e.target.checked })} /> Guy-wire derrick</label>
           </span>
+          <FixNote equipId={equip.id} field="supBaseRing" />
         </label>
       </div>
       {sup && sup.items.length > 0 ? (
@@ -740,6 +799,7 @@ const SHELL_FLOW_FIELDS: [keyof ShellSideFlow, string, string][] = [
 function HxEqEditor({ equip }: { equip: Equipment }) {
   const hx = equip.hx!;
   const p = (patch: Partial<HXSpec>) => update(equip.id, { hx: { ...hx, ...patch } });
+  const fid = (f: string) => fieldId(equip.id, f);
   return (
     <div>
       <div className="grid2">
@@ -759,18 +819,19 @@ function HxEqEditor({ equip }: { equip: Equipment }) {
             </select>
             <input type="number" step="0.5" value={hx.tubeSheetClad?.thicknessMm ?? 3} disabled={!(hx.tubeSheetClad?.enabled)} onChange={(e) => p({ tubeSheetClad: { enabled: hx.tubeSheetClad?.enabled ?? false, materialKey: hx.tubeSheetClad?.materialKey ?? 'SA-240-316L', thicknessMm: +e.target.value } })} style={{ width: 64 }} />
           </span>
+          <FixNote equipId={equip.id} field="hxTubeSheetClad" />
         </label>
         <label className="f"><span>TEMA type</span>
           <select value={hx.temaType} onChange={(e) => p({ temaType: e.target.value })}>
             {['BEM', 'BES', 'BEU', 'AEU', 'AEP', 'NEN', 'BKU', 'CKU', 'AFU'].map((t) => <option key={t}>{t}</option>)}
           </select>
         </label>
-        <label className="f"><span>Shell OD (mm, 0=auto)</span><input type="number" value={hx.shellDiaOD} onChange={(e) => p({ shellDiaOD: +e.target.value })} /></label>
+        <label className="f"><span>Shell OD (mm, 0=auto)</span><input id={fid('hxShellDiaOD')} type="number" value={hx.shellDiaOD} onChange={(e) => p({ shellDiaOD: +e.target.value })} /><FixNote equipId={equip.id} field="hxShellDiaOD" /></label>
         <label className="f"><span>Tube OD (mm)</span><input type="number" value={hx.tubeOD} onChange={(e) => p({ tubeOD: +e.target.value })} /></label>
         <label className="f"><span>Tube wall (mm)</span><input type="number" step="0.1" value={hx.tubeWall} onChange={(e) => p({ tubeWall: +e.target.value })} /></label>
         <label className="f"><span>Tube length T-T (mm)</span><input type="number" value={hx.tubeLength} onChange={(e) => p({ tubeLength: +e.target.value })} /></label>
-        <label className="f"><span>Tube count (0=auto)</span><input type="number" value={hx.tubeCount} onChange={(e) => p({ tubeCount: +e.target.value })} /></label>
-        <label className="f"><span>Pitch (mm)</span><input type="number" value={hx.pitch} onChange={(e) => p({ pitch: +e.target.value })} /></label>
+        <label className="f"><span>Tube count (0=auto)</span><input id={fid('hxTubeCount')} type="number" value={hx.tubeCount} onChange={(e) => p({ tubeCount: +e.target.value })} /><FixNote equipId={equip.id} field="hxTubeCount" /></label>
+        <label className="f"><span>Pitch (mm)</span><input id={fid('hxPitch')} type="number" value={hx.pitch} onChange={(e) => p({ pitch: +e.target.value })} /><FixNote equipId={equip.id} field="hxPitch" /></label>
         <label className="f"><span>Layout angle</span>
           <select value={hx.layoutAngle} onChange={(e) => p({ layoutAngle: +e.target.value as never })}>{[30, 45, 60, 90].map((a) => <option key={a} value={a}>{a}°</option>)}</select>
         </label>
@@ -780,8 +841,8 @@ function HxEqEditor({ equip }: { equip: Equipment }) {
             <option value="noTubeInWindow">No tube in window</option><option value="orifice">Orifice</option><option value="single">Single</option>
           </select>
         </label>
-        <label className="f"><span>Baffle cut (%)</span><input type="number" value={hx.baffleCut} onChange={(e) => p({ baffleCut: +e.target.value })} /></label>
-        <label className="f"><span>Baffle spacing (mm, 0=auto)</span><input type="number" value={hx.baffleSpacing} onChange={(e) => p({ baffleSpacing: +e.target.value })} /></label>
+        <label className="f"><span>Baffle cut (%)</span><input id={fid('hxBaffleCut')} type="number" value={hx.baffleCut} onChange={(e) => p({ baffleCut: +e.target.value })} /><FixNote equipId={equip.id} field="hxBaffleCut" /></label>
+        <label className="f"><span>Baffle spacing (mm, 0=auto)</span><input id={fid('hxBaffleSpacing')} type="number" value={hx.baffleSpacing} onChange={(e) => p({ baffleSpacing: +e.target.value })} /><FixNote equipId={equip.id} field="hxBaffleSpacing" /></label>
         <label className="f"><span>Tube passes</span>
           <select value={hx.passesTube} onChange={(e) => p({ passesTube: +e.target.value as never })}>{[1, 2, 4, 6, 8].map((a) => <option key={a} value={a}>{a}</option>)}</select>
         </label>
@@ -802,9 +863,10 @@ function HxEqEditor({ equip }: { equip: Equipment }) {
             <input type="number" value={hx.tTubeOut} onChange={(e) => p({ tTubeOut: +e.target.value })} />
           </span>
         </label>
-        <label className="f"><span>Overall U (W/m²K, 0=auto)</span><input type="number" value={hx.uOverall} onChange={(e) => p({ uOverall: +e.target.value })} /></label>
+        <label className="f"><span>Overall U (W/m²K, 0=auto)</span><input id={fid('hxUOverall')} type="number" value={hx.uOverall} onChange={(e) => p({ uOverall: +e.target.value })} /><FixNote equipId={equip.id} field="hxUOverall" /></label>
         <label className="f"><span>Tube material (tube/pipe grades)</span>
-          <select value={hx.tubeMatKey} onChange={(e) => p({ tubeMatKey: e.target.value })}>{MATERIALS.filter((m) => m.form === 'pipe').map((m) => <option key={m.key} value={m.key}>{m.name}</option>)}</select>
+          <select id={fid('hxTubeMatKey')} value={hx.tubeMatKey} onChange={(e) => p({ tubeMatKey: e.target.value })}>{MATERIALS.filter((m) => m.form === 'pipe').map((m) => <option key={m.key} value={m.key}>{m.name}</option>)}</select>
+          <FixNote equipId={equip.id} field="hxTubeMatKey" />
         </label>
         <label className="f"><span>Shell material</span>
           <select value={hx.shellMatKey} onChange={(e) => p({ shellMatKey: e.target.value })}>{MATERIALS.map((m) => <option key={m.key} value={m.key}>{m.name}</option>)}</select>
@@ -822,11 +884,13 @@ function HxEqEditor({ equip }: { equip: Equipment }) {
           <label className="f" key={key}>
             <span>{label}</span>
             <input
+              id={fid(`shellFlow-${key}`)}
               type="number"
               step={step}
               value={(hx.shellFlow?.[key] as number | undefined) ?? 0}
               onChange={(e) => p({ shellFlow: { ...(hx.shellFlow ?? EMPTY_SHELL_FLOW), [key]: +e.target.value } })}
             />
+            <FixNote equipId={equip.id} field={`shellFlow-${key}`} />
           </label>
         ))}
       </div>
@@ -838,15 +902,17 @@ function HxEqEditor({ equip }: { equip: Equipment }) {
 function TankEqEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<typeof computeEquipment> }) {
   const tk = equip.tank!;
   const p = (patch: Partial<TankSpec>) => update(equip.id, { tank: { ...tk, ...patch } });
+  const fid = (f: string) => fieldId(equip.id, f);
   const floating = tk.roofType === 'externalFloating' || tk.roofType === 'internalFloating';
   return (
     <div className="grid2">
       <label className="f"><span>Stored fluid</span><input value={tk.fluidName} onChange={(e) => p({ fluidName: e.target.value })} /></label>
       <label className="f"><span>Specific gravity</span><input type="number" step="0.01" value={tk.specificGravity} onChange={(e) => p({ specificGravity: +e.target.value })} /></label>
       <label className="f"><span>Roof type</span>
-        <select value={tk.roofType} onChange={(e) => p({ roofType: e.target.value as never })}>
+        <select id={fid('tankRoofType')} value={tk.roofType} onChange={(e) => p({ roofType: e.target.value as never })}>
           <option value="cone">Cone roof</option><option value="dome">Dome roof</option><option value="internalFloating">Internal floating roof</option><option value="externalFloating">External floating roof</option>
         </select>
+        <FixNote equipId={equip.id} field="tankRoofType" />
       </label>
       {floating && (
         <label className="f"><span>Primary seal (API 650 §5.8.3)</span>
@@ -875,10 +941,10 @@ function TankEqEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
           <span className="l">Seal assemblies (primary + secondary) — priced as purchased items in BOM & estimate</span>
         </div>
       )}
-      <label className="f"><span>Bottom t (mm, 0=auto)</span><input type="number" value={tk.bottomThk} onChange={(e) => p({ bottomThk: +e.target.value })} /></label>
+      <label className="f"><span>Bottom t (mm, 0=auto)</span><input id={fid('tankBottomThk')} type="number" value={tk.bottomThk} onChange={(e) => p({ bottomThk: +e.target.value })} /><FixNote equipId={equip.id} field="tankBottomThk" /></label>
       <label className="f"><span>Roof t (mm)</span><input type="number" value={tk.roofThk} onChange={(e) => p({ roofThk: +e.target.value })} /></label>
       <label className="f"><span>Wind pressure (kPa)</span><input type="number" step="0.1" value={tk.windPressure} onChange={(e) => p({ windPressure: +e.target.value })} /></label>
-      <label className="f"><span>Annular bottom plate</span><input type="checkbox" checked={tk.annularBottom} onChange={(e) => p({ annularBottom: e.target.checked })} /></label>
+      <label className="f"><span>Annular bottom plate</span><input id={fid('tankAnnularBottom')} type="checkbox" checked={tk.annularBottom} onChange={(e) => p({ annularBottom: e.target.checked })} /><FixNote equipId={equip.id} field="tankAnnularBottom" /></label>
       <label className="f"><span>Annular / field thickness (calc)</span>
         <b className="small">
           {tk.annularBottom
@@ -899,6 +965,7 @@ function TankEqEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
 function FinFanEqEditor({ equip }: { equip: Equipment }) {
   const ff = equip.finfan!;
   const p = (patch: Partial<FinFanSpec>) => update(equip.id, { finfan: { ...ff, ...patch } });
+  const fid = (f: string) => fieldId(equip.id, f);
   return (
     <div className="grid2">
       <label className="f"><span>Arrangement</span>
@@ -907,14 +974,14 @@ function FinFanEqEditor({ equip }: { equip: Equipment }) {
         </select>
       </label>
       <label className="f"><span>Bays</span><input type="number" value={ff.bays} onChange={(e) => p({ bays: +e.target.value })} /></label>
-      <label className="f"><span>Rows deep</span><input type="number" value={ff.rows} onChange={(e) => p({ rows: +e.target.value })} /></label>
+      <label className="f"><span>Rows deep</span><input id={fid('ffRows')} type="number" value={ff.rows} onChange={(e) => p({ rows: +e.target.value })} /><FixNote equipId={equip.id} field="ffRows" /></label>
       <label className="f"><span>Finned length (mm)</span><input type="number" value={ff.tubeLength} onChange={(e) => p({ tubeLength: +e.target.value })} /></label>
       <label className="f"><span>Tube OD (mm)</span><input type="number" step="0.1" value={ff.tubeOD} onChange={(e) => p({ tubeOD: +e.target.value })} /></label>
       <label className="f"><span>Tube wall (mm)</span><input type="number" step="0.1" value={ff.tubeWall} onChange={(e) => p({ tubeWall: +e.target.value })} /></label>
       <label className="f"><span>Fin OD (mm)</span><input type="number" value={ff.finOD} onChange={(e) => p({ finOD: +e.target.value })} /></label>
       <label className="f"><span>Fin pitch (fpi)</span><input type="number" value={ff.finPitch} onChange={(e) => p({ finPitch: +e.target.value })} /></label>
       <label className="f"><span>Fin thickness (mm)</span><input type="number" step="0.05" value={ff.finThk} onChange={(e) => p({ finThk: +e.target.value })} /></label>
-      <label className="f"><span>Duty (kW)</span><input type="number" value={ff.dutyKW} onChange={(e) => p({ dutyKW: +e.target.value })} /></label>
+      <label className="f"><span>Duty (kW)</span><input id={fid('ffDutyKW')} type="number" value={ff.dutyKW} onChange={(e) => p({ dutyKW: +e.target.value })} /><FixNote equipId={equip.id} field="ffDutyKW" /></label>
       <label className="f"><span>Process in (°C)</span><input type="number" value={ff.processInC} onChange={(e) => p({ processInC: +e.target.value })} /></label>
       <label className="f"><span>Process out (°C)</span><input type="number" value={ff.processOutC} onChange={(e) => p({ processOutC: +e.target.value })} /></label>
       <label className="f"><span>Air in (°C)</span><input type="number" value={ff.airInC} onChange={(e) => p({ airInC: +e.target.value })} /></label>
@@ -928,7 +995,7 @@ function FinFanEqEditor({ equip }: { equip: Equipment }) {
         <select value={ff.finMatKey} onChange={(e) => p({ finMatKey: e.target.value })}>{MATERIALS.map((m) => <option key={m.key} value={m.key}>{m.name}</option>)}</select>
       </label>
       <label className="f"><span>Header t (mm)</span><input type="number" value={ff.headerThk} onChange={(e) => p({ headerThk: +e.target.value })} /></label>
-      <label className="f"><span>Tube count (0=auto)</span><input type="number" value={ff.tubeCount} onChange={(e) => p({ tubeCount: +e.target.value })} /></label>
+      <label className="f"><span>Tube count (0=auto)</span><input id={fid('ffTubeCount')} type="number" value={ff.tubeCount} onChange={(e) => p({ tubeCount: +e.target.value })} /><FixNote equipId={equip.id} field="ffTubeCount" /></label>
     </div>
   );
 }

@@ -1,5 +1,6 @@
-import { lazy, Suspense, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useStore, setSettings } from './store';
+import { subscribeFix, getFix } from './fixNav';
 import { CURRENCIES } from './engine/currency';
 import { computeEquipment } from './engine/compute';
 import Register from './pages/Register';
@@ -51,6 +52,12 @@ export default function App() {
     }
     return { errors, warns, passing };
   }, [equipment]);
+
+  // click-to-fix from any warning list opens the Register, where the tag and
+  // field are selected and focused
+  useEffect(() => subscribeFix(() => {
+    if (getFix()) setPage('register');
+  }), []);
 
   const statusDot = status.errors > 0 ? 'err' : status.warns > 0 ? 'warn' : 'ok';
   const statusText = status.errors > 0

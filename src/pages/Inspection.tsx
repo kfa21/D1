@@ -12,6 +12,7 @@ import { NDT_METHOD_LABELS, NDT_TIMING_LABELS } from '../engine/ndt';
 import { defaultItpStages, mergeItpStages, effectiveDurationH, itpStageName, ITP_PHASE_LABELS, ITP_HOUR_PRESETS } from '../engine/itp';
 import type { Equipment, ItpStagePhase, ItpStageTiming } from '../engine/types';
 import { downloadCSV } from '../cad';
+import { requestFixFor } from '../fixNav';
 import { printElementById } from '../print';
 import { fmt } from '../engine/units';
 
@@ -112,7 +113,22 @@ export default function Inspection() {
                   </select>
                 </td>
                 <td className="small">{e.inspectionLevel === '3.1' ? "U-1A Manufacturer's Data Report" : 'U-1 Data Report (Authorized Inspector)'}</td>
-                <td className="num">{calc.warnings.length ? <span className="badge warn">{calc.warnings.length}</span> : <span className="badge ok">0</span>}</td>
+                <td className="num">
+                  {calc.warnings.length ? (
+                    <span
+                      className="badge warn clickable"
+                      title="Click to open this tag in the Register at the field to correct"
+                      onClick={() => {
+                        const w = calc.warnings.find((x) => x.level === 'error') ?? calc.warnings[0];
+                        requestFixFor(e.id, w.code);
+                      }}
+                    >
+                      {calc.warnings.length}
+                    </span>
+                  ) : (
+                    <span className="badge ok">0</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

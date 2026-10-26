@@ -1,7 +1,9 @@
 // Automated calculation reports — print-ready sheet per tag + CSV exports + CAD export.
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useStore, setState } from '../store';
+import { requestFixFor } from '../fixNav';
+import { fixFor } from '../fixes';
 import { computeEquipment } from '../engine/compute';
 import { fmt } from '../engine/units';
 import { reportUnits, unitModeLabel } from '../engine/reportUnits';
@@ -24,6 +26,7 @@ export default function Reports() {
 
   const equip = equipment.find((e) => e.id === selectedId) ?? equipment[0];
   const calc = useMemo(() => (equip ? computeEquipment(equip) : null), [equip]);
+  const [openCode, setOpenCode] = useState<string | null>(null);
   // Reporting units — the engine stays SI; imperial is applied at this edge only.
   const u = reportUnits(settings.units);
   const L = u.labels;
@@ -314,9 +317,27 @@ export default function Reports() {
         {calc.warnings.length > 0 && (
           <>
             <h3>Warnings & advisories</h3>
-            {calc.warnings.map((w, i) => (
-              <div key={i} className={`finding ${w.level}`}>[{w.level.toUpperCase()}] {w.code}: {w.msg}</div>
-            ))}
+            <p className="muted small" style={{ marginTop: 0 }}>
+              Click a finding to open that tag in the Register with the field to correct focused — its correction hint
+              appears below the field.
+            </p>
+            {calc.warnings.map((w, i) => {
+              const fx = fixFor(w.code);
+              return (
+                <div
+                  key={i}
+                  className={`finding ${w.level} clickable`}
+                  title="Click to go to the field to correct"
+                  onClick={() => {
+                    setOpenCode(w.code);
+                    requestFixFor(equip.id, w.code);
+                  }}
+                >
+                  [{w.level.toUpperCase()}] {w.code}: {w.msg}
+                  {openCode === w.code && fx && <div className="fix-inline">→ {fx.suggest}</div>}
+                </div>
+              );
+            })}
           </>
         )}
 
