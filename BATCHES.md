@@ -81,7 +81,7 @@ This file is the single source of truth for incremental work on this project.
 - [x] **E4** Deploy gating — `9af2195` — `deploy-pages.yml` runs on every `main` push with only `npm run build`; tests never gate the deploy (README claims a green build does). Add `npm test` to the build job or trigger via `workflow_run` on green CI; also de-duplicate CI on `push` + `pull_request` for same-repo PRs.
 - [x] **E5** Compute cache — `9b89ec0` — memo `computeEquipment` in a `WeakMap<Equipment, EquipmentCalc>` (pure function) and delete the redundant calls: Reports re-runs every non-selected tag 3× per render, Inspection recomputes all tags twice inside render despite its `summary` memo, `SupportEditor` recomputes per keystroke.
 - [x] **E6** Store feedback — `38d3515` — `persist()` swallows `localStorage` quota errors (silent data loss): surface a persistent "project not saved" notice; split the status strip so errors aren't counted inside the "Warnings" chip.
-- [x] **E7** Dependency & lint hygiene — jspdf 3.x → 4.x (1 critical advisory, breaking API; touches `pdfexport.ts` + tests) and the dev-only tinypool/vitest advisories; ESLint flat config wired into CI (tsc strict alone is the only lint today).
+- [x] **E7** Dependency & lint hygiene — `e73e085` — jspdf 3.x → 4.x (1 critical advisory, breaking API; touches `pdfexport.ts` + tests) and the dev-only tinypool/vitest advisories; ESLint flat config wired into CI (tsc strict alone is the only lint today).
 
 ## Phase F — Tank & fin-fan data entry (requested in session)
 
@@ -140,5 +140,6 @@ grep -n "^- \[ \]\|^- \[~\]" BATCHES.md   # what is next
 npx tsc --noEmit && npx vitest run        # confirm green before editing
 ```
 
-Start with the first unchecked batch in Phase E (E1 first — it changes calculated numbers),
-then Phase F for the requested tank/fin-fan data entry, then the cheap Phase C items.
+Phases E and F1–F3 are complete (see the `[x]` entries above). What remains:
+the cheap Phase C items (C1 verify, C3, C5, C6, C7), C8 (UI tests), F4 (per-course
+plate grade) on request, and the blocked Phase D research items.
