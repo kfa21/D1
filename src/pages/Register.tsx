@@ -61,6 +61,13 @@ function updateSection(equipId: string, secId: string, patch: Partial<SectionSpe
   update(equipId, { sections: e.sections.map((s) => (s.id === secId ? { ...s, ...patch } : s)) });
 }
 
+/** 1-based label of the shell course a nozzle sits on — the engine resolves it
+ *  from the nozzle elevation against the body layout (not the stored sectionId). */
+function courseOf(calc: ReturnType<typeof computeEquipment>, nc: { sectionId: string }): string {
+  const i = calc.sections.findIndex((s) => s.spec.id === nc.sectionId);
+  return i >= 0 ? `C${i + 1}` : '—';
+}
+
 export default function Register() {
   const equipment = useStore((s) => s.equipment);
   const selectedId = useStore((s) => s.selectedEquipId);
@@ -97,9 +104,18 @@ export default function Register() {
     copy.id = uid('eq');
     copy.srNo = Math.max(0, ...getStore().equipment.map((e) => e.srNo)) + 1;
     copy.tag = src.tag + '-COPY';
-    copy.sections = copy.sections.map((s) => ({ ...s, id: uid('sec') }));
-    copy.nozzles = copy.nozzles.map((n) => ({ ...n, id: uid('nz'), sectionId: '' }));
-    copy.nozzles.forEach((n) => (n.sectionId = copy.sections[0]?.id ?? ''));
+    // re-issue section ids, keeping every nozzle on the course it came from
+    const courseMap = new Map<string, string>();
+    copy.sections = copy.sections.map((s) => {
+      const nid = uid('sec');
+      courseMap.set(s.id, nid);
+      return { ...s, id: nid };
+    });
+    copy.nozzles = copy.nozzles.map((n) => ({
+      ...n,
+      id: uid('nz'),
+      sectionId: courseMap.get(n.sectionId) ?? copy.sections[0]?.id ?? '',
+    }));
     setState((s) => ({ equipment: [...s.equipment, copy] }));
   };
 
@@ -492,7 +508,7 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
                 <thead>
                   <tr>
                     <th>Tag</th><th>Service</th><th>Kind</th><th className="num">Bore (mm)</th><th>Sch</th>
-                    <th className="num">Elev (mm)</th><th className="num">Azim°</th><th>Flange</th><th>Flange mat</th>
+                    <th className="num">Elev (mm)</th><th className="num" title="Shell course the nozzle sits on — resolved from its elevation">Course</th><th className="num">Azim°</th><th>Flange</th><th>Flange mat</th>
                     <th className="num">Pad Ø</th><th className="num">Pad t</th>
                     <th className="num grp">Neck t (mm)</th><th className="num grp">A req</th><th className="num grp">A prov</th>
                     <th className="num grp">Rating (bar)</th><th className="grp">Status</th><th></th>
@@ -512,7 +528,8 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
                         <td><select value={n.schKey} onChange={(e) => upNz(n.id, { schKey: e.target.value })}>
                           {SCHEDULES.map((s) => <option key={s} value={s}>Sch {s}</option>)}
                         </select></td>
-                        <td><input type="number" className="num" value={n.elevation} onChange={(e) => upNz(n.id, { elevation: +e.target.value })} /></td>
+                        <td><input id={fid(`nz${i}-elevation`)} type="number" className="num" value={n.elevation} onChange={(e) => upNz(n.id, { elevation: +e.target.value })} /><FixNote equipId={equip.id} field={`nz${i}-elevation`} /></td>
+                        <td className="num calc" title="Course resolved by the engine from the nozzle elevation (bottom tangent = 0)">{nc ? courseOf(calc, nc) : '—'}</td>
                         <td><input type="number" className="num" value={n.azimuth} onChange={(e) => upNz(n.id, { azimuth: +e.target.value })} /></td>                        <td><select id={fid(`nz${i}-flangeClass`)} value={n.flangeClass} onChange={(e) => upNz(n.id, { flangeClass: +e.target.value as never })}>
                           {[150, 300, 600, 900, 1500, 2500].map((c) => <option key={c} value={c}>Cl {c0label(c)}</option>)}</select><FixNote equipId={equip.id} field={`nz${i}-flangeClass`} /></td>
                         <td><select value={n.flangeMatKey} onChange={(e) => upNz(n.id, { flangeMatKey: e.target.value })}>

@@ -24,6 +24,7 @@ export const WARNING_CATALOG: Record<string, WarningSpec> = {
   'CN-02': { level: 'warning', note: 'Cone included angle > 30° — knuckle/multi-cone advised' },
   'NZ-01': { level: 'error', note: 'Nozzle neck wall below UG-45/pressure requirement' },
   'NZ-02': { level: 'error', note: 'Nozzle reinforcement shortfall (UG-37)' },
+  'NZ-03': { level: 'warning', note: 'Nozzle elevation outside the shell — checked against the nearest course' },
   'FL-01': { level: 'error', note: 'B16.5 flange rating below design pressure at temperature' },
   'FL-02': { level: 'info', note: 'Flange class over-sized (>50% margin) — consider lower class' },
   'FL-03': { level: 'info', note: 'Flange class > 600 rated conservatively from the Class 600 table — verify per B16.5' },

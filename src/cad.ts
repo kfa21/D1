@@ -1,7 +1,7 @@
 // CAD interop: OBJ (3D mesh) and DXF (2D outline) exports.
 
 import type { Equipment, EquipmentCalc } from './engine/types';
-import { buildBodyLayout } from './engine/layout3d';
+import { buildBodyLayout, locateNozzle } from './engine/layout3d';
 
 function download(filename: string, content: string, mime = 'text/plain') {
   const blob = new Blob([content], { type: mime });
@@ -89,15 +89,17 @@ function domeMesh(r: number, depth: number, seg = 48, rings = 12): THREE_BufLike
   return { positions, indices };
 }
 
-/** DXF R12 elevation outline: shell rectangle + head profiles + nozzle stubs. */
-export function exportDXF(equip: Equipment, calc: EquipmentCalc) {
+/** DXF R12 elevation outline: shell rectangle + head profiles + nozzle stubs.
+ *  Pure (no DOM) so the geometry is unit-testable; exportDXF only downloads it. */
+export function buildDxf(equip: Equipment, calc: EquipmentCalc): string {
   const L: string[] = ['0', 'SECTION', '2', 'ENTITIES'];
   const line = (x1: number, y1: number, x2: number, y2: number) => {
     L.push('0', 'LINE', '8', 'OUTLINE', '10', x1.toFixed(2), '20', y1.toFixed(2), '11', x2.toFixed(2), '21', y2.toFixed(2));
   };
-  // Outline drawn from the same layout as the 3D view. Y = 0 is the bottom
-  // tangent (the vessel datum nozzle elevations are measured from), so stubs
-  // and courses line up; both head arcs are drawn in full and the cone
+  // Outline drawn from the same layout as the 3D view: Y = 0 is the bottom-head
+  // tip and the bottom tangent (the datum nozzle elevations are measured from)
+  // sits at y = bottomDepth — exactly the layout frame, so heads, courses and
+  // nozzle stubs line up; both head arcs are drawn in full and the cone
   // transitions close the step between differing diameters.
   const layout = buildBodyLayout(calc.sections);
   const arc = (R: number, d: number, base: number, down: boolean) => {
@@ -111,25 +113,33 @@ export function exportDXF(equip: Equipment, calc: EquipmentCalc) {
     }
   };
   const segs = layout.segments;
-  if (layout.bottomDepth > 0 && segs[0]) arc(segs[0].r0, layout.bottomDepth, 0, true);
+  // bottom head: tangent at y = bottomDepth, tip down at y = 0 (was base 0,
+  // which hung the head a full head-depth below the shell)
+  if (layout.bottomDepth > 0 && segs[0]) arc(segs[0].r0, layout.bottomDepth, layout.bottomDepth, true);
   segs.forEach((seg) => {
     line(-seg.r0, seg.y0, -seg.r1, seg.y1);
     line(seg.r0, seg.y0, seg.r1, seg.y1);
   });
   if (layout.topHeadDepth > 0 && segs.length) arc(segs[segs.length - 1].r1, layout.topHeadDepth, layout.stackTop, false);
-  // nozzles as radial stubs (schematic) — elevation is measured from y = 0
+  // nozzles as radial stubs (schematic) — same placement as the viewer:
+  // elevation measured from the bottom tangent (y = bottomDepth), radius taken
+  // at that height so a stub on an upper, smaller course starts at that course.
   for (const nc of calc.nozzles) {
-    const sc = calc.sections.find((s) => s.spec.id === nc.spec.sectionId) ?? calc.sections[0];
-    if (!sc) continue;
-    const R = sc.spec.dia / 2;
+    const place = locateNozzle(layout, nc.spec.elevation);
+    if (!place) continue;
+    const R = place.r;
+    const yy = place.y;
     const r = nc.spec.dn / 2;
-    const yy = nc.spec.elevation;
     const side = nc.spec.azimuth < 180 ? 1 : -1;
     line(side * R, yy - r, side * (R + nc.spec.projOutside), yy - r);
     line(side * R, yy + r, side * (R + nc.spec.projOutside), yy + r);
   }
   L.push('0', 'ENDSEC', '0', 'EOF');
-  download(`${equip.tag || 'equipment'}.dxf`, L.join('\n'), 'application/dxf');
+  return L.join('\n');
+}
+
+export function exportDXF(equip: Equipment, calc: EquipmentCalc) {
+  download(`${equip.tag || 'equipment'}.dxf`, buildDxf(equip, calc), 'application/dxf');
 }
 
 const csvField = (v: string | number): string => {

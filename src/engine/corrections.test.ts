@@ -883,3 +883,61 @@ describe('Shell-side Bell–Delaware rating & tube-vibration screening (Batch 7a
     expect(checkWarningCodes(c.warnings).problems).toEqual([]);
   });
 });
+
+describe('nozzle → shell course resolved from its elevation (not the stored sectionId)', () => {
+  /** Two equal-diameter courses (no cone needed); the upper one is thinner —
+   *  exactly the case where the old sections[0] lookup checked the wrong wall. */
+  const twoCourse = (elevation: number): Equipment => {
+    const eq = newEquipment('vessel', 1);
+    eq.orientation = 'vertical';
+    eq.designPressure = 10;
+    eq.corrosionAllowance = 3;
+    eq.sections = [
+      { ...eq.sections[0], id: 'c1', dia: 2000, ttLength: 4000, shellThk: 24, headTop: 'none', headBottom: 'ellip2' },
+      { ...eq.sections[0], id: 'c2', dia: 2000, ttLength: 4000, shellThk: 20, headTop: 'ellip2', headBottom: 'none', coneAngleDeg: 0 },
+    ];
+    eq.nozzles = [{
+      id: 'nz1', tag: 'N1', service: 'Inlet', dn: 300, schKey: '40',
+      sectionId: 'c1', // legacy stored value — the editor always wrote sections[0]
+      elevation, azimuth: 0, kind: 'process', flangeClass: 300, flangeMatKey: 'SA-105',
+      padDia: 0, padThk: 0, projOutside: 150,
+    }];
+    return eq;
+  };
+
+  it('checks a nozzle against the course it sits on, using that course wall in A1', () => {
+    const c = computeEquipment(twoCourse(6000)); // course 2 spans 4000–8000 mm
+    const nz = c.nozzles[0];
+    expect(nz.sectionId).toBe('c2'); // stored sectionId says c1 — elevation wins
+    const sec = c.sections.find((s) => s.spec.id === 'c2')!;
+    const expectedA1 = Math.max(0, nz.dn * (c.weldEfficiency * sec.tCorroded - sec.tReq));
+    expect(nz.A1).toBeCloseTo(expectedA1, 6);
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+  });
+
+  it('the same nozzle lower down reinforces against the thicker bottom course', () => {
+    const lowCalc = computeEquipment(twoCourse(1500));
+    const highCalc = computeEquipment(twoCourse(6000));
+    const low = lowCalc.nozzles[0];
+    const high = highCalc.nozzles[0];
+    expect(low.sectionId).toBe('c1');
+    expect(high.sectionId).toBe('c2');
+    // A1 = d·(E·t_corroded − t_req): same diameter ⇒ same t_req, walls differ by
+    // 4 mm (24 vs 20 nominal) ⇒ the difference is exactly d·E·4
+    expect(low.A1).toBeGreaterThan(0);
+    expect(high.A1).toBeGreaterThan(0);
+    expect(low.A1 - high.A1).toBeCloseTo(low.dn * 4 * lowCalc.weldEfficiency, 6);
+  });
+
+  it('an elevation outside the shell clamps to the nearest course and warns NZ-03', () => {
+    const above = computeEquipment(twoCourse(99999));
+    expect(above.nozzles[0].sectionId).toBe('c2'); // clamped to the top course
+    const w = above.warnings.find((x) => x.code === 'NZ-03');
+    expect(w?.level).toBe('warning');
+    expect(w?.msg).toContain('99999');
+    const below = computeEquipment(twoCourse(-500));
+    expect(below.nozzles[0].sectionId).toBe('c1');
+    expect(below.warnings.some((x) => x.code === 'NZ-03')).toBe(true);
+    expect(checkWarningCodes([...above.warnings, ...below.warnings]).problems).toEqual([]);
+  });
+});

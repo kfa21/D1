@@ -24,6 +24,7 @@ import { flangeWeightKg, npsNumber, pipeMassKgPerM, studCount, wallForBore } fro
 import { clamp, interp } from './units';
 import { pwhtAdvice } from './pwht';
 import { loadWarnings, screenNozzleLoad } from './wrc107';
+import { buildBodyLayout, locateNozzle } from './layout3d';
 import { stiffenerRingCheck } from './rings';
 import { designMargin, designMarginWarnings } from './viii2';
 
@@ -537,6 +538,8 @@ function calcNozzle(
 
   return {
     spec: nozzle,
+    /** course the nozzle reinforces — resolved from its elevation in computeVessel */
+    sectionId: section.spec.id,
     dn: d,
     wall,
     wallCorroded: wallCorr,
@@ -766,13 +769,23 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
     if (cone) cone.D2 = i > 0 ? sections[i - 1].spec.dia : cone.D1;
   }
 
-  // Nozzles
+  // Nozzles — the course a nozzle reinforces is the course it SITS ON: resolve
+  // it from the nozzle elevation against the same body stack the 3D viewer and
+  // the CAD exports draw (layout3d). The stored sectionId was never editable —
+  // the editor has always written sections[0] there — so trusting it checked
+  // every nozzle on a multi-course shell against the bottom course.
+  const layout = buildBodyLayout(sections);
+  const maxElev = Math.max(0, layout.stackTop - layout.bottomDepth);
   const nozzleCalcs = equip.nozzles.map((n) => {
-    const sec =
-      sections.find((s) => s.spec.id === n.sectionId) ??
-      sections.reduce((best, s) =>
-        Math.abs(s.spec.dia) < Math.abs(best.spec.dia) ? s : best
-      );
+    const place = locateNozzle(layout, n.elevation);
+    if (place?.clamped) {
+      warnings.push({
+        level: 'warning',
+        code: 'NZ-03',
+        msg: `Nozzle ${n.tag}: elevation ${n.elevation} mm is outside the shell (0–${maxElev.toFixed(0)} mm from the bottom tangent) — checked against course ${place.segment.sectionIndex + 1}; correct the Elev column on the Nozzles tab`,
+      });
+    }
+    const sec = (place && sections[place.segment.sectionIndex]) || sections[0];
     return calcNozzle(n, sec, Pm, S, E, ca, mat.key, T, PExt, warnings);
   });
 

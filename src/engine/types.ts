@@ -466,6 +466,9 @@ export interface SectionCalc {
 
 export interface NozzleCalc {
   spec: NozzleSpec;
+  /** resolved shell course (SectionSpec.id) the nozzle reinforces — derived from
+   *  its elevation against the body layout, NOT from the stored spec.sectionId */
+  sectionId: string;
   dn: number; // corroded opening dia
   wall: number; // nominal neck wall
   wallCorroded: number;
