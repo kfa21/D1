@@ -90,6 +90,10 @@ This file is the single source of truth for incremental work on this project.
 - [x] **F3** Tank roof/bottom fields — `18c5d3e` — roof slope selector (1:16 / 1:20 / custom) replacing the hard-coded `roofSlope = 1.055`, named and sourced dome factor (retires **C2**), annular ring width field (default 600 mm per §5.5.3, currently a literal), and decide `stiffenerRings` — it's in `TankSpec` + defaults but has no UI and no engine read: wire it to the §5.8.7 girder advisory or delete it.
 - [ ] **F4** *(optional, larger — split if started)* per-course shell plate grade for tanks (API 650 allows different grades per course; engine, BOM and Reports all assume one `materialKey`) + hydrotest medium density (hard-coded 997 kg/m³).
 
+## Phase G — Later requests
+
+- [x] **G1** All spreadsheet exports as formatted .xlsx — the seven `exportSheet()` call sites (BOM, plate procurement, optimized procurement, estimate detail, ITP, stage schedule, calc data) wrote RFC-4180 CSV; they now go through `src/xlsx.ts` (dependency-free OOXML writer: frozen styled header, per-column widths, real numbers with `#,##0` formats, bordered totals, italic notes). `toCsv`/`downloadCSV`/`buildSheetRows` removed; cad.test.ts covers layout, ZIP integrity and workbook structure, and the output was validated with openpyxl. — `18de687`
+
 **Suggested order:** E1 → E2 → F1 → F2 → E3 → E4 → E5 → F3 → E6 → E7; F4 only on request. E1/E2 and F1/F3 change calculated results — land their golden tests before UI polish.
 
 ---
