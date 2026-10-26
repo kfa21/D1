@@ -19,6 +19,8 @@ export interface Settings {
   geminiModel: string;
   projectName: string;
   clientName: string;
+  /** manual hours per man-hour basis key (Settings → man-hours table); absent = engine auto */
+  manhourOverrides: Record<string, number>;
 }
 
 export interface ReviewNote {
@@ -106,6 +108,7 @@ export const defaultSettings: Settings = {
   geminiModel: 'gemini-2.5-flash',
   projectName: 'New Project',
   clientName: '',
+  manhourOverrides: {},
 };
 
 let state: AppState = {

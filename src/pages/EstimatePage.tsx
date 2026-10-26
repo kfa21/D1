@@ -20,8 +20,8 @@ export default function EstimatePage() {
 
   const est = useMemo(() => {
     const entries = equipment.map((e) => ({ equip: e, calc: computeEquipment(e) }));
-    return estimateProject(entries, settings.rates, ctx);
-  }, [equipment, settings.rates, ctx]);
+    return estimateProject(entries, settings.rates, ctx, settings.manhourOverrides);
+  }, [equipment, settings.rates, ctx, settings.manhourOverrides]);
 
   const t = est.totals;
 

@@ -75,6 +75,56 @@ export const DEFAULT_RATES: RateCard = {
 
 export type LaborTrade = keyof RateCard['labor'];
 
+/** A documented man-hour item: what the estimate counts, how its auto hours are derived, who does it. */
+export interface ManhourBasis {
+  key: string;
+  label: string;
+  /** labor trade charged (\'outsourced\' = billed as an outside service, not shop hours) */
+  trade: LaborTrade | 'outsourced';
+  /** how the automatic hours are derived — shown verbatim in Settings */
+  basis: string;
+}
+
+/** Project total of one man-hour item: the engine's auto basis vs what is actually applied. */
+export interface ManhourUsage {
+  key: string;
+  autoH: number;
+  appliedH: number;
+}
+
+/**
+ * Every man-hour the estimate engine considers. Settings shows this table with the
+ * derivation and a manual input per row; the difference from the auto value is booked
+ * as one adjustment line so the automatic basis stays visible in the detailed estimate.
+ */
+export const MANHOUR_BASIS: ManhourBasis[] = [
+  { key: 'weld.ls', label: 'Shell longitudinal seam welding', trade: 'welder', basis: 'h/m welding norm by governing thickness (SAW root+fill deposition model where SAW-eligible), × joint position factor' },
+  { key: 'weld.cs', label: 'Shell circumferential seam welding', trade: 'welder', basis: 'h/m welding norm by governing thickness; course count from 2 m plate lengths' },
+  { key: 'weld.head', label: 'Head-to-shell seam welding', trade: 'welder', basis: 'h/m welding norm per head-to-shell circumferential seam (one per head)' },
+  { key: 'weld.blank', label: 'Head blank seam welding (multi-plate blanks)', trade: 'welder', basis: 'blank-chord seam length × h/m norm at head thickness × 1.1 fit/position factor' },
+  { key: 'weld.cone', label: 'Cone transition seam welding', trade: 'welder', basis: 'h/m norm × (2 long + 2 circumferential equivalent) per cone transition' },
+  { key: 'weld.nozzle', label: 'Nozzle attachment welds', trade: 'welder', basis: 'h/m norm × 0.7 over Σ nozzle neck circumference — always manual welds (no SAW)' },
+  { key: 'cut', label: 'Plate cutting & edge prep', trade: 'helper', basis: '2.2 × total weld length (m) × cutting h/m norm by thickness' },
+  { key: 'edge', label: 'Edge planning / milling', trade: 'fitter', basis: '2.2 × total weld length (m) × milling h/m norm by thickness' },
+  { key: 'fitup', label: 'Fit-up & assembly', trade: 'fitter', basis: '0.55 × total seam welding hours' },
+  { key: 'rolling', label: 'Shell rolling / forming', trade: 'fitter', basis: 'per shell course: 0.35 × t (mm) + 2 h' },
+  { key: 'forming', label: 'Head forming & trimming (outsourced)', trade: 'outsourced', basis: 'per dish end: 0.6 × head thickness (mm) × blank diameter (m), at the Settings outside-service rate — hours, not shop labor' },
+  { key: 'nzfit', label: 'Nozzle fit & attachment', trade: 'fitter', basis: '1.2 + 0.5 × DN/25.4 h per nozzle' },
+  { key: 'internals', label: 'Internals installation (trays, demisters…)', trade: 'fitter', basis: 'per item: count × (2 h + 0.4 × internal area m²)' },
+  { key: 'mech', label: 'Mechanical completion, bolting & trim', trade: 'fitter', basis: '6 h per tonne dry weight' },
+  { key: 'supports', label: 'Supports, lugs, legs & anchor bolts', trade: 'welder', basis: 'per support item from its own fabrication norm + 0.3 h per anchor bolt set' },
+  { key: 'struct', label: 'Structural steelwork fabrication (skid / portal / platform)', trade: 'fitter', basis: 'from the recommended-structure module (member count × weight norm) — counted only when a structure is selected' },
+  { key: 'ndt.mt', label: 'MT/DP surface NDT & visual', trade: 'qc', basis: 'weld length × extent factor × 0.12 h/m + 0.5 h per nozzle' },
+  { key: 'ndt.ut', label: 'Conventional UT (pulse-echo)', trade: 'qc', basis: 'weld length × extent factor × 0.5 h/m (crew day rate billed separately)' },
+  { key: 'ndt.rt', label: 'Conventional RT (film, UW-51)', trade: 'qc', basis: 'weld length × extent factor × 1.2 h/m (RT crew & film day rate billed separately)' },
+  { key: 'ndt.putTofd', label: 'PaUT/TOFD volumetric scanning', trade: 'qc', basis: 'weld length × extent factor × 0.8 h/m (scanner crew day rate billed separately)' },
+  { key: 'pwht', label: 'PWHT operation (charge/discharge, chart)', trade: 'pwht', basis: '18 h per cycle when PWHT is required by UCS-56 (furnace cycle billed separately)' },
+  { key: 'hydro', label: 'Hydrostatic test (fill, hold, drain, dry)', trade: 'fitter', basis: '8 h + 0.3 h per nozzle (test water billed separately)' },
+  { key: 'paint', label: 'Blasting & painting (SA 2.5, 2 coats)', trade: 'painter', basis: '0.12 h per m² paint area (paint billed per m² separately)' },
+  { key: 'eng', label: 'Design, planning & documentation', trade: 'engineer', basis: '6 % of total shop hours (project level)' },
+  { key: 'qa', label: 'QA/QC surveillance', trade: 'qc', basis: '2 % of total shop hours (project level)' },
+];
+
 export interface EstimateLine {
   equipId: string;
   tag: string;
@@ -85,6 +135,8 @@ export interface EstimateLine {
   rateUSD: number;
   amountUSD: number;
   trade?: LaborTrade;
+  /** man-hour basis key when this line is (or adjusts) a man-hour item */
+  key?: string;
 }
 
 /** Structured weld breakdown: hours, deposit, joint config and electrodes per weld area. */
@@ -117,6 +169,8 @@ export interface TagEstimate {
   shopHours: number;
   totalUSD: number;
   hoursByActivity: { activity: string; hours: number; trade: LaborTrade }[];
+  /** auto vs applied man-hours for this tag (Settings shows the project roll-up) */
+  manhours: ManhourUsage[];
 }
 
 export interface EstimateResult {
@@ -134,6 +188,8 @@ export interface EstimateResult {
     contingencyUSD: number;
     grandUSD: number;
   };
+  /** every documented man-hour item: engine auto basis vs hours actually applied */
+  manhours: ManhourUsage[];
 }
 
 // --- productivity norms (hours per metre / per item) ---
@@ -232,7 +288,11 @@ export interface EstimateInput {
   procurementCostUSD: number; // plate cost incl. stock thickness & wastage
 }
 
-export function estimateEquipment(input: EstimateInput, rates: RateCard): { lines: EstimateLine[]; tag: TagEstimate } {
+export function estimateEquipment(
+  input: EstimateInput,
+  rates: RateCard,
+  manhourOverrides?: Record<string, number>
+): { lines: EstimateLine[]; tag: TagEstimate } {
   const { equip, calc, bom, procurementCostUSD } = input;
   const lines: EstimateLine[] = [];
   const tag = equip.tag;
@@ -358,33 +418,36 @@ export function estimateEquipment(input: EstimateInput, rates: RateCard): { line
 
   // ---- SHOP LABOR ----
   const hoursByActivity: { activity: string; hours: number; trade: LaborTrade }[] = [];
-  const labor = (activity: string, hours: number, trade: LaborTrade) => {
+  /** automatic hours accumulated per man-hour basis key (pre-override) */
+  const autoByKey: Record<string, number> = {};
+  const labor = (activity: string, hours: number, trade: LaborTrade, key?: string) => {
+    if (key) autoByKey[key] = (autoByKey[key] ?? 0) + hours;
     if (hours <= 0) return;
     const rate = rates.labor[trade];
-    push({ group: trade === 'welder' ? 'Welding' : 'Shop labor', activity, qty: hours, unit: 'h', rateUSD: rate, amountUSD: hours * rate, trade });
+    push({ group: trade === 'welder' ? 'Welding' : 'Shop labor', activity, qty: hours, unit: 'h', rateUSD: rate, amountUSD: hours * rate, trade, key });
     hoursByActivity.push({ activity, hours, trade });
   };
 
-  labor(`Longitudinal seam welding — shell (${ls.toFixed(1)} m @ ${(lsH / Math.max(ls, 1e-6)).toFixed(1)} h/m${useSAW ? ', SAW fill/cap' : ', SMAW'})`, lsH, 'welder');
-  labor(`Shell circumferential seam welding (${cs.toFixed(1)} m @ ${(csH / Math.max(cs, 1e-6)).toFixed(1)} h/m)`, csH, 'welder');
-  labor(`Head-to-shell seam welding (${headWeldM.toFixed(1)} m)`, headSeamH, 'welder');
-  labor(`Head blank seam welding — multi-plate, ${headBlankSeamM.toFixed(1)} m at head thickness`, blankSeamH, 'welder');
-  labor(`Cone transition seam welding (${coneWeldM.toFixed(1)} m)`, coneH, 'welder');
-  labor(`Nozzle welds (${nz.toFixed(1)} m)`, nzH, 'welder');
+  labor(`Longitudinal seam welding — shell (${ls.toFixed(1)} m @ ${(lsH / Math.max(ls, 1e-6)).toFixed(1)} h/m${useSAW ? ', SAW fill/cap' : ', SMAW'})`, lsH, 'welder', 'weld.ls');
+  labor(`Shell circumferential seam welding (${cs.toFixed(1)} m @ ${(csH / Math.max(cs, 1e-6)).toFixed(1)} h/m)`, csH, 'welder', 'weld.cs');
+  labor(`Head-to-shell seam welding (${headWeldM.toFixed(1)} m)`, headSeamH, 'welder', 'weld.head');
+  labor(`Head blank seam welding — multi-plate, ${headBlankSeamM.toFixed(1)} m at head thickness`, blankSeamH, 'welder', 'weld.blank');
+  labor(`Cone transition seam welding (${coneWeldM.toFixed(1)} m)`, coneH, 'welder', 'weld.cone');
+  labor(`Nozzle welds (${nz.toFixed(1)} m)`, nzH, 'welder', 'weld.nozzle');
 
   const cutLen = 2.2 * Math.max(weldM, 1);
-  labor(`Plate cutting & edge prep (${cutLen.toFixed(0)} m)`, cutLen * hPerM_cut(tGov), 'helper');
-  labor(`Edge planning/milling (${cutLen.toFixed(0)} m)`, cutLen * hPerM_edge(tGov), 'fitter');
+  labor(`Plate cutting & edge prep (${cutLen.toFixed(0)} m)`, cutLen * hPerM_cut(tGov), 'helper', 'cut');
+  labor(`Edge planning/milling (${cutLen.toFixed(0)} m)`, cutLen * hPerM_edge(tGov), 'fitter', 'edge');
 
   const fitH = 0.55 * seamTotalH;
-  labor('Fit-up & assembly', fitH, 'fitter');
+  labor('Fit-up & assembly', fitH, 'fitter', 'fitup');
 
   let rollH = 0;
   for (const s of calc.sections) {
     const nCourses = Math.max(1, Math.ceil(s.spec.ttLength / 2000));
     rollH += nCourses * (0.35 * s.tNominal + 2);
   }
-  labor('Shell rolling / forming', rollH, 'fitter');
+  labor('Shell rolling / forming', rollH, 'fitter', 'rolling');
 
   // ---- Head forming — OUTSOURCED service (outside cost, not in-house shop hours) ----
   // Auto hours = Σ 0.6 × head thickness (mm) × blank diameter (m) per dish end; priced at the
@@ -399,14 +462,20 @@ export function estimateEquipment(input: EstimateInput, rates: RateCard): { line
       if (hc) formHAuto += 0.6 * headThk * (hc.blankDia / 1000);
     }
   }
+  const formingOverride = manhourOverrides?.forming;
+  autoByKey.forming = formHAuto;
   const formingHours =
-    equip.formingHoursOverride != null && equip.formingHoursOverride >= 0 ? equip.formingHoursOverride : formHAuto;
+    equip.formingHoursOverride != null && equip.formingHoursOverride >= 0
+      ? equip.formingHoursOverride
+      : formingOverride != null && Number.isFinite(formingOverride)
+      ? formingOverride
+      : formHAuto;
   const formingRate =
     equip.formingRateOverride != null && equip.formingRateOverride >= 0 ? equip.formingRateOverride : rates.formingRate;
   if (formingHours > 0) {
     push({
       group: 'Outside services',
-      activity: `Head forming & trimming — outsourced dish ends (${formingHours.toFixed(1)} h @ ${formingRate}/h${equip.formingHoursOverride != null ? ', manual hours' : ', auto hours'})`,
+      activity: `Head forming & trimming — outsourced dish ends (${formingHours.toFixed(1)} h @ ${formingRate}/h${equip.formingHoursOverride != null ? ', manual hours (tag)' : formingOverride != null ? ', manual hours (settings)' : ', auto hours'})`,
       qty: formingHours,
       unit: 'h',
       rateUSD: formingRate,
@@ -415,15 +484,15 @@ export function estimateEquipment(input: EstimateInput, rates: RateCard): { line
   }
 
   const nzFit = calc.nozzles.reduce((s, n) => s + 1.2 + 0.5 * (n.spec.dn / 25.4), 0);
-  labor('Nozzle fit & attachment', nzFit, 'fitter');
+  labor('Nozzle fit & attachment', nzFit, 'fitter', 'nzfit');
 
   let intH = 0;
   const area = (Math.PI / 4) * Math.pow(((equip.sections[0]?.dia ?? 1000) - 150) / 1000, 2);
   for (const it of equip.internals) intH += it.count * (2 + area * 0.4);
-  labor('Internals installation', intH, 'fitter');
+  labor('Internals installation', intH, 'fitter', 'internals');
 
   const mechH = calc.weightDryKg / 1000 * 6; // mechanical completion
-  labor('Mechanical completion, bolting & trim', mechH, 'fitter');
+  labor('Mechanical completion, bolting & trim', mechH, 'fitter', 'mech');
 
   // ---- SUPPORTS — each support kind fabricated & costed separately (steel via BOM Structural) ----
   const sup = calc.supports;
@@ -431,18 +500,18 @@ export function estimateEquipment(input: EstimateInput, rates: RateCard): { line
   if (sup) {
     for (const it of sup.items) {
       if (it.hours <= 0) continue;
-      labor(`${it.label} — fit-up & welding (${it.count} × ${(it.hours / it.count).toFixed(1)} h each)`, it.hours, 'welder');
+      labor(`${it.label} — fit-up & welding (${it.count} × ${(it.hours / it.count).toFixed(1)} h each)`, it.hours, 'welder', 'supports');
       supWeldLenM += it.weldLenM;
     }
     if (sup.anchorBolts) {
-      labor(`Anchor bolt setting & grouting (${sup.anchorBolts.count} × M${sup.anchorBolts.diaMm})`, sup.anchorBolts.count * 0.3, 'fitter');
+      labor(`Anchor bolt setting & grouting (${sup.anchorBolts.count} × M${sup.anchorBolts.diaMm})`, sup.anchorBolts.count * 0.3, 'fitter', 'supports');
     }
   }
 
   // ---- STRUCTURAL STEELWORK (skid / portal / pedestal / platform) — costed only when selected ----
   const structRec = recommendStructure(equip, calc);
   if (structRec.enabled && structRec.weightKg > 0) {
-    labor(`Structural steelwork fabrication (${structRec.kind}: ${structRec.members.length} member types, ${structRec.weightKg.toFixed(0)} kg)`, structRec.hours, 'fitter');
+    labor(`Structural steelwork fabrication (${structRec.kind}: ${structRec.members.length} member types, ${structRec.weightKg.toFixed(0)} kg)`, structRec.hours, 'fitter', 'struct');
   }
 
   // ---- NDT (from per-tag plan: DP/MT, UT, conventional RT, PaUT/TOFD) ----
@@ -465,7 +534,7 @@ export function estimateEquipment(input: EstimateInput, rates: RateCard): { line
     const extentF = EXTENT[p.extent] ?? 0.3;
     const timingLabel = p.timing === 'during' ? 'interstage, during welding' : p.timing === 'afterPwht' ? 'after PWHT' : 'final, before hydrotest';
     const h = weldM * extentF * (NDT_RATE[p.method] ?? 0.3) + (p.method === 'mt' ? calc.nozzles.length * 0.5 : 0);
-    labor(`${NDT_LABEL[p.method]} — ${p.extent} extent, ${timingLabel}`, h, 'qc');
+    labor(`${NDT_LABEL[p.method]} — ${p.extent} extent, ${timingLabel}`, h, 'qc', `ndt.${p.method}`);
     if (p.method === 'rt') {
       const days = Math.max(1, Math.ceil((weldM * extentF) / 25));
       push({ group: 'NDT', activity: `Conventional RT crew & film (${days} day${days > 1 ? 's' : ''})`, qty: days, unit: 'day', rateUSD: rates.rtDayUSD, amountUSD: days * rates.rtDayUSD });
@@ -478,19 +547,39 @@ export function estimateEquipment(input: EstimateInput, rates: RateCard): { line
 
   // ---- PWHT ----
   if (calc.pwht.required) {
-    labor('PWHT operation (charge/discharge, chart recording)', 18, 'pwht');
+    labor('PWHT operation (charge/discharge, chart recording)', 18, 'pwht', 'pwht');
     push({ group: 'PWHT', activity: 'PWHT furnace/rig cycle incl. insulation & fuel', qty: 1, unit: 'cycle', rateUSD: rates.pwhtCycleUSD, amountUSD: rates.pwhtCycleUSD });
   }
 
   // ---- Hydrotest ----
   const hydroH = 8 + calc.nozzles.length * 0.3;
-  labor('Hydrostatic test (fill, hold, drain, dry)', hydroH, 'fitter');
+  labor('Hydrostatic test (fill, hold, drain, dry)', hydroH, 'fitter', 'hydro');
   push({ group: 'Hydro & test', activity: 'Test water', qty: calc.internalVolumeM3, unit: 'm³', rateUSD: rates.hydroUSDperM3, amountUSD: calc.internalVolumeM3 * rates.hydroUSDperM3 });
 
   // ---- Painting ----
   const paintM2 = calc.paintAreaM2;
-  labor('Blasting & painting (SA 2.5, 2 coats)', paintM2 * 0.12, 'painter');
+  labor('Blasting & painting (SA 2.5, 2 coats)', paintM2 * 0.12, 'painter', 'paint');
   push({ group: 'Painting', activity: 'Paint & consumables', qty: paintM2, unit: 'm²', rateUSD: rates.paintUSDperM2, amountUSD: paintM2 * rates.paintUSDperM2 });
+
+  // ---- MANUAL MANHOUR OVERRIDES (Settings) ----
+  // Settings documents every man-hour above and accepts a manual value per item; the
+  // difference from the auto basis is booked as one adjustment line so both stay visible.
+  const appliedByKey: Record<string, number> = { ...autoByKey, forming: formingHours };
+  for (const b of MANHOUR_BASIS) {
+    if (b.key === 'eng' || b.key === 'qa') continue; // project level — applied in estimateProject
+    if (b.trade === 'outsourced') continue; // forming hours ride on the outside-service line above
+    const ov = manhourOverrides?.[b.key];
+    if (ov == null || !Number.isFinite(ov)) continue;
+    const auto = autoByKey[b.key] ?? 0;
+    appliedByKey[b.key] = ov;
+    const delta = ov - auto;
+    if (Math.abs(delta) < 1e-9) continue;
+    const trade = b.trade as LaborTrade;
+    const rate = rates.labor[trade];
+    const activity = `Manual manhour adjustment — ${b.label} (auto ${auto.toFixed(1)} h → manual ${ov.toFixed(1)} h)`;
+    push({ group: trade === 'welder' ? 'Welding' : 'Shop labor', activity, qty: delta, unit: 'h', rateUSD: rate, amountUSD: delta * rate, trade, key: b.key });
+    hoursByActivity.push({ activity, hours: delta, trade });
+  }
 
   // ---- Consumables ----
   // Deposit is taken from the per-segment weld breakdown so SAW seams consume wire + flux and
@@ -536,6 +625,11 @@ export function estimateEquipment(input: EstimateInput, rates: RateCard): { line
       totalUSD: materialUSD + laborUSD + consumableUSD + serviceUSD,
       hoursByActivity,
       welds,
+      manhours: MANHOUR_BASIS.filter((b) => b.key !== 'eng' && b.key !== 'qa').map((b) => ({
+        key: b.key,
+        autoH: autoByKey[b.key] ?? 0,
+        appliedH: appliedByKey[b.key] ?? autoByKey[b.key] ?? 0,
+      })),
     },
   };
 }
@@ -543,7 +637,8 @@ export function estimateEquipment(input: EstimateInput, rates: RateCard): { line
 export function estimateProject(
   entries: { equip: Equipment; calc: EquipmentCalc }[],
   rates: RateCard,
-  stockCtx: ProcurementContext
+  stockCtx: ProcurementContext,
+  manhourOverrides?: Record<string, number>
 ): EstimateResult {
   const lines: EstimateLine[] = [];
   const perTag: TagEstimate[] = [];
@@ -552,7 +647,7 @@ export function estimateProject(
     const { items, plateReqs } = generateBOM(e.equip, e.calc);
     const proc = buildProcurement(plateReqs, stockCtx);
     const procurementCost = proc.lines.reduce((s, l) => s + l.estimatedCostUSD, 0);
-    const res = estimateEquipment({ equip: e.equip, calc: e.calc, bom: items, procurementCostUSD: procurementCost }, rates);
+    const res = estimateEquipment({ equip: e.equip, calc: e.calc, bom: items, procurementCostUSD: procurementCost }, rates, manhourOverrides);
     lines.push(...res.lines);
     perTag.push(res.tag);
   }
@@ -564,24 +659,41 @@ export function estimateProject(
   const shopHours = perTag.reduce((s, t) => s + t.shopHours, 0);
   const subtotal = materialUSD + laborUSD + consumableUSD + serviceUSD;
 
-  // engineering & QA overlay
-  const engHours = shopHours * 0.06;
+  // engineering & QA overlay (auto percentages, replaceable from Settings)
+  const engAuto = shopHours * 0.06;
+  const engHours = manhourOverrides?.eng ?? engAuto;
   const engUSD = engHours * rates.labor.engineer;
-  const qaHours = shopHours * 0.02;
+  const qaAuto = shopHours * 0.02;
+  const qaHours = manhourOverrides?.qa ?? qaAuto;
   const qaUSD = qaHours * rates.labor.qc;
   if (engUSD > 0)
-    lines.push({ equipId: 'project', tag: 'ALL', group: 'Engineering/QA', activity: 'Design, planning & documentation', qty: engHours, unit: 'h', rateUSD: rates.labor.engineer, amountUSD: engUSD, trade: 'engineer' });
+    lines.push({ equipId: 'project', tag: 'ALL', group: 'Engineering/QA', activity: `Design, planning & documentation${manhourOverrides?.eng != null ? ' (manual hours)' : ' (6% of shop hours)'}`, qty: engHours, unit: 'h', rateUSD: rates.labor.engineer, amountUSD: engUSD, trade: 'engineer', key: 'eng' });
   if (qaUSD > 0)
-    lines.push({ equipId: 'project', tag: 'ALL', group: 'Engineering/QA', activity: 'QA/QC surveillance', qty: qaHours, unit: 'h', rateUSD: rates.labor.qc, amountUSD: qaUSD, trade: 'qc' });
+    lines.push({ equipId: 'project', tag: 'ALL', group: 'Engineering/QA', activity: `QA/QC surveillance${manhourOverrides?.qa != null ? ' (manual hours)' : ' (2% of shop hours)'}`, qty: qaHours, unit: 'h', rateUSD: rates.labor.qc, amountUSD: qaUSD, trade: 'qc', key: 'qa' });
 
   const withEng = subtotal + engUSD + qaUSD;
   const overheadUSD = (withEng * rates.overheadPct) / 100;
   const profitUSD = ((withEng + overheadUSD) * rates.profitPct) / 100;
   const contingencyUSD = ((withEng + overheadUSD + profitUSD) * rates.contingencyPct) / 100;
 
+  // roll up auto vs applied man-hours across tags, plus the project-level items
+  const mh = new Map<string, ManhourUsage>();
+  for (const t of perTag) {
+    for (const m of t.manhours) {
+      const cur = mh.get(m.key) ?? { key: m.key, autoH: 0, appliedH: 0 };
+      cur.autoH += m.autoH;
+      cur.appliedH += m.appliedH;
+      mh.set(m.key, cur);
+    }
+  }
+  mh.set('eng', { key: 'eng', autoH: engAuto, appliedH: engHours });
+  mh.set('qa', { key: 'qa', autoH: qaAuto, appliedH: qaHours });
+  const manhours: ManhourUsage[] = MANHOUR_BASIS.map((b) => mh.get(b.key) ?? { key: b.key, autoH: 0, appliedH: 0 });
+
   return {
     lines,
     perTag,
+    manhours,
     totals: {
       materialUSD,
       laborUSD,
