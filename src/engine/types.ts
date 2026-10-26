@@ -1,6 +1,9 @@
 // Domain model for the static equipment design suite.
 // Internal unit system: length mm, pressure bar(g), temperature °C, mass kg, stress MPa.
 
+import type { StiffenerRingResult } from './rings';
+import type { DesignMarginCalc } from './viii2';
+
 export type EquipType = 'vessel' | 'column' | 'hx' | 'finfan' | 'tank';
 export type HeadType = 'ellip2' | 'toriFD' | 'toriD' | 'hemi' | 'none';
 export type Orientation = 'vertical' | 'horizontal';
@@ -339,6 +342,17 @@ export interface FinFanSpec {
   tubeCount: number; // 0 => auto
 }
 
+/** Flat-bar external-pressure stiffening ring drawn on the vessel. */
+export interface StiffenerRingSpec {
+  enabled: boolean;
+  /** Web depth measured radially (mm, 0 = no section drawn yet) */
+  webDepthMm: number;
+  /** Web thickness (mm) */
+  webThkMm: number;
+  /** Number of rings between the lines of support (0 = one ring at mid-span) */
+  count: number;
+}
+
 export interface Equipment {
   id: string;
   srNo: number;
@@ -377,6 +391,10 @@ export interface Equipment {
   structure?: StructureSpec;
   /** design wind/seismic loads for anchor-bolt overturning (vessels & columns) */
   designLoads?: DesignLoads;
+  /** External-pressure (vacuum) stiffening ring — flat bar welded radially to the shell */
+  ring?: StiffenerRingSpec;
+  /** ASME VIII-2 Part 5 design-by-analysis (design margin) screen */
+  designByAnalysis?: boolean;
   /** Desired MAWP (bar g); 0 => equal to design pressure */
   mwps: number;
   testPressureFactor: number; // default 1.3 (UG-99)
@@ -726,6 +744,10 @@ export interface BOMItem {
 export interface EquipmentCalc {
   equip: Equipment;
   codeRef: string;
+  /** External-pressure stiffening-ring check, when the vessel sees vacuum/external pressure */
+  ring?: StiffenerRingResult;
+  /** VIII-2 Part 5 primary-stress screen, when design-by-analysis is selected */
+  designMargin?: DesignMarginCalc;
   mawpBar: number;
   mawpNote: string;
   /** Cladding/lining summary (vessels & columns) */

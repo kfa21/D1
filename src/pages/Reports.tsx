@@ -4,6 +4,8 @@ import { useMemo } from 'react';
 import { useStore, setState } from '../store';
 import { computeEquipment } from '../engine/compute';
 import { fmt } from '../engine/units';
+import { reportUnits, unitModeLabel } from '../engine/reportUnits';
+import { exportDatasheetPdf } from '../pdfexport';
 import { downloadCSV, exportDXF, exportOBJ } from '../cad';
 import { getMat } from '../engine/materials';
 import { printElementById } from '../print';
@@ -22,6 +24,9 @@ export default function Reports() {
 
   const equip = equipment.find((e) => e.id === selectedId) ?? equipment[0];
   const calc = useMemo(() => (equip ? computeEquipment(equip) : null), [equip]);
+  // Reporting units — the engine stays SI; imperial is applied at this edge only.
+  const u = reportUnits(settings.units);
+  const L = u.labels;
 
   if (!equip || !calc) return <div className="card">Create equipment tags in the Register first.</div>;
 
@@ -32,6 +37,7 @@ export default function Reports() {
           {equipment.map((e) => <option key={e.id} value={e.id}>{e.tag} — {e.name}</option>)}
         </select>
         <button className="primary" onClick={() => printElementById('report-sheet', `${equip.tag} — calculation report`)}>⎙ PDF — this tag</button>
+        <button onClick={() => void exportDatasheetPdf(equip, calc, { projectName: settings.projectName, clientName: settings.clientName, units: settings.units })}>⤓ Datasheet PDF (file)</button>{' '}
         <button className="green" onClick={() => printElementById('project-report', `${settings.projectName} — project report`)}>⎙ PDF — full project</button>
         <button onClick={() => downloadCSV(`${equip.tag}_calc.csv`, reportRows(equip.tag, equip.name, equip.designPressure, equip.designTemp, calc))}>Export calc CSV</button>
         <button onClick={() => exportDXF(equip, calc)}>Export DXF outline</button>
@@ -59,31 +65,36 @@ export default function Reports() {
         </div>
 
         <div className="grid2" style={{ marginBottom: 12 }}>
-          <div className="kpi"><span className="v">{equip.designPressure} bar / {equip.designTemp} °C</span><span className="l">Design conditions</span></div>
-          <div className="kpi"><span className="v">{fmt(calc.mawpBar, 2)} bar g</span><span className="l">MAWP — {calc.mawpNote}</span></div>
-          <div className="kpi"><span className="v">{fmt(calc.hydroTestBar, 2)} bar</span><span className="l">Hydrotest (top / bottom {fmt(calc.hydroTestBottomBar, 2)})</span></div>
-          <div className="kpi"><span className="v">{fmt(calc.weightDryKg, 0)} kg</span><span className="l">Dry weight (op. {fmt(calc.weightOperatingKg, 0)} kg)</span></div>
-          <div className="kpi"><span className="v">{fmt(calc.internalVolumeM3, 2)} m³</span><span className="l">Internal volume · paint {fmt(calc.paintAreaM2, 1)} m²</span></div>
-          <div className="kpi"><span className="v">E = {calc.weldEfficiency.toFixed(2)}</span><span className="l">Joint efficiency ({equip.rtCategory} RT) · S = {fmt(calc.sAllow, 1)} MPa</span></div>
+          <div className="kpi"><span className="v">{u.press(equip.designPressure)} {L.press} / {u.temp(equip.designTemp)} {L.temp}</span><span className="l">Design conditions</span></div>
+          <div className="kpi"><span className="v">{u.press(calc.mawpBar)} {L.press} g</span><span className="l">MAWP — {calc.mawpNote}</span></div>
+          <div className="kpi"><span className="v">{u.press(calc.hydroTestBar)} {L.press}</span><span className="l">Hydrotest (top / bottom {u.press(calc.hydroTestBottomBar)})</span></div>
+          <div className="kpi"><span className="v">{u.mass(calc.weightDryKg)} {L.mass}</span><span className="l">Dry weight (op. {u.mass(calc.weightOperatingKg)} {L.mass})</span></div>
+          <div className="kpi"><span className="v">{u.vol(calc.internalVolumeM3)} {L.vol}</span><span className="l">Internal volume · paint {u.area(calc.paintAreaM2)} {L.area}</span></div>
+          <div className="kpi"><span className="v">E = {calc.weldEfficiency.toFixed(2)}</span><span className="l">Joint efficiency ({equip.rtCategory} RT) · S = {u.stress(calc.sAllow)} {L.stress}</span></div>
         </div>
+        {settings.units === 'imperial' && (
+          <p className="small muted" style={{ marginTop: -6 }}>
+            Imperial reporting mode — the vessel datasheet above and the exported PDF are in {unitModeLabel(settings.units)}; the editor, tank / exchanger / fin-fan tables and every stored value remain SI (mm · bar · °C · kg).
+          </p>
+        )}
 
         <h3>Shell sections</h3>
         <table className="grid" style={{ marginBottom: 12 }}>
           <thead>
-            <tr><th>Sec</th><th className="num">ID (mm)</th><th className="num">T-T (mm)</th><th>Material</th><th className="num">t req (mm)</th><th className="num">t + CA (mm)</th><th className="num">t nom (mm)</th><th className="num">t corr (mm)</th><th className="num">MAWP hoop/long</th><th className="num">Util %</th><th>Governing</th></tr>
+            <tr><th>Sec</th><th className="num">ID ({L.len})</th><th className="num">T-T ({L.len})</th><th>Material</th><th className="num">t req ({L.len})</th><th className="num">t + CA ({L.len})</th><th className="num">t nom ({L.len})</th><th className="num">t corr ({L.len})</th><th className="num">MAWP hoop/long ({L.press})</th><th className="num">Util %</th><th>Governing</th></tr>
           </thead>
           <tbody>
             {calc.sections.map((s, i) => (
               <tr key={s.spec.id}>
                 <td>{i + 1}</td>
-                <td className="num">{s.spec.dia}</td>
-                <td className="num">{s.spec.ttLength}</td>
+                <td className="num">{u.len(s.spec.dia, 1)}</td>
+                <td className="num">{u.len(s.spec.ttLength, 0)}</td>
                 <td className="small">{getMat(equip.materialKey)?.name ?? equip.materialKey}</td>
-                <td className="num calc">{fmt(s.tReq, 2)}</td>
-                <td className="num calc">{fmt(s.tMinNominal, 2)}</td>
-                <td className="num">{s.tNominal}</td>
-                <td className="num">{fmt(s.tCorroded, 2)}</td>
-                <td className="num calc">{fmt(s.mawpHoop, 2)} / {fmt(s.mawpLong, 2)}</td>
+                <td className="num calc">{u.len(s.tReq, 2)}</td>
+                <td className="num calc">{u.len(s.tMinNominal, 2)}</td>
+                <td className="num">{u.len(s.tNominal, 2)}</td>
+                <td className="num">{u.len(s.tCorroded, 2)}</td>
+                <td className="num calc">{u.press(s.mawpHoop, 1)} / {u.press(s.mawpLong, 1)}</td>
                 <td className="num">{(s.utilization * 100).toFixed(0)}</td>
                 <td className="small">{s.governing}</td>
               </tr>
@@ -92,8 +103,7 @@ export default function Reports() {
         </table>
 
         <h3>Dish ends</h3>
-        <table className="grid" style={{ marginBottom: 12 }}>
-          <thead><tr><th>Sec</th><th>Position</th><th>Type</th><th className="num">Crown R</th><th className="num">Knuckle R</th><th className="num">t req</th><th className="num">t nom</th><th className="num">Blank Ø</th><th className="num">MAWP</th></tr></thead>
+        <table className="grid" style={{ marginBottom: 12 }}>              <thead><tr><th>Sec</th><th>Position</th><th>Type</th><th className="num">Crown R ({L.len})</th><th className="num">Knuckle R ({L.len})</th><th className="num">t req ({L.len})</th><th className="num">t nom ({L.len})</th><th className="num">Blank Ø ({L.len})</th><th className="num">MAWP ({L.press})</th></tr></thead>
           <tbody>
             {calc.sections.flatMap((s, i) =>
               [s.headTop, s.headBot]
@@ -103,12 +113,12 @@ export default function Reports() {
                     <td>{i + 1}</td>
                     <td>{j === 0 ? 'Top' : 'Bottom'}</td>
                     <td>{h!.type}</td>
-                    <td className="num">{fmt(h!.crownR, 0)}</td>
-                    <td className="num">{fmt(h!.knuckleR, 0)}</td>
-                    <td className="num calc">{fmt(h!.tReq, 2)}</td>
-                    <td className="num">{h!.tMinNominal}</td>
-                    <td className="num">{fmt(h!.blankDia, 0)}</td>
-                    <td className="num calc">{fmt(h!.mawp, 2)}</td>
+                    <td className="num">{u.len(h!.crownR, 1)}</td>
+                    <td className="num">{u.len(h!.knuckleR, 1)}</td>
+                    <td className="num calc">{u.len(h!.tReq, 2)}</td>
+                    <td className="num">{u.len(h!.tMinNominal, 2)}</td>
+                    <td className="num">{u.len(h!.blankDia, 0)}</td>
+                    <td className="num calc">{u.press(h!.mawp, 1)}</td>
                   </tr>
                 ))
             )}
@@ -119,20 +129,20 @@ export default function Reports() {
           <>
             <h3>Nozzle reinforcement & flange rating</h3>
             <table className="grid" style={{ marginBottom: 12 }}>
-              <thead><tr><th>Tag</th><th>Service</th><th className="num">Bore</th><th className="num">Neck t</th><th className="num">UG-45 min</th><th className="num">A req</th><th className="num">A prov</th><th>Reinf.</th><th>Flange</th><th className="num">Rating @T</th><th>Local loads</th><th>OK</th></tr></thead>
+              <thead><tr><th>Tag</th><th>Service</th><th className="num">DN bore</th><th className="num">Neck t ({L.len})</th><th className="num">UG-45 min ({L.len})</th><th className="num">A req (mm²)</th><th className="num">A prov (mm²)</th><th>Reinf.</th><th>Flange</th><th className="num">Rating @T ({L.press})</th><th>Local loads</th><th>OK</th></tr></thead>
               <tbody>
                 {calc.nozzles.map((n) => (
                   <tr key={n.spec.id}>
                     <td className="mono small">{n.spec.tag}</td>
                     <td className="small">{n.spec.service}</td>
                     <td className="num">{n.spec.dn}</td>
-                    <td className="num">{fmt(n.wall, 2)}</td>
-                    <td className="num">{fmt(n.ug45min, 2)}</td>
+                    <td className="num">{u.len(n.wall, 2)}</td>
+                    <td className="num">{u.len(n.ug45min, 2)}</td>
                     <td className="num">{fmt(n.Areq, 0)}</td>
                     <td className="num">{fmt(n.Aprov, 0)}</td>
                     <td>{n.reinforceOK ? <span className="badge ok">OK</span> : <span className="badge err">FAIL</span>}</td>
                     <td className="small">Cl {n.spec.flangeClass}</td>
-                    <td className="num calc">{fmt(n.flangeRating, 1)} bar</td>
+                    <td className="num calc">{u.press(n.flangeRating, 1)} {L.press}</td>
                     <td className="small">
                       {n.load ? (
                         <>
@@ -155,17 +165,17 @@ export default function Reports() {
           <>
             <h3>External pressure (UG-28)</h3>
             <table className="grid" style={{ marginBottom: 12 }}>
-              <thead><tr><th className="num">L (mm)</th><th className="num">Do</th><th className="num">t corr</th><th className="num">Do/t</th><th className="num">A</th><th className="num">B (psi)</th><th className="num">P allow (bar)</th><th>OK</th></tr></thead>
+              <thead><tr><th className="num">L ({L.len})</th><th className="num">Do ({L.len})</th><th className="num">t corr ({L.len})</th><th className="num">Do/t</th><th className="num">A</th><th className="num">B (psi)</th><th className="num">P allow ({L.press})</th><th>OK</th></tr></thead>
               <tbody>
                 {calc.sections.filter((s) => s.external).map((s, i) => (
                   <tr key={i}>
-                    <td className="num">{fmt(s.external!.L, 0)}</td>
-                    <td className="num">{fmt(s.external!.Do, 0)}</td>
-                    <td className="num">{fmt(s.external!.t, 2)}</td>
+                    <td className="num">{u.len(s.external!.L, 0)}</td>
+                    <td className="num">{u.len(s.external!.Do, 0)}</td>
+                    <td className="num">{u.len(s.external!.t, 2)}</td>
                     <td className="num">{fmt(s.external!.DoOverT, 0)}</td>
                     <td className="num">{s.external!.A.toExponential(3)}</td>
                     <td className="num">{fmt(s.external!.B, 0)}</td>
-                    <td className="num calc">{fmt(s.external!.pAllowBar, 3)}</td>
+                    <td className="num calc">{u.press(s.external!.pAllowBar, 3)}</td>
                     <td>{s.external!.ok ? <span className="badge ok">OK</span> : <span className="badge err">FAIL</span>}</td>
                   </tr>
                 ))}
@@ -178,15 +188,15 @@ export default function Reports() {
           <>
             <h3>Cladding / lining</h3>
             <table className="grid" style={{ marginBottom: 12 }}>
-              <thead><tr><th>Grade</th><th>Type</th><th className="num">Thickness (mm)</th><th>Coverage</th><th className="num">Area (m²)</th><th className="num">Weight (kg)</th></tr></thead>
+              <thead><tr><th>Grade</th><th>Type</th><th className="num">Thickness ({L.len})</th><th>Coverage</th><th className="num">Area ({L.area})</th><th className="num">Weight ({L.mass})</th></tr></thead>
               <tbody>
                 <tr>
                   <td>{calc.clad.materialName}</td>
                   <td>{equip.clad.kind}</td>
-                  <td className="num">{equip.clad.thicknessMm}</td>
-                  <td>{equip.clad.mode === 'full' ? 'Full length + heads' : `Partial — ${equip.clad.partialLengthMm} mm from bottom`}</td>
-                  <td className="num">{fmt(calc.clad.areaM2, 1)}</td>
-                  <td className="num">{fmt(calc.clad.weightKg, 0)}</td>
+                  <td className="num">{u.len(equip.clad.thicknessMm, 2)}</td>
+                  <td>{equip.clad.mode === 'full' ? 'Full length + heads' : `Partial — ${u.len(equip.clad.partialLengthMm, 0)} ${L.len} from bottom`}</td>
+                  <td className="num">{u.area(calc.clad.areaM2, 1)}</td>
+                  <td className="num">{u.mass(calc.clad.weightKg, 0)}</td>
                 </tr>
               </tbody>
             </table>

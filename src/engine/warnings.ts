@@ -47,6 +47,12 @@ export const WARNING_CATALOG: Record<string, WarningSpec> = {
   'SD-05': { level: 'warning', note: 'Longitudinal stress over allowable at saddle (Zick)' },
   'SD-06': { level: 'info', note: 'High saddle horn utilisation — wear plate / stiffener ring advised' },
   'MD-01': { level: 'error', note: 'Cone transition missing between differing diameters' },
+  'DBA-01': { level: 'error', note: 'VIII-2 Part 5 primary stress above the S allowable' },
+  'DBA-02': { level: 'info', note: 'VIII-2 design-by-analysis screen basis and what is not evaluated' },
+  'DBA-03': { level: 'info', note: 'Part 5 fatigue screening not performed (licensed criteria)' },
+  'RG-01': { level: 'warning', note: 'Stiffening-ring inertia below the 49 CFR 179.400-9 requirement' },
+  'RG-02': { level: 'info', note: 'Stiffening-ring required inertia reported (49 CFR 179.400-9)' },
+  'RG-03': { level: 'info', note: 'External-pressure failure with no stiffening ring drawn' },
   // API 650 tanks (api650.ts)
   'T650-01': { level: 'info', note: 'D > 61 m — variable design point method applied (§5.6.4)' },
   'T650-02': { level: 'info', note: 'Wind girder recommended' },

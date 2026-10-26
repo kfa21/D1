@@ -9,6 +9,7 @@ import { estimateProject } from '../engine/estimate';
 import { fmt } from '../engine/units';
 import { downloadCSV } from '../cad';
 import { printElementById } from '../print';
+import { exportBoqPdf } from '../pdfexport';
 import { getMat } from '../engine/materials';
 import type { BOMItem } from '../engine/types';
 import type { PlateProcurementLine } from '../engine/plates';
@@ -81,6 +82,19 @@ export default function BomPage() {
         <>
           <div style={{ marginBottom: 8 }}>
             <button className="primary" onClick={() => printElementById('bom-print-root', 'BOM and procurement')}>⎙ PDF — BOM & procurement</button>{' '}
+            <button
+              onClick={() =>
+                void exportBoqPdf({
+                  meta: { projectName: settings.projectName, clientName: settings.clientName, units: settings.units },
+                  items: data.items,
+                  lines: data.proc.lines,
+                  formatCost: (v) => money(v, settings),
+                  totalCostText: money(plateCost, settings),
+                })
+              }
+            >
+              ⤓ BOQ PDF (file)
+            </button>{' '}
             <button onClick={() => downloadCSV('bom.csv', [['Tag', 'Category', 'Item', 'Spec', 'Material', 'Qty', 'Unit', 'Unit kg', 'Mass kg'], ...data.items.map((i) => [i.tag, i.category, i.item, i.spec, getMat(i.material).name, i.qty, i.unit, i.unitMassKg ?? '', fmt(i.massKg, 1)])])}>
               Export BOM CSV
             </button>

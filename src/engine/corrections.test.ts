@@ -22,6 +22,7 @@ import { studCount } from './pipes';
 import { annularThicknessFromTable, computeTank, iterateVdpCourse, vdpFirstCourseThickness, vdpUpperCourseThickness } from './api650';
 import { kelloggEquivPressureBar, neckStresses, screenNozzleLoad, wrcShellShear } from './wrc107';
 import { bellJB, bellJC, bellJL, esduNusselt, kernFriction, tubeVibration } from './shellside';
+import { combinedRingSection, effectiveShellWidth, requiredRingInertia, stiffenerRingCheck } from './rings';
 import { computeEquipment } from './compute';
 import { demoProject, newEquipment } from '../defaults';
 import { checkWarningCodes } from './warnings';
@@ -717,6 +718,59 @@ describe('API 650 tank anchors (shared bolt-group sizing)', () => {
     expect(c.warnings.some((w) => w.code === 'AB-01' && w.level === 'warning')).toBe(true);
     expect(c.warnings.some((w) => w.code === 'T650-03' && w.level === 'info')).toBe(true);
     expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+  });
+});
+
+describe('External-pressure stiffening rings (49 CFR 179.400-9, Batch 8)', () => {
+  it('required inertia reproduces the imperial numbers in metric units', () => {
+    // Rail-car worked values: D = 60 in, L = 60 in, Pc = 37.5 psi, E = 29e6 psi
+    //   I  = 0.035·D³·L·Pc/E = 0.5866 in⁴
+    // Same inputs in mm/MPa must give the identical physical inertia.
+    const metric = requiredRingInertia(60 * 25.4, 60 * 25.4, 37.5 / 145.037738, 29000 * 6.89475729);
+    expect(metric.ringAlone / Math.pow(25.4, 4)).toBeCloseTo(0.5866, 3);
+    expect(metric.combined / Math.pow(25.4, 4)).toBeCloseTo(0.771, 2); // 0.046/0.035 × 0.5866
+  });
+
+  it('combined flat-bar ring + effective shell matches a published worked section', () => {
+    // 120 × 12 flat bar on a 10 mm shell with a 300 mm effective strip:
+    //   ȳ = (1440·65)/4440 = 21.0811 mm (the source quotes 21.08)
+    //   I = 5.86×10⁶ mm⁴ (the source's arithmetic, reproduced exactly)
+    const sec = combinedRingSection({ webDepthMm: 120, webThkMm: 12, shellWidthMm: 300, shellThkMm: 10 });
+    expect(sec.ringAreaMm2).toBe(1440);
+    expect(sec.centroidMm).toBeCloseTo(21.0811, 3);
+    expect(sec.inertiaMm4 / 1e6).toBeCloseTo(5.8638, 3);
+    expect(sec.ringInertiaMm4).toBe(1_728_000); // 12·120³/12
+    expect(sec.sectionModulusMm3).toBeGreaterThan(0);
+  });
+
+  it('effective shell participation is W = 0.78·√(R·t) each side', () => {
+    expect(effectiveShellWidth(100, 10)).toBeCloseTo(0.78 * Math.sqrt(1000), 6);
+    expect(effectiveShellWidth(0, 10)).toBe(0);
+  });
+
+  it('reports the requirement and flags a short ring end-to-end (RG-02/RG-01)', () => {
+    const base = demoProject().find((e) => e.equipType === 'vessel')!;
+    const eq = { ...base, externalPressure: 1, ring: { enabled: true, webDepthMm: 40, webThkMm: 10, count: 1 } } as Equipment;
+    const c = computeEquipment(eq);
+    expect(c.ring).toBeTruthy();
+    expect(c.ring!.reqCombinedMm4).toBeGreaterThan(0);
+    expect(c.ring!.section).toBeTruthy();
+    expect(c.warnings.some((w) => w.code === 'RG-02' && w.level === 'info')).toBe(true);
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+
+    // a hair-thin ring cannot meet the requirement → RG-01 and ok = false
+    const thin = { ...eq, ring: { enabled: true, webDepthMm: 5, webThkMm: 5, count: 1 } } as Equipment;
+    const c2 = computeEquipment(thin);
+    expect(c2.ring!.ok).toBe(false);
+    expect(c2.warnings.some((w) => w.code === 'RG-01' && w.level === 'warning')).toBe(true);
+    expect(checkWarningCodes(c2.warnings).problems).toEqual([]);
+  });
+
+  it('rings between supports shorten the design bay', () => {
+    const one = stiffenerRingCheck({ dOutsideMm: 2000, shellThkMm: 12, lengthMm: 8000, collapseBar: 1, count: 0 });
+    const three = stiffenerRingCheck({ dOutsideMm: 2000, shellThkMm: 12, lengthMm: 8000, collapseBar: 1, count: 3 });
+    expect(three.lengthMm).toBeCloseTo(one.lengthMm / 4, 6);
+    expect(three.reqCombinedMm4).toBeLessThan(one.reqCombinedMm4);
   });
 });
 

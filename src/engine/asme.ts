@@ -17,12 +17,15 @@ import type {
   SectionSpec,
   Warning,
 } from './types';
+import type { StiffenerRingResult } from './rings';
 import { allowableAt, getMat } from './materials';
 import { flangeGroupForMat, verifyFlange } from './flange';
 import { flangeWeightKg, npsNumber, pipeMassKgPerM, studCount, wallForBore } from './pipes';
 import { clamp, interp } from './units';
 import { pwhtAdvice } from './pwht';
 import { loadWarnings, screenNozzleLoad } from './wrc107';
+import { stiffenerRingCheck } from './rings';
+import { designMargin, designMarginWarnings } from './viii2';
 
 export const JOINT_EFFICIENCY: Record<'full' | 'spot' | 'none', number> = {
   full: 1.0, // UW-12(a) full radiography
@@ -685,11 +688,13 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
   // External pressure line of support
   const totalTT = equip.sections.reduce((s, x) => s + x.ttLength, 0);
   const overall = equip.orientation === 'vertical' ? totalTT * 1.05 : totalTT * 0.85;
+  const ringL = equip.orientation === 'vertical' ? overall : equip.support.saddleSpan || overall;
 
+  let extFail = false;
   const sections = equip.sections.map((spec) => {
     const c = calcSection(spec, Pm, PExt, mat.key, S, E, ca, warnings);
     // attach UG-28 result with realistic L
-    const L = equip.orientation === 'vertical' ? overall : equip.support.saddleSpan || overall;
+    const L = ringL;
     const ext = externalPressureCheck(
       spec.dia + 2 * c.tNominal,
       Math.max(0.5, c.tCorroded),
@@ -703,6 +708,7 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
     );
     c.external = { ...ext, L, Do: spec.dia + 2 * c.tNominal, t: c.tCorroded, DoOverT: (spec.dia + 2 * c.tNominal) / Math.max(0.5, c.tCorroded), ok: ext.ok(PExt) } as any;
     if (PExt > 0 && !ext.ok(PExt)) {
+      extFail = true;
       warnings.push({
         level: 'error',
         code: 'EX-01',
@@ -711,6 +717,48 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
     }
     return c;
   });
+
+  // External-pressure (vacuum) stiffening ring — public 49 CFR 179.400-9 rule
+  let ring: StiffenerRingResult | undefined;
+  if (PExt > 0 && sections.length) {
+    const cyl = sections
+      .filter((s) => !s.cone)
+      .reduce((big, s) => (s.spec.dia > big.spec.dia ? s : big), sections[0]);
+    const shellDo = cyl.spec.dia + 2 * cyl.tNominal;
+    const spec = equip.ring;
+    ring = stiffenerRingCheck({
+      dOutsideMm: shellDo,
+      shellThkMm: cyl.tNominal,
+      lengthMm: ringL,
+      collapseBar: PExt,
+      webDepthMm: spec?.enabled ? spec.webDepthMm : 0,
+      webThkMm: spec?.enabled ? spec.webThkMm : 0,
+      count: spec?.enabled ? spec.count : 0,
+    });
+    warnings.push({
+      level: 'info',
+      code: 'RG-02',
+      msg: `Stiffening-ring requirement (49 CFR 179.400-9): I′ = ${ring.reqCombinedMm4.toExponential(2)} mm⁴ combined / I = ${ring.reqRingMm4.toExponential(2)} mm⁴ ring alone at Ø${shellDo.toFixed(0)} × L ${ring.lengthMm.toFixed(0)} mm, Pc ${PExt} bar — effective shell ${ring.effectiveWidthMm.toFixed(0)} mm each side${ring.rings ? `, ${ring.rings + 1} equal bays` : ''}`,
+    });
+    if (ring.section && !ring.ok) {
+      warnings.push({
+        level: 'warning',
+        code: 'RG-01',
+        msg: `Stiffening ring inertia short: ${ring.section.inertiaMm4.toExponential(2)} mm⁴ available vs ${ring.reqCombinedMm4.toExponential(2)} mm⁴ required combined (ring alone ${ring.section.ringInertiaMm4.toExponential(2)} vs ${ring.reqRingMm4.toExponential(2)}) — increase the ring web depth or thickness`,
+      });
+    }
+    if (extFail && !ring.section) {
+      warnings.push({
+        level: 'info',
+        code: 'RG-03',
+        msg: 'Shell fails under external pressure and no stiffening ring is drawn — a ring shortens the unsupported length (add it in the equipment editor to size it)',
+      });
+    }
+  }
+
+  // ASME VIII-2 Part 5 design-by-analysis screen (opt-in) — primary stress only
+  const dm = designMargin(equip, sections);
+  warnings.push(...designMarginWarnings(dm));
 
   // Cone transitions: D2 (small end) = diameter of the section below
   for (let i = 0; i < sections.length; i++) {
@@ -988,11 +1036,11 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
   }
 
   const membraneUtil = Math.max(0, ...sections.map((s) => s.utilization));
-  const mawpNote = `Governing MAWP (corroded) ${calcMawp.toFixed(2)} bar @ ${T} °C, E=${E}, S=${S.toFixed(0)} MPa`;
-
-  return {
+  const mawpNote = `Governing MAWP (corroded) ${calcMawp.toFixed(2)} bar @ ${T} °C, E=${E}, S=${S.toFixed(0)} MPa`;    return {
     equip,
     codeRef: 'ASME VIII-1: UG-16/UG-27/UG-28/UG-32/UG-37/UG-40/UG-45/UG-99, UCS-56, UW-12',
+    ring,
+    designMargin: dm ?? undefined,
     mawpBar,
     mawpNote,
     sections,
