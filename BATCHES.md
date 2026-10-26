@@ -58,7 +58,7 @@ This file is the single source of truth for incremental work on this project.
 ## Phase C — Known code-review defects (fix before/with the batch noted)
 
 - [ ] **C1** Non-annular bottom plates: confirm the 6 mm floor is applied as `6 + CA` (corroded) and not nominal — *verify B2 landed correctly; fix if not.*
-- [ ] **C2** Tank weights: `annularThk` reflected in `bottomWeight`; roof-slope constants (`1.055`, `1.05`, `0.6`) documented or replaced with named, sourced values.
+- [x] **C2** Tank weights: `annularThk` reflected in `bottomWeight` (B2); roof-slope constants (`1.055`, `1.05`, `0.6`) now named, and the cone factor is derived from the F3 slope selector — retired by F3 `18c5d3e`.
 - [ ] **C3** VDP fixed 5-pass loop: warn when a course does not converge (only reported, not yet warned).
 - [ ] **C4** WRC screening: resolve nozzle loads into the shell frame via nozzle azimuth; add shell-side interaction of shear + pressure as a single utilisation (partially done in B6).
 - [ ] **C5** `hasLoad` / `toSI` exported but untested — add unit tests or un-export.
@@ -87,7 +87,7 @@ This file is the single source of truth for incremental work on this project.
 
 - [x] **F1** Fin-fan datasheet fields — `FinFanSpec.airRiseC` exists but has **no editor field** (silently defaults to 15 °C). Add: air temperature rise / air outlet, site design data (elevation → air density replacing the hard-coded 1.2 kg/m³, relative humidity), fin type (L-footed / serrated / G-footed / integral) feeding fin efficiency in the area model, explicit fouling factor (U is currently "0 = auto 55" with fouling folded in), and a fan block (fan diameter or auto-size with the ≥40 % coverage readout, drive type, motor rating). New fields need `warnings.ts` codes + `fixes.ts` targets + golden tests per the batch rules. — `2096ffd`
 - [x] **F2** Fin-fan live readouts in the editor — surface face velocity, air flow (CMH), finned area, actual tube count, fan BHP/kW and thermal margin (today they surface only in `mawpNote` on Reports), reusing the engine's discarded `fanDia` / `plenumDia` / `fanAreaMin`; remove the unused `d1` "placeholder" in `api661.ts` LMTD and tidy the uncertain `bundleWidth` comment. — `473791b`
-- [ ] **F3** Tank roof/bottom fields — roof slope selector (1:16 / 1:20 / custom) replacing the hard-coded `roofSlope = 1.055`, named and sourced dome factor (retires **C2**), annular ring width field (default 600 mm per §5.5.3, currently a literal), and decide `stiffenerRings` — it's in `TankSpec` + defaults but has no UI and no engine read: wire it to the §5.8.7 girder advisory or delete it.
+- [x] **F3** Tank roof/bottom fields — `18c5d3e` — roof slope selector (1:16 / 1:20 / custom) replacing the hard-coded `roofSlope = 1.055`, named and sourced dome factor (retires **C2**), annular ring width field (default 600 mm per §5.5.3, currently a literal), and decide `stiffenerRings` — it's in `TankSpec` + defaults but has no UI and no engine read: wire it to the §5.8.7 girder advisory or delete it.
 - [ ] **F4** *(optional, larger — split if started)* per-course shell plate grade for tanks (API 650 allows different grades per course; engine, BOM and Reports all assume one `materialKey`) + hydrotest medium density (hard-coded 997 kg/m³).
 
 **Suggested order:** E1 → E2 → F1 → F2 → E3 → E4 → E5 → F3 → E6 → E7; F4 only on request. E1/E2 and F1/F3 change calculated results — land their golden tests before UI polish.

@@ -51,6 +51,34 @@ describe('exportProjectJson', () => {
   });
 });
 
+describe('persist failure feedback (E6)', () => {
+  it('surfaces a storage write failure instead of swallowing it, and clears it on recovery', () => {
+    const g = globalThis as { localStorage?: unknown };
+    const original = g.localStorage;
+    try {
+      g.localStorage = {
+        getItem: () => null,
+        setItem: () => {
+          const err = new Error('The quota has been exceeded.');
+          err.name = 'QuotaExceededError';
+          throw err;
+        },
+      };
+      setState({ selectedEquipId: null });
+      expect(getStore().saveError).toMatch(/QuotaExceededError/);
+      // the failure flag itself never reaches the stored snapshot
+      expect(getStore().saveError).not.toBeNull();
+
+      g.localStorage = { getItem: () => null, setItem: () => {} };
+      setState({ selectedEquipId: null });
+      expect(getStore().saveError).toBeNull(); // next good write clears the notice
+    } finally {
+      if (original === undefined) delete g.localStorage;
+      else g.localStorage = original;
+    }
+  });
+});
+
 describe('importProjectData', () => {
   it('converts a legacy USD-base file to BHD', () => {
     importProjectData({

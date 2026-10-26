@@ -49,6 +49,8 @@ export interface AppState {
    * every ref that outlives a reload/import is stale). Shown as a re-attach hint.
    */
   staleDatasheets: DatasheetRef[];
+  /** last localStorage write failure (null = saved) — surfaced as a persistent notice */
+  saveError: string | null;
   /** base64 payloads kept in memory only (too large for localStorage) */
   _datasheetData: Record<string, string>;
 }
@@ -123,6 +125,7 @@ let state: AppState = {
   reviews: [],
   datasheets: [],
   staleDatasheets: [],
+  saveError: null,
   _datasheetData: {},
 };
 
@@ -160,20 +163,25 @@ load();
 
 const listeners = new Set<() => void>();
 
-function persist() {
+/** Write the snapshot to localStorage. Returns null on success, or the failure
+ *  message — a quota error used to be swallowed, silently losing the project. */
+function persist(): string | null {
   try {
-    const { _datasheetData, ...rest } = state;
+    const { _datasheetData, saveError, ...rest } = state;
     void _datasheetData;
+    void saveError;
     localStorage.setItem(KEY, JSON.stringify(rest));
-  } catch {
-    /* quota — ignore */
+    return null;
+  } catch (e) {
+    return e instanceof Error ? `${e.name}: ${e.message}` : String(e);
   }
 }
 
 export function setState(patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) {
   const p = typeof patch === 'function' ? patch(state) : patch;
   state = { ...state, ...p };
-  persist();
+  // record (and clear) the save failure without recursing back through setState
+  state = { ...state, saveError: persist() };
   listeners.forEach((l) => l());
 }
 
@@ -187,8 +195,9 @@ export function setSettings(patch: Partial<Settings>) {
  * (attachment names are kept so an import can prompt for a re-attach).
  */
 export function exportProjectJson(): string {
-  const { _datasheetData, ...rest } = state;
+  const { _datasheetData, saveError, ...rest } = state;
   void _datasheetData;
+  void saveError;
   const { geminiKey, ...settings } = rest.settings;
   void geminiKey;
   return JSON.stringify({ ...rest, settings }, null, 2);

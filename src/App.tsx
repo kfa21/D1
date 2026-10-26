@@ -36,19 +36,23 @@ export default function App() {
   const [page, setPage] = useState<PageKey>('register');
   const settings = useStore((s) => s.settings);
   const equipment = useStore((s) => s.equipment);
+  const saveError = useStore((s) => s.saveError);
   const equipCount = equipment.length;
 
   // Project status strip (PV Elite-style code summary), live over every tag.
+  // Errors and warnings are counted separately — the old code folded errors
+  // into the "Warnings" chip and counted them twice.
   const status = useMemo(() => {
     let errors = 0;
     let warns = 0;
     let passing = 0;
     for (const e of equipment) {
       const calc = computeEquipment(e);
-      const w = calc.warnings.filter((x) => x.level !== 'info');
-      errors += calc.warnings.filter((x) => x.level === 'error').length;
-      warns += w.length;
-      if (!w.some((x) => x.level === 'error')) passing++;
+      const err = calc.warnings.filter((x) => x.level === 'error').length;
+      const wrn = calc.warnings.filter((x) => x.level === 'warning').length;
+      errors += err;
+      warns += wrn;
+      if (err === 0 && wrn === 0) passing++;
     }
     return { errors, warns, passing };
   }, [equipment]);
@@ -113,10 +117,18 @@ export default function App() {
             ))}
           </select>
         </div>
+        {saveError && (
+          <div className="finding error" style={{ margin: '8px 12px 0' }}>
+            ⚠ <strong>Project not saved to this browser</strong> — the storage write failed ({saveError}). Your latest
+            changes exist only in this tab: free up space or export a backup from Settings → Data, then make any change
+            to retry the save.
+          </div>
+        )}
         <div className="statusstrip">
           <span className="chip"><span className={`dot ${statusDot}`} /> {statusText}</span>
           <span className="chip">Tags: <strong>{equipCount}</strong></span>
           <span className="chip">Passing: <strong>{status.passing}/{equipCount}</strong></span>
+          <span className="chip">Errors: <strong>{status.errors}</strong></span>
           <span className="chip">Warnings: <strong>{status.warns}</strong></span>
           <span className="chip">Client: <strong>{settings.clientName || '—'}</strong></span>
           <span className="chip">Currency: <strong>{settings.currency}</strong></span>
