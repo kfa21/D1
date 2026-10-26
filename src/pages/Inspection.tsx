@@ -84,9 +84,9 @@ export default function Inspection() {
       <div className="row" style={{ marginBottom: 12 }}>
         <div className="kpi"><span className="v">{equipment.filter((e) => e.inspectionLevel === '3.1').length}</span><span className="l">App. 3.1 tags (U-1A)</span></div>
         <div className="kpi"><span className="v">{equipment.filter((e) => e.inspectionLevel === '3.2').length}</span><span className="l">App. 3.2 tags (U-1)</span></div>
-        <div className="kpi"><span className="v">{fmt(equipment.reduce((s, e) => s + computeEquipment(e).weldLengthM, 0), 0)} m</span><span className="l">Weld length under ITP</span></div>
+        <div className="kpi"><span className="v">{fmt(summary.reduce((s, { calc }) => s + calc.weldLengthM, 0), 0)} m</span><span className="l">Weld length under ITP</span></div>
         <div className="kpi"><span className="v">{equipment.filter((e) => e.ndtPlan?.some((p) => p.enabled && p.method === 'putTofd')).length}</span><span className="l">Tags with PaUT/TOFD</span></div>
-        <div className="kpi green"><span className="v">{fmt(equipment.reduce((s, e) => s + stageData(e).total, 0), 0)} h</span><span className="l">Total inspection hours (project)</span></div>
+        <div className="kpi green"><span className="v">{fmt(summary.reduce((s, { e, calc }) => s + stageData(e, calc).total, 0), 0)} h</span><span className="l">Total inspection hours (project)</span></div>
       </div>
 
       <div className="tablewrap" style={{ marginBottom: 16 }}>
@@ -146,7 +146,7 @@ export default function Inspection() {
             setState((s) => ({
               equipment: s.equipment.map((x) => {
                 if (x.id !== e.id) return x;
-                const cur = mergeItpStages(defaultItpStages(x, computeEquipment(x)), x.itpStages);
+                const cur = mergeItpStages(defaultItpStages(x, calc), x.itpStages);
                 return { ...x, itpStages: cur.map((st) => (st.code === code ? { ...st, ...patch } : st)) };
               }),
             }));

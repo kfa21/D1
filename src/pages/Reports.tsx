@@ -26,6 +26,10 @@ export default function Reports() {
 
   const equip = equipment.find((e) => e.id === selectedId) ?? equipment[0];
   const calc = useMemo(() => (equip ? computeEquipment(equip) : null), [equip]);
+  // one compute per tag per equipment change — the table, totals and warning list
+  // all read from this map instead of re-running engines inside their loops
+  const calcs = useMemo(() => new Map(equipment.map((e) => [e.id, computeEquipment(e)] as const)), [equipment]);
+  const calcFor = (e: (typeof equipment)[number]) => calcs.get(e.id) ?? computeEquipment(e);
   const [openCode, setOpenCode] = useState<string | null>(null);
   // Reporting units — the engine stays SI; imperial is applied at this edge only.
   const u = reportUnits(settings.units);
@@ -383,7 +387,7 @@ export default function Reports() {
           </thead>
           <tbody>
             {equipment.map((e, i) => {
-              const c = e.id === equip.id ? calc : computeEquipment(e);
+              const c = calcFor(e);
               const errs = c.warnings.filter((w) => w.level === 'error').length;
               const warns = c.warnings.filter((w) => w.level === 'warning').length;
               return (
@@ -402,15 +406,15 @@ export default function Reports() {
           <tfoot>
             <tr>
               <td colSpan={9}><strong>Project totals</strong></td>
-              <td className="num"><strong>{fmt(equipment.reduce((s, e) => s + (e.id === equip.id ? calc : computeEquipment(e)).weightDryKg, 0) / 1000, 2)} t</strong></td>
-              <td className="num"><strong>{fmt(equipment.reduce((s, e) => s + (e.id === equip.id ? calc : computeEquipment(e)).weldLengthM, 0), 1)}</strong></td>
+              <td className="num"><strong>{fmt(equipment.reduce((s, e) => s + calcFor(e).weightDryKg, 0) / 1000, 2)} t</strong></td>
+              <td className="num"><strong>{fmt(equipment.reduce((s, e) => s + calcFor(e).weldLengthM, 0), 1)}</strong></td>
               <td colSpan={2}></td>
             </tr>
           </tfoot>
         </table>
         <h3>Warnings & advisories by tag</h3>
         {equipment.map((e) => {
-          const c = e.id === equip.id ? calc : computeEquipment(e);
+          const c = calcFor(e);
           return c.warnings.length > 0 ? (
             <div key={e.id}>
               <p className="small"><strong>{e.tag}</strong> — {e.name}</p>

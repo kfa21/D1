@@ -7,7 +7,23 @@ import { computeHX } from './tema';
 import { computeFinFan } from './api661';
 import { computeSupports } from './supports';
 
+/**
+ * Memo for the (pure) compute dispatch: an Equipment object is only ever
+ * replaced, never mutated in place, and the engines read nothing outside the
+ * tag itself — so object identity is a sound cache key. Without this every
+ * page re-ran each tag's full engine several times per render.
+ */
+const cache = new WeakMap<Equipment, EquipmentCalc>();
+
 export function computeEquipment(equip: Equipment): EquipmentCalc {
+  const hit = cache.get(equip);
+  if (hit) return hit;
+  const calc = computeUncached(equip);
+  cache.set(equip, calc);
+  return calc;
+}
+
+function computeUncached(equip: Equipment): EquipmentCalc {
   try {
     let calc: EquipmentCalc;
     switch (equip.equipType) {
