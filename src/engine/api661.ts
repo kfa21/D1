@@ -36,7 +36,8 @@ export function computeFinFan(equip: Equipment): EquipmentCalc {
   const tubeCount = tubesPerBay * ff.bays;
 
   // Geometry
-  const bundleWidth = ff.bays * (L + 200); // along tube rows*? bays stacked across air inlet
+  // Envelope across the bays: each bay spans the finned length + 200 mm of header
+  const bundleWidth = ff.bays * (L + 200);
   const faceAreaPerBay = (L / 1000) * ((rows * pitchL) / 1000);
   const faceArea = faceAreaPerBay * ff.bays;
 
@@ -53,7 +54,6 @@ export function computeFinFan(equip: Equipment): EquipmentCalc {
     Math.abs(ff.processOutC - ff.processInC) < 1e-3
       ? 1
       : (() => {
-          const d1 = ff.processInC - (ff.processOutC - (ff.processOutC - ff.processInC)); // placeholder
           const airOut = ff.airInC + (ff.airRiseC > 0 ? ff.airRiseC : 15);
           const a = ff.processInC - airOut;
           const b = ff.processOutC - ff.airInC;
@@ -155,6 +155,8 @@ export function computeFinFan(equip: Equipment): EquipmentCalc {
     airDensity: rho,
     fanDiaMm: fanDia,
     fanCoveragePct,
+    faceVelMs: faceVel,
+    thermalMarginPct: ff.dutyKW > 0 ? (areaAvail / ff.dutyKW - 1) * 100 : 0,
   };
 
   return {

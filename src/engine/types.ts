@@ -741,6 +741,10 @@ export interface FinFanCalc {
   fanDiaMm: number;
   /** fan plan area / bundle face area */
   fanCoveragePct: number;
+  /** air face velocity across the bundle (m/s) */
+  faceVelMs: number;
+  /** (available kW / duty − 1) × 100 — negative means the AF-03 shortfall */
+  thermalMarginPct: number;
 }
 
 export interface BOMItem {

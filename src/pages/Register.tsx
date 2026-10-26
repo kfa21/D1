@@ -650,7 +650,7 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
 
         {tab === 'type' && equip.equipType === 'hx' && equip.hx && <HxEqEditor equip={equip} />}
         {tab === 'type' && equip.equipType === 'tank' && equip.tank && <TankEqEditor equip={equip} calc={calc} />}
-        {tab === 'type' && equip.equipType === 'finfan' && equip.finfan && <FinFanEqEditor equip={equip} />}
+        {tab === 'type' && equip.equipType === 'finfan' && equip.finfan && <FinFanEqEditor equip={equip} calc={calc} />}
         {tab === 'type' && <SupportEditor equip={equip} />}
 
         {calc.warnings.length > 0 && (
@@ -988,8 +988,9 @@ function TankEqEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
   );
 }
 
-function FinFanEqEditor({ equip }: { equip: Equipment }) {
+function FinFanEqEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<typeof computeEquipment> }) {
   const ff = equip.finfan!;
+  const c = calc.finfan;
   const p = (patch: Partial<FinFanSpec>) => update(equip.id, { finfan: { ...ff, ...patch } });
   const fid = (f: string) => fieldId(equip.id, f);
   return (
@@ -1047,6 +1048,22 @@ function FinFanEqEditor({ equip }: { equip: Equipment }) {
       </label>
       <label className="f"><span>Header t (mm)</span><input type="number" value={ff.headerThk} onChange={(e) => p({ headerThk: +e.target.value })} /></label>
       <label className="f"><span>Tube count (0=auto)</span><input id={fid('ffTubeCount')} type="number" value={ff.tubeCount} onChange={(e) => p({ tubeCount: +e.target.value })} /><FixNote equipId={equip.id} field="ffTubeCount" /></label>
+      {c && (
+        <>
+          <div className="kpi" style={{ gridColumn: 'span 2' }}>
+            <span className="v">{fmt(c.faceVelMs, 1)} m/s · {fmt(c.airFlowCMH, 0)} m³/h</span>
+            <span className="l">Face velocity & air flow at ρ = {fmt(c.airDensity, 3)} kg/m³ (site) — finned area {fmt(c.finnedAreaM2, 0)} m² over {c.tubeCountActual} tubes</span>
+          </div>
+          <div className="kpi" style={{ gridColumn: 'span 2' }}>
+            <span className="v">Fan Ø{fmt(c.fanDiaMm, 0)} mm ({fmt(c.fanCoveragePct, 0)}% of bay) · {fmt(c.fanBHP, 0)} BHP / {fmt(c.fanKW, 1)} kW</span>
+            <span className="l">Air ΔP {fmt(c.airDPH2O, 2)} in H₂O incl. plenum{ff.bays > 1 ? ` · ${fmt(c.fanKW / Math.max(1, ff.bays), 1)} kW per fan across ${ff.bays} bays` : ''}</span>
+          </div>
+          <div className="kpi" style={{ gridColumn: 'span 2' }}>
+            <span className="v">{c.thermalOK ? '✓' : '✗'} thermal margin {c.thermalMarginPct >= 0 ? '+' : ''}{fmt(c.thermalMarginPct, 0)}%</span>
+            <span className="l">Available vs duty at U = {ff.uAir > 0 ? fmt(ff.uAir, 0) : 'auto 55'} W/m²K — a negative margin raises AF-03</span>
+          </div>
+        </>
+      )}
     </div>
   );
 }

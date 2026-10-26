@@ -991,4 +991,11 @@ describe('API 661 — site air density & fan block (data-entry batch)', () => {
     expect(m.finfan!.airFlowCMH).toBeGreaterThan(sea.finfan!.airFlowCMH); // thinner air → more volume
     expect(m.finfan!.fanKW).toBeGreaterThan(sea.finfan!.fanKW); // same mass flow, bigger volume → more BHP
   });
+
+  it('reports face velocity and a thermal margin consistent with thermalOK', () => {
+    const c = computeEquipment(finfan()).finfan!;
+    expect(c.faceVelMs).toBeGreaterThan(0);
+    expect(Number.isFinite(c.thermalMarginPct)).toBe(true);
+    expect(c.thermalOK).toBe(c.thermalMarginPct >= 0); // same comparison as the AF-03 check
+  });
 });
