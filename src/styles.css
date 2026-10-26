@@ -323,6 +323,50 @@ pre.code {
 }
 .timing-boxes label.on { background: var(--green-soft); border-color: var(--green); color: var(--green); font-weight: 700; }
 
+/* ---------- estimate (management cost view) ---------- */
+.esthead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--accent-strong);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+.esthead h2 { color: var(--accent-strong); letter-spacing: 0.6px; font-size: 16px; }
+.stackbar {
+  display: flex;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg3);
+}
+.stackbar > i { display: block; height: 100%; min-width: 2px; transition: width .2s ease; }
+.stacklegend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 10px; font-size: 11.5px; }
+.stacklegend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.sharebar { display: inline-block; height: 7px; border-radius: 4px; background: var(--accent2); vertical-align: middle; margin-right: 5px; }
+th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+th.sortable:hover { color: var(--accent); }
+th.sortable::after { content: ' \2195'; opacity: 0.35; }
+th.sortable.asc::after { content: ' \25B2'; opacity: 1; }
+th.sortable.desc::after { content: ' \25BC'; opacity: 1; }
+.refgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 6px 18px; }
+.refgrid table th { background: var(--accent-soft); color: var(--accent-strong); text-align: left; }
+.refgrid table td { padding: 3px 6px; }
+.driver { padding: 7px 0; border-bottom: 1px dashed var(--line); }
+.driver:last-child { border-bottom: none; }
+.driver-top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.driver-bar { height: 6px; background: var(--bg3); border-radius: 4px; margin: 5px 0 3px; overflow: hidden; }
+.driver-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+tr.bucket { background: var(--accent-soft); cursor: pointer; }
+tr.bucket:hover { filter: brightness(0.98); }
+tr.bucket td { font-size: 12px; }
+
 /* ---------- print (PDF export at several levels) ---------- */
 .print-only { display: none; }
 @media print {
