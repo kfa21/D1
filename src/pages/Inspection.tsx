@@ -273,7 +273,7 @@ export default function Inspection() {
               });
             }}
           >
-            {' '}Export ITP CSV
+            Export ITP (.xlsx)
           </button>
           <button
             onClick={() => {
@@ -301,7 +301,7 @@ export default function Inspection() {
               });
             }}
           >
-            Export stage schedule CSV
+            Export stage schedule (.xlsx)
           </button>
         </div>
         <div id="itp-print-root" style={{ display: 'none' }}>
@@ -335,7 +335,7 @@ export default function Inspection() {
             </tbody>
           </table>
         </div>
-        <p className="muted small">Showing first 4 tags in detail; CSV export covers all {equipment.length} tags.</p>
+        <p className="muted small">Showing first 4 tags in detail; the .xlsx export covers all {equipment.length} tags.</p>
       </div>
     </div>
   );

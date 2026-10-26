@@ -2,9 +2,20 @@
 
 import type { Equipment, EquipmentCalc } from './engine/types';
 import { buildBodyLayout, locateNozzle } from './engine/layout3d';
+import { buildXlsx, type XlCell, type XlRow, type XlSheet } from './xlsx';
 
 function download(filename: string, content: string, mime = 'text/plain') {
   const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadBytes(filename: string, bytes: Uint8Array, mime: string) {
+  const blob = new Blob([bytes as unknown as BlobPart], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -142,23 +153,9 @@ export function exportDXF(equip: Equipment, calc: EquipmentCalc) {
   download(`${equip.tag || 'equipment'}.dxf`, buildDxf(equip, calc), 'application/dxf');
 }
 
-const csvField = (v: string | number): string => {
-  const s = String(v ?? '');
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
-
-/** Quote/escape a table as RFC-4180 CSV text. */
-export function toCsv(rows: (string | number)[][]): string {
-  return rows.map((r) => r.map(csvField).join(',')).join('\n');
-}
-
-export function downloadCSV(filename: string, rows: (string | number)[][]) {
-  download(filename, toCsv(rows), 'text/csv');
-}
-
 /** A spreadsheet-style export: title block, headings, data, totals, notes. */
 export interface SheetSpec {
-  /** file stem — `.csv` is appended */
+  /** file stem — `.xlsx` is appended */
   filename: string;
   title: string;
   /** context lines under the title (project, client, date, currency, revision) */
@@ -171,27 +168,79 @@ export interface SheetSpec {
   notes?: string[];
 }
 
-/** Rows of a sheet export, in the order Excel reads them: title block, blank,
- *  headings, data, blank, totals, blank, notes. Pure so the layout is testable. */
-export function buildSheetRows(spec: SheetSpec): (string | number)[][] {
+/** Plain or thousands-grouped numerals — what `fmt()` emits. Leading zeros
+ *  ("007") and anything with a unit stay text so tags keep their digits. */
+const NUMERIC_RE = /^-?(?:0|[1-9]\d*(?:\.\d+)?|0\.\d+|[1-9]\d{0,2}(?:,\d{3})+(?:\.\d+)?)$/;
+
+const decimalsOf = (s: string): number => {
+  const i = s.lastIndexOf('.');
+  if (i < 0) return 0;
+  return Math.min(4, s.length - i - 1);
+};
+
+/** Value for the cell plus the decimals its format should keep. Numeric strings
+ *  become real numbers so Excel aligns and sums the column. */
+function sheetCell(v: string | number): { v: string | number; d: number } {
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v)) return { v: String(v), d: 0 };
+    const s = String(v);
+    const d = /[eE]/.test(s) ? (v === 0 ? 0 : 4) : decimalsOf(s);
+    return { v, d };
+  }
+  const s = String(v ?? '').trim();
+  if (!NUMERIC_RE.test(s)) return { v: String(v ?? ''), d: 0 };
+  const n = Number(s.replace(/,/g, ''));
+  if (!Number.isFinite(n)) return { v: String(v ?? ''), d: 0 };
+  return { v: n, d: decimalsOf(s) };
+}
+
+/**
+ * Lay a sheet spec out as worksheet rows: title block, blank, headings, data,
+ * blank, totals, blank, notes — with the heading row marked so it freezes, and
+ * per-column widths sized from the headings and data. Pure, so the layout and
+ * the alignment decisions are testable before anything is written to a file.
+ */
+export function buildSheet(spec: SheetSpec): XlSheet {
   const width = spec.columns.length;
   const pad = (r: (string | number)[]): (string | number)[] => {
     const out = r.slice(0, width);
     while (out.length < width) out.push('');
     return out;
   };
-  const out: (string | number)[][] = [[spec.title], ...(spec.meta ?? []).map((m) => [m]), []];
-  out.push([...spec.columns]);
-  for (const r of spec.rows) out.push(pad(r));
+  const num = (v: string | number, style: 'num' | 'totalNum'): XlCell => {
+    const c = sheetCell(v);
+    return typeof c.v === 'number'
+      ? { v: c.v, s: style, d: c.d }
+      : { v: c.v, s: style === 'num' ? 'text' : 'totalText' };
+  };
+  const text = (v: string | number, s: XlCell['s']): XlCell => ({ v: String(v ?? ''), s });
+
+  const rows: XlRow[] = [];
+  rows.push({ cells: [text(spec.title, 'title')], h: 22 });
+  for (const m of spec.meta ?? []) rows.push({ cells: [text(m, 'meta')], h: 14 });
+  rows.push({ cells: [] });
+  rows.push({ cells: spec.columns.map((c) => text(c, 'header')), h: 30 });
+  const headerRow = rows.length; // title + meta + blank + heading
+  for (const r of spec.rows) rows.push({ cells: pad(r).map((v) => num(v, 'num')) });
   if (spec.totals) {
-    out.push([]);
-    out.push(pad(spec.totals));
+    rows.push({ cells: [] });
+    rows.push({ cells: pad(spec.totals).map((v) => num(v, 'totalNum')) });
   }
   if (spec.notes?.length) {
-    out.push([]);
-    for (const n of spec.notes) out.push([n]);
+    rows.push({ cells: [] });
+    for (const n of spec.notes) rows.push({ cells: [text(n, 'note')], h: 14 });
   }
-  return out;
+
+  // widths from the headings and data only — the title block and notes spill
+  // over the empty cells to their right instead of stretching column A
+  const widths = Array.from({ length: width }, (_, i) => {
+    let w = String(spec.columns[i] ?? '').length;
+    for (const r of spec.rows) w = Math.max(w, String(r[i] ?? '').length);
+    for (const t of spec.totals ?? []) w = Math.max(w, String(t ?? '').length);
+    return Math.min(60, Math.max(6, w + 2));
+  });
+
+  return { name: spec.filename, cols: widths, freezeRows: headerRow, rows };
 }
 
 /** Title block shared by every export so files carry their project context. */
@@ -202,7 +251,11 @@ export function sheetMeta(settings: { projectName: string; clientName: string; r
   return lines;
 }
 
-/** Download a titled, headed sheet as a .csv that opens cleanly in Excel. */
+/** Download a titled, headed sheet as a formatted .xlsx workbook. */
 export function exportSheet(spec: SheetSpec) {
-  download(`${spec.filename}.csv`, toCsv(buildSheetRows(spec)), 'text/csv');
+  downloadBytes(
+    `${spec.filename}.xlsx`,
+    buildXlsx(buildSheet(spec)),
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  );
 }

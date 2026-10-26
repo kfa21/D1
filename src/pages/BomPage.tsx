@@ -109,7 +109,7 @@ export default function BomPage() {
                 });
               }}
             >
-              Export BOM CSV
+              Export BOM (.xlsx)
             </button>
           </div>
           <div className="tablewrap" style={{ maxHeight: 620 }}>
@@ -157,7 +157,7 @@ export default function BomPage() {
                 });
               }}
             >
-              Export procurement CSV
+              Export procurement (.xlsx)
             </button>
             <span className="muted small" style={{ marginLeft: 10 }}>
               Thicknesses snap up to market stock sizes; parts are nested onto standard plate dimensions with wastage computed.
@@ -259,7 +259,7 @@ export default function BomPage() {
                 });
               }}
             >
-              Export optimized CSV
+              Export optimized (.xlsx)
             </button>
           </div>
 

@@ -61,7 +61,7 @@ export default function Reports() {
             });
           }}
         >
-          Export calc CSV
+          Export calc data (.xlsx)
         </button>
         <button onClick={() => exportDXF(equip, calc)}>Export DXF outline</button>
         <button onClick={() => exportOBJ(equip, calc)}>Export OBJ model</button>

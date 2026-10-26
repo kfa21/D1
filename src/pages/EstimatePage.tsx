@@ -164,7 +164,7 @@ export default function EstimatePage() {
     </tr>
   );
 
-  const exportCsv = () =>
+  const exportXlsx = () =>
     exportSheet({
       filename: 'estimate',
       title: `COST ESTIMATE — detail lines (${est.lines.length})`,
@@ -270,7 +270,7 @@ export default function EstimatePage() {
         >
           ⤓ Estimate PDF (file)
         </button>
-        <button onClick={exportCsv}>⤓ Export estimate CSV</button>
+        <button onClick={exportXlsx}>⤓ Export estimate (.xlsx)</button>
         <div className="spacer" style={{ flex: 1 }} />
         <div className="kpi"><span className="v">{money(t.materialUSD, settings)}</span><span className="l">Material</span></div>
         <div className="kpi"><span className="v">{money(t.laborUSD, settings)}</span><span className="l">Shop labor & welding</span></div>
@@ -534,7 +534,7 @@ export default function EstimatePage() {
             <option value="tag">Group by tag</option>
             <option value="none">Flat list</option>
           </select>
-          <button onClick={exportCsv}>Export estimate CSV</button>
+          <button onClick={exportXlsx}>Export estimate (.xlsx)</button>
           <div className="spacer" style={{ flex: 1 }} />
           <span className="kpi"><span className="v">{money(filteredAmount, settings)}</span><span className="l">Filtered amount</span></span>
           <span className="kpi"><span className="v">{fmt(filteredHours, 0)} h</span><span className="l">Filtered hours</span></span>
