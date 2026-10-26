@@ -5,7 +5,9 @@
 
 import { describe, expect, it } from 'vitest';
 import { reportUnits, unitModeLabel } from './engine/reportUnits';
-import { buildBoqPdf, buildDatasheetPdf } from './pdfexport';
+import { buildBoqPdf, buildDatasheetPdf, buildEstimatePdf } from './pdfexport';
+import { estimateProject, DEFAULT_RATES } from './engine/estimate';
+import { summarizeEstimate } from './engine/estimateSummary';
 import { computeEquipment } from './engine/compute';
 import { demoProject } from './defaults';
 import { generateBOM, buildProcurement } from './engine/bom';
@@ -98,5 +100,46 @@ describe('PDF exporters (B9)', () => {
     expect(text).toContain('BILL OF QUANTITIES');
     expect(text).toContain('Bill of materials');
     expect(doc.output('arraybuffer').byteLength).toBeGreaterThan(4000);
+  });
+
+  it('estimate PDF reports summary, structure, basis and every line', async () => {
+    const entries = demoProject().map((e) => ({ equip: e, calc: computeEquipment(e) }));
+    const result = estimateProject(entries, DEFAULT_RATES, {
+      stockPlates: DEFAULT_PLATE_STOCK,
+      prices: DEFAULT_RATES.prices,
+    });
+    const phys = {
+      dryKg: entries.reduce((s, e) => s + e.calc.weightDryKg, 0),
+      weldM: entries.reduce((s, e) => s + e.calc.weldLengthM, 0),
+    };
+    const summary = summarizeEstimate(result, phys, { markups: DEFAULT_RATES });
+
+    const doc = await buildEstimatePdf({
+      meta: { projectName: 'Demo Project', clientName: 'Client', units: 'metric' },
+      currency: 'BHD',
+      base: 'BHD',
+      result,
+      summary,
+      formatCost: (v) => `BHD ${v.toFixed(2)}`,
+      rates: DEFAULT_RATES,
+    });
+
+    const text = pdfText(doc);
+    expect(doc.getNumberOfPages()).toBeGreaterThan(1);
+    expect(doc.output('arraybuffer').byteLength).toBeGreaterThan(4000);
+    expect(text).toContain('COST ESTIMATE');
+    expect(text).toContain('Cost structure');
+    expect(text).toContain('Cost by category');
+    expect(text).toContain('Build-up to grand total');
+    expect(text).toContain('Per-tag summary');
+    expect(text).toContain('Top cost drivers');
+    expect(text).toContain('Basis of estimate');
+    expect(text).toContain('Welder'); // the rate card is quoted, not just the totals
+    expect(text).toContain('Detailed estimate lines'); // count rendered as "(128)" — parens are escaped in PDF strings
+    expect(result.lines.length).toBeGreaterThan(50);
+    expect(text).toContain('Prepared by');
+    // money goes through the caller's formatter (display currency applied)
+    expect(text).toContain('BHD ');
+    expect(text).toContain('Grand total');
   });
 });

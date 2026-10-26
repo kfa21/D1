@@ -13,6 +13,7 @@ import { summarizeEstimate, type EstimateGroup } from '../engine/estimateSummary
 import { fmt } from '../engine/units';
 import { downloadCSV } from '../cad';
 import { printElementById } from '../print';
+import { exportEstimatePdf } from '../pdfexport';
 import { CURRENCIES } from '../engine/currency';
 import type { ProcurementContext } from '../engine/bom';
 
@@ -234,6 +235,21 @@ export default function EstimatePage() {
 
       <div className="row" style={{ marginBottom: 12 }}>
         <button className="primary" onClick={() => printElementById('estimate-print-root', 'Cost estimate')}>⎙ PDF — estimate</button>
+        <button
+          onClick={() =>
+            void exportEstimatePdf({
+              meta: { projectName: settings.projectName, clientName: settings.clientName, units: settings.units },
+              currency: settings.currency,
+              base: settings.rateBase,
+              result: est,
+              summary,
+              formatCost: (v) => money(v, settings),
+              rates: settings.rates,
+            })
+          }
+        >
+          ⤓ Estimate PDF (file)
+        </button>
         <button onClick={exportCsv}>⤓ Export estimate CSV</button>
         <div className="spacer" style={{ flex: 1 }} />
         <div className="kpi"><span className="v">{money(t.materialUSD, settings)}</span><span className="l">Material</span></div>

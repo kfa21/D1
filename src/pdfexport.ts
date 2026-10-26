@@ -16,6 +16,8 @@ import type { BOMItem, Equipment, EquipmentCalc } from './engine/types';
 import type { PlateProcurementLine } from './engine/plates';
 import { getMat } from './engine/materials';
 import { reportUnits, unitModeLabel, UnitMode } from './engine/reportUnits';
+import type { EstimateResult, RateCard } from './engine/estimate';
+import type { EstimateSummary } from './engine/estimateSummary';
 
 const PAGE_W = 210;
 const PAGE_H = 297;
@@ -474,4 +476,213 @@ export async function exportDatasheetPdf(equip: Equipment, calc: EquipmentCalc, 
 export async function exportBoqPdf(input: BoqInput) {
   const doc = await buildBoqPdf(input);
   save(doc, `${input.meta.projectName.replace(/[^\w.-]+/g, '_')}_BOQ.pdf`);
+}
+
+export interface EstimatePdfInput {
+  meta: DocMeta;
+  /** display currency used in the column headings */
+  currency: string;
+  /** base currency the rate card is stored in */
+  base: string;
+  result: EstimateResult;
+  summary: EstimateSummary;
+  /** formatted money for a base-currency amount (display currency applied) */
+  formatCost: (base: number) => string;
+  /** rate card in force, quoted as the basis of the estimate */
+  rates: RateCard;
+}
+
+/** Cost-estimate PDF for management: summary, structure, drivers, basis, detail. */
+export async function buildEstimatePdf(input: EstimatePdfInput): Promise<PdfDoc> {
+  const { meta, result, summary, formatCost, rates } = input;
+  const u = reportUnits(meta.units);
+  const L = u.labels;
+  const t = result.totals;
+  const s = await newSheet(`${meta.projectName} cost estimate`);
+
+  header(
+    s,
+    meta,
+    'COST ESTIMATE',
+    `${summary.metrics.tags} tags · ${summary.metrics.lineCount} estimate lines · Rev 0 · ${new Date().toLocaleDateString()}`
+  );
+
+  heading(s, 'Summary');
+  const materialShare = summary.split.find((x) => x.key === 'material');
+  keyValues(s, [
+    ['Direct cost (before markups)', formatCost(t.subtotalUSD)],
+    ['Grand total (incl. markups)', formatCost(t.grandUSD)],
+    ['Shop hours', `${fmtNum(t.shopHours, 0)} h`],
+    ['Material share', materialShare ? `${fmtNum(materialShare.pct, 1)} % of direct cost` : '—'],
+    ['Dry weight', `${u.mass(summary.metrics.dryKg, 0)} ${L.mass}`],
+    ['Weld length', `${u.len(summary.metrics.weldM, 0)} ${L.len}`],
+    ['Cost per tag (avg)', formatCost(summary.metrics.costPerTagUSD)],
+    ['Cost per kg dry steel', formatCost(summary.metrics.costPerKgUSD)],
+    ['Cost per weld metre', formatCost(summary.metrics.costPerWeldMUSD)],
+    ['Hours per weld metre', `${fmtNum(summary.metrics.hoursPerWeldM, 1)} h`],
+  ]);
+
+  heading(s, 'Cost structure (share of direct cost)');
+  table(
+    s,
+    [
+      { head: 'Bucket', w: 96 },
+      { head: `Amount (${input.currency})`, w: 52, right: true },
+      { head: 'Share', w: 38, right: true },
+    ],
+    summary.split.map((x) => [x.label, formatCost(x.amountUSD), `${fmtNum(x.pct, 1)} %`])
+  );
+
+  heading(s, 'Cost by category');
+  table(
+    s,
+    [
+      { head: 'Category', w: 86 },
+      { head: 'Lines', w: 24, right: true },
+      { head: 'Hours', w: 24, right: true },
+      { head: `Amount (${input.currency})`, w: 32, right: true },
+      { head: 'Share', w: 20, right: true },
+    ],
+    summary.groups.map((g) => [
+      g.group,
+      String(g.lines),
+      g.hours > 0 ? fmtNum(g.hours, 0) : '—',
+      formatCost(g.amountUSD),
+      `${fmtNum(g.pct, 1)} %`,
+    ])
+  );
+
+  heading(s, 'Build-up to grand total');
+  table(
+    s,
+    [
+      { head: 'Step', w: 86 },
+      { head: 'Rate', w: 30 },
+      { head: `Amount (${input.currency})`, w: 40, right: true },
+      { head: '% of total', w: 30, right: true },
+    ],
+    summary.ladder.map((step) => [
+      step.label,
+      step.ratePct != null ? `${step.ratePct} %` : '—',
+      formatCost(step.amountUSD),
+      `${fmtNum(step.pctOfGrand, 1)} %`,
+    ])
+  );
+
+  const tagTotal = result.perTag.reduce((a, p) => a + p.totalUSD, 0);
+  heading(s, 'Per-tag summary');
+  table(
+    s,
+    [
+      { head: 'Tag', w: 24 },
+      { head: 'Material', w: 25, right: true },
+      { head: 'Labor', w: 23, right: true },
+      { head: 'Consum.', w: 22, right: true },
+      { head: 'Services', w: 23, right: true },
+      { head: 'Hours', w: 17, right: true },
+      { head: 'Total', w: 32, right: true },
+      { head: 'Share', w: 20, right: true },
+    ],
+    result.perTag.map((p) => [
+      p.tag || p.name,
+      formatCost(p.materialUSD),
+      formatCost(p.laborUSD),
+      formatCost(p.consumableUSD),
+      formatCost(p.serviceUSD),
+      fmtNum(p.shopHours, 0),
+      formatCost(p.totalUSD),
+      `${fmtNum(tagTotal > 0 ? (p.totalUSD / tagTotal) * 100 : 0, 1)} %`,
+    ])
+  );
+
+  if (summary.topDrivers.length) {
+    heading(s, 'Top cost drivers');
+    table(
+      s,
+      [
+        { head: '#', w: 8 },
+        { head: 'Tag', w: 22 },
+        { head: 'Category', w: 30 },
+        { head: 'Activity', w: 84 },
+        { head: `Amount (${input.currency})`, w: 42, right: true },
+      ],
+      summary.topDrivers.map((l, i) => [String(i + 1), l.tag, l.group, l.activity, formatCost(l.amountUSD)])
+    );
+  }
+
+  heading(s, `Basis of estimate — rate card in force (${input.base})`);
+  keyValues(s, [
+    ['Fitter', `${fmtNum(rates.labor.fitter, 2)} /h`],
+    ['Welder', `${fmtNum(rates.labor.welder, 2)} /h`],
+    ['Helper', `${fmtNum(rates.labor.helper, 2)} /h`],
+    ['QC / inspection', `${fmtNum(rates.labor.qc, 2)} /h`],
+    ['Design engineer', `${fmtNum(rates.labor.engineer, 2)} /h`],
+    ['PWHT operator', `${fmtNum(rates.labor.pwht, 2)} /h`],
+    ['Painter', `${fmtNum(rates.labor.painter, 2)} /h`],
+    ['PWHT cycle', fmtNum(rates.pwhtCycleUSD, 0)],
+    ['RT crew / day', fmtNum(rates.rtDayUSD, 0)],
+    ['PaUT/TOFD crew / day', fmtNum(rates.putTofdDayUSD, 0)],
+    ['Head forming / h', fmtNum(rates.formingRate, 0)],
+    ['Paint / m²', fmtNum(rates.paintUSDperM2, 2)],
+    ['Test water / m³', fmtNum(rates.hydroUSDperM3, 3)],
+    ['SMAW electrode / kg', fmtNum(rates.electrodePrice, 2)],
+    ['SAW wire / kg', fmtNum(rates.wirePrice, 2)],
+    ['SAW flux / kg', fmtNum(rates.sawFluxPrice, 2)],
+    ['Overhead / profit', `${rates.overheadPct} % / ${rates.profitPct} %`],
+    ['Contingency', `${rates.contingencyPct} %`],
+    ['Material price overrides', `${Object.keys(rates.prices).length} in force (Settings)`],
+    ['Manual man-hour inputs', `${Object.values(input.result.manhours).filter((m) => Math.abs(m.appliedH - m.autoH) > 1e-9).length} overridden`],
+  ]);
+
+  heading(s, `Detailed estimate lines (${result.lines.length})`);
+  table(
+    s,
+    [
+      { head: 'Tag', w: 18 },
+      { head: 'Category', w: 26 },
+      { head: 'Activity', w: 72 },
+      { head: 'Qty', w: 16, right: true },
+      { head: 'Unit', w: 12 },
+      { head: 'Rate', w: 20, right: true },
+      { head: 'Amount', w: 22, right: true },
+    ],
+    result.lines.map((l) => [
+      l.tag,
+      l.group,
+      l.activity,
+      fmtNum(l.qty, 1),
+      l.unit,
+      formatCost(l.rateUSD),
+      formatCost(l.amountUSD),
+    ])
+  );
+
+  ensureSpace(s, 40);
+  s.y += 6;
+  s.doc.setFont('helvetica', 'normal');
+  s.doc.setFontSize(FONT);
+  s.doc.setTextColor(60, 60, 60);
+  const caveat =
+    'Indicative budgetary estimate produced from the project rate card. Man-hour norms are shop-estimating starting points; ' +
+    'all rates are editable in Settings. Verify against current market rates and the licensed code editions before order.';
+  for (const line of s.doc.splitTextToSize(caveat, CONTENT_W)) {
+    s.doc.text(line, MARGIN, s.y);
+    s.y += 3.6;
+  }
+  s.doc.setTextColor(0, 0, 0);
+  s.y += 8;
+  s.doc.text('Prepared by: ______________  (Estimating / Design)', MARGIN, s.y);
+  s.y += 7;
+  s.doc.text('Reviewed: ______________  (Project manager)', MARGIN, s.y);
+  s.y += 7;
+  s.doc.text('Approved: ______________', MARGIN, s.y);
+
+  footers(s.doc, `${meta.projectName} · Cost estimate · indicative — verify rates before order`);
+  return s.doc;
+}
+
+/** Build and download the cost-estimate PDF (jsPDF loaded on demand). */
+export async function exportEstimatePdf(input: EstimatePdfInput) {
+  const doc = await buildEstimatePdf(input);
+  save(doc, `${input.meta.projectName.replace(/[^\w.-]+/g, '_')}_estimate.pdf`);
 }
