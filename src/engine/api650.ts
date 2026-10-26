@@ -238,8 +238,8 @@ export function computeTank(equip: Equipment): EquipmentCalc {
   const nonConverged: number[] = [];
   for (let i = 0; i < nCourses; i++) {
     const designHeadM = Math.max(0, Hm - (i * courseH) / 1000);
-    let tDesign = 0;
-    let tTest = 0;
+    let tDesign: number;
+    let tTest: number;
     /** where the stress is evaluated above the course bottom (mm):
      *  300 for the one-foot method, x for VDP upper courses, undefined for the
      *  VDP bottom course (its dedicated first-course equation has no point) */

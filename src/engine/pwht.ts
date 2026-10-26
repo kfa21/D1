@@ -11,8 +11,8 @@ export function pwhtAdvice(
   override: boolean | null
 ): PwhtAdvice {
   const m = getMat(matKey);
-  let required = false;
-  let basis = '';
+  let required: boolean;
+  let basis: string;
 
   if (m.group === 'CS' || m.group === 'LTCS') {
     required = maxThickness > m.pwhtThresholdMm || mdmt < -29;

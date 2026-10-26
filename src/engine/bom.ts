@@ -556,7 +556,7 @@ export function tankItems(equip: Equipment, calc: EquipmentCalc): { items: BOMIt
 /** Full BOM for one equipment tag */
 export function generateBOM(equip: Equipment, calc: EquipmentCalc): { items: BOMItem[]; plateReqs: PlateRequestFull[] } {
   const items: BOMItem[] = [];
-  let plateReqs: PlateRequestFull[] = [];
+  let plateReqs: PlateRequestFull[];
 
   if (equip.equipType === 'hx') {
     const r = hxPlateItems(equip, calc);

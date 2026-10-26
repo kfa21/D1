@@ -80,8 +80,8 @@ This file is the single source of truth for incremental work on this project.
 - [x] **E3** Project file hygiene — `cb54540` — `exportData` currently ships `geminiKey` in the JSON (strip it, or warn first); `importData` bypasses `migrateToBhdBase` for legacy USD exports; stale `datasheets` refs survive reload while their payloads are memory-only, so AiReview shows "Attached …" and silently omits the file — drop refs on load with a "re-attach" hint.
 - [x] **E4** Deploy gating — `9af2195` — `deploy-pages.yml` runs on every `main` push with only `npm run build`; tests never gate the deploy (README claims a green build does). Add `npm test` to the build job or trigger via `workflow_run` on green CI; also de-duplicate CI on `push` + `pull_request` for same-repo PRs.
 - [x] **E5** Compute cache — `9b89ec0` — memo `computeEquipment` in a `WeakMap<Equipment, EquipmentCalc>` (pure function) and delete the redundant calls: Reports re-runs every non-selected tag 3× per render, Inspection recomputes all tags twice inside render despite its `summary` memo, `SupportEditor` recomputes per keystroke.
-- [ ] **E6** Store feedback — `persist()` swallows `localStorage` quota errors (silent data loss): surface a persistent "project not saved" notice; split the status strip so errors aren't counted inside the "Warnings" chip.
-- [ ] **E7** Dependency & lint hygiene — jspdf 3.x → 4.x (1 critical advisory, breaking API; touches `pdfexport.ts` + tests) and the dev-only tinypool/vitest advisories; ESLint flat config wired into CI (tsc strict alone is the only lint today).
+- [x] **E6** Store feedback — `38d3515` — `persist()` swallows `localStorage` quota errors (silent data loss): surface a persistent "project not saved" notice; split the status strip so errors aren't counted inside the "Warnings" chip.
+- [x] **E7** Dependency & lint hygiene — jspdf 3.x → 4.x (1 critical advisory, breaking API; touches `pdfexport.ts` + tests) and the dev-only tinypool/vitest advisories; ESLint flat config wired into CI (tsc strict alone is the only lint today).
 
 ## Phase F — Tank & fin-fan data entry (requested in session)
 

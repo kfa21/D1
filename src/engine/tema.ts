@@ -55,7 +55,7 @@ export function lmtdCorrected(
 ): { lmtd: number; F: number } {
   const d1 = t1h - t1c;
   const d2 = t2h - t2c;
-  let lmtd = 0;
+  let lmtd: number;
   if (Math.abs(d1 - d2) < 1e-6) lmtd = d1;
   else if (d1 <= 0 || d2 <= 0) lmtd = Math.max(1, (d1 + d2) / 2); // flagged via F below
   else lmtd = (d1 - d2) / Math.log(d1 / d2);
