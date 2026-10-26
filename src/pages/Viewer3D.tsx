@@ -11,7 +11,7 @@ import { computeEquipment } from '../engine/compute';
 import type { SectionCalc } from '../engine/types';
 import { fmt } from '../engine/units';
 import { exportOBJ } from '../cad';
-import { buildBodyLayout, locateNozzle, radialDirection } from '../engine/layout3d';
+import { buildBodyLayout, locateNozzle, radialDirection, radiusAtY, saddleStations } from '../engine/layout3d';
 
 function utilColor(u: number): THREE.Color {
   // green (low util) -> amber -> red (near/over limit)
@@ -173,62 +173,85 @@ export default function Viewer3D() {
     }
 
     // ---------- supports (built in local coords; group rotated for horizontal) ----------
+    // Legs/skirt hang BELOW the vessel datum (they were drawn inside the shell,
+    // so the vessel appeared to rest on its own head); saddles sit on stations
+    // along the shell measured from the layout, not from y = 0.
     const s = equip.support;
-    const R0 = (equip.sections[0]?.dia ?? 1000) / 2;
-    const bottomY = 0; // local ground: bottom head tip rests at build origin
+    const R0 = layout.segments[0]?.r0 ?? (equip.sections[0]?.dia ?? 1000) / 2;
+    const supportH =
+      vertical && (s.type === 'legs' || s.type === 'skirt')
+        ? s.skirtH > 0
+          ? s.skirtH
+          : s.type === 'legs'
+            ? 800
+            : 1500
+        : 0;
+    /** ground level in local coords — supports reach from here up to the bottom tangent */
+    const gradeY = bottomDepth - supportH;
     if (s.type === 'legs' && vertical) {
       const n = Math.max(2, s.legCount || 4);
-      const h = (s.skirtH > 0 ? s.skirtH : 800);
+      const h = supportH;
       const t = Math.max(8, s.legPlateThk || 16);
       const w = Math.min(400, Math.max(150, t * 10));
       for (let i = 0; i < n; i++) {
         const az = (i / n) * Math.PI * 2 + Math.PI / n;
         const leg = new THREE.Mesh(new THREE.BoxGeometry(w, h, t), steel());
-        leg.position.set(Math.sin(az) * R0 * 0.72, bottomY + h / 2, Math.cos(az) * R0 * 0.72);
+        leg.rotation.y = az; // thickness radial against the shell, width tangential
+        leg.position.set(Math.sin(az) * (R0 + t / 2), gradeY + h / 2, Math.cos(az) * (R0 + t / 2));
         g.add(leg);
         const bp = new THREE.Mesh(new THREE.BoxGeometry(w + 90, 20, w + 90), steel(0x46526b));
-        bp.position.set(leg.position.x, 10, leg.position.z);
+        bp.rotation.y = az;
+        bp.position.set(leg.position.x, gradeY + 10, leg.position.z);
         g.add(bp);
       }
     } else if (s.type === 'skirt' && vertical) {
-      const h = s.skirtH > 0 ? s.skirtH : 1500;
+      const h = supportH;
       const skirt = new THREE.Mesh(new THREE.CylinderGeometry(R0 * 1.001, R0 * 1.001, h, 64, 1, false), steel(0x4d5a70));
-      skirt.position.y = bottomY + h / 2;
+      skirt.position.y = bottomDepth - h / 2; // top of skirt meets the shell bottom
       g.add(skirt);
       const ring = new THREE.Mesh(new THREE.TorusGeometry(R0 * 1.06, 30, 12, 64), steel(0x46526b));
       ring.rotation.x = Math.PI / 2;
-      ring.position.y = bottomY + 20;
+      ring.position.y = gradeY + 20; // base ring on the foundation
       g.add(ring);
     } else if (s.type === 'ring' && vertical) {
       const ring = new THREE.Mesh(new THREE.TorusGeometry(R0 * 1.05, 45, 12, 64), steel());
       ring.rotation.x = Math.PI / 2;
-      ring.position.y = 45;
+      ring.position.y = bottomDepth; // circling the bottom edge of the shell
       g.add(ring);
     } else if (s.type === 'saddle' && !vertical) {
-      // horizontal vessel already lies along the local axis (no extra flip) — saddles sit on −Z
-      const span = s.saddleSpan > 0 ? s.saddleSpan : totalLen * 0.6;
+      // laid-down vessel: local +Z is the ground, so the cradle (centred on +Z)
+      // wraps the underside; stations come from saddleStations so the pair is
+      // symmetric about the shell centre instead of about the bottom head tip.
       const a = ((s.saddleAngle || 120) * Math.PI) / 180;
-      const width = Math.max(300, R0 * 0.5);
-      for (const off of [-1, 1]) {
-        const spanOff = (off * span) / 2; // per-saddle station along the shell axis
+      const { stations } = saddleStations(layout, s.saddleSpan);
+      for (const st of stations) {
+        const R = st.r;
+        const width = Math.max(300, R * 0.5);
         const arc = new THREE.Mesh(
-          new THREE.CylinderGeometry(R0 * 1.01, R0 * 1.01, width, 48, 1, true, 2 * Math.PI - a / 2, a),
+          new THREE.CylinderGeometry(R * 1.01, R * 1.01, width, 48, 1, true, 2 * Math.PI - a / 2, a),
           steel()
         );
-        arc.position.set(0, spanOff, R0 * 0.02);
+        arc.position.set(0, st.y, 0);
         g.add(arc);
-        const base = new THREE.Mesh(new THREE.BoxGeometry(2 * R0 * Math.sin(a / 2) + 60, width, 40), steel(0x46526b));
-        base.position.set(0, spanOff, R0 + 20);
+        const base = new THREE.Mesh(new THREE.BoxGeometry(2 * R * Math.sin(a / 2) + 60, width, 40), steel(0x46526b));
+        base.position.set(0, st.y, R * 1.01 + 20); // underside of the cradle
         g.add(base);
       }
     }
     if (s.padeyes) {
       const nLug = calc.weightDryKg > 20000 ? 4 : 2;
       for (let i = 0; i < nLug; i++) {
-        const az = Math.PI / 2 + (i / Math.max(1, nLug)) * Math.PI * 2;
+        // vertical: evenly around the shell; horizontal: lifting lugs on the crown,
+        // spread along the axis, which is where they actually sit on a drum
+        const station = vertical
+          ? totalLen * 0.78
+          : totalLen * (0.25 + (0.5 * i) / (nLug - 1));
+        const az = vertical ? Math.PI / 2 + (i / Math.max(1, nLug)) * Math.PI * 2 : 0;
+        const [ux, , uz] = radialDirection(az, vertical);
+        const r = radiusAtY(layout, station);
         const lug = new THREE.Mesh(new THREE.BoxGeometry(60, 260, 24), steel(0x6c7a92));
-        lug.position.set(Math.sin(az) * (R0 + 12), totalLen * 0.78, Math.cos(az) * (R0 + 12));
-        lug.quaternion.setFromUnitVectors(UP_Y, new THREE.Vector3(Math.sin(az), 0, Math.cos(az)));
+        lug.position.set(ux * (r + 12), station, uz * (r + 12));
+        lug.quaternion.setFromUnitVectors(UP_Y, new THREE.Vector3(ux, 0, uz));
         g.add(lug);
       }
     }
@@ -237,15 +260,18 @@ export default function Viewer3D() {
       const deadR = R0 * 4;
       const shellT = calc.sections[0]?.tNominal ?? 10;
       const unterR = Math.max(8, shellT * 2);
+      const rTop = radiusAtY(layout, topY);
       for (const off of [0, Math.PI]) {
         const dx = Math.sin(off) * deadR, dz = Math.cos(off) * deadR;
-        const lenGuy = Math.hypot(deadR, topY);
+        const sx = Math.sin(off) * rTop, sz = Math.cos(off) * rTop; // attach on the shell surface
+        const dir = new THREE.Vector3(dx - sx, gradeY - topY, dz - sz);
+        const lenGuy = dir.length();
         const guy = new THREE.Mesh(new THREE.CylinderGeometry(unterR, unterR, lenGuy, 8), steel(0x8b94a6));
-        guy.position.set(dx / 2, topY / 2, dz / 2);
-        guy.quaternion.setFromUnitVectors(UP_Y, new THREE.Vector3(dx, topY, dz).normalize());
+        guy.position.set((sx + dx) / 2, (topY + gradeY) / 2, (sz + dz) / 2);
+        guy.quaternion.setFromUnitVectors(UP_Y, dir.normalize());
         g.add(guy);
         const dm = new THREE.Mesh(new THREE.BoxGeometry(600, 40, 260), steel(0x46526b));
-        dm.position.set(dx, 20, dz);
+        dm.position.set(dx, gradeY + 20, dz);
         g.add(dm);
       }
     }
