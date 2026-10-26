@@ -43,6 +43,12 @@ This file is the single source of truth for incremental work on this project.
 - [x] **A3** Settings documents every man-hour considered (25 basis entries with derivations) and accepts a manual input per item; the difference is booked as an explicit `Manual manhour adjustment` line — `8330eb3`
 - [x] **A4** Clickable errors/warnings — `fixes.ts` maps every catalog code to tab + field + correction hint; clicking jumps to the Register, selects the tag, opens the tab, focuses/pulses the field and shows the hint below it (no-field codes show the hint inline) — `bebfa1a`
 
+## Phase A3 — 3D view correctness (requested in session)
+
+- [x] **A5** Single source of truth for view geometry — `src/engine/layout3d.ts` (pure, unit-tested): body stack from the section list (bottom head → courses → cones → top head), head depths matching `asme.ts`, datum, total length, nozzle lookup with clamping + cone interpolation, saddle stations, per-orientation radial direction. Fixes: cones always widened upward, the bottom head was drawn a head-depth below the shell, `totalLen` omitted the cone the renderer drew, out-of-range nozzle elevations jumped to the bottom course, horizontal azimuth 0° pointed at the floor — `59ff5cf`
+- [x] **A6** Supports placed where they attach — saddles symmetric about the **shell** centre (not the bottom-head tip) at the local course radius; legs/skirt hang below the datum to grade; lifting lugs follow the surface (on a drum: on the crown, spread along the axis); guy lines attach to the shell and to the deadman at grade — `82334bd`
+- [x] **A7** CAD export parity — OBJ and DXF build from the same layout: OBJ gains the bottom head and the cone transitions (multi-dia was loose floating cylinders) and uses the engine head depths; DXF draws full 180° head arcs, closes diameter steps with the cone flanks, and measures nozzle elevations from the bottom tangent like the viewer — `9e67b13`
+
 ## Phase C — Known code-review defects (fix before/with the batch noted)
 
 - [ ] **C1** Non-annular bottom plates: confirm the 6 mm floor is applied as `6 + CA` (corroded) and not nominal — *verify B2 landed correctly; fix if not.*

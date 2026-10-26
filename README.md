@@ -24,7 +24,7 @@ Beyond sizing, every tag flows through a full **fabrication & cost model**:
 - **NDT planning** (MT/PT, UT, RT, PaUT/TOFD) derived from RT category, thickness and clad, plus ITP stage scheduling where ticking a phase box adds that stage's hours and unticking removes them
 - **PWHT / preheat advisories** per UCS-56 with consumable selection
 - **B16.5 flange rating checks** (Class 150/300/600 group tables) at design temperature
-- **3D viewer**, **printable reports**, **project settings** (currency, rates, plate stock, units)
+- **3D viewer** (single geometry source shared with the CAD exports: multi-diameter courses joined by their cones, nozzles by elevation/azimuth, supports attached where they really sit), **printable reports**, **project settings** (currency, rates, plate stock, units)
 - **Gemini AI design review** (bring your own API key) against the engine's own warning catalog
 - **Clickable errors & warnings** — click a finding anywhere (Register, Reports, Inspection) to jump straight to the field that needs correcting, with the correction hint shown below that field
 - Everything persisted in the browser (localStorage), with **project export/import**
@@ -52,9 +52,9 @@ src/
 │   ├── flange.ts      # B16.5 pressure-temperature ratings
 │   ├── bom.ts / plates.ts / optimize.ts   # BOM, plate nesting, procurement
 │   ├── estimate.ts    # cost & man-hour engine
-│   ├── pwht.ts / ndt.ts / itp.ts / supports.ts
+│   ├── pwht.ts / ndt.ts / itp.ts / supports.ts / layout3d.ts
 │   ├── warnings.ts    # warning-code catalog (registry-validated)
-│   └── *.test.ts      # 148 tests incl. hand-calculated golden values
+│   └── *.test.ts      # 167 tests incl. hand-calculated golden values
 ├── pages/             # Register, BomPage, EstimatePage, Inspection, Reports, Viewer3D, Settings, AiReview
 ├── store.ts           # tiny external store + localStorage persistence
 └── App.tsx            # shell & navigation

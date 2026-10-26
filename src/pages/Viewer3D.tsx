@@ -313,7 +313,7 @@ export default function Viewer3D() {
 
     // build orientation decided before adding to the scene (no post-hoc flips); the local
     // model Y is the ground axis in both cases so the whole assembly sits on the grid plane.
-    if (!vertical) g.rotation.x = Math.PI / 2; // laid-down horizontal vessel: local ±Z = the axis
+    if (!vertical) g.rotation.x = Math.PI / 2; // lay the vessel down: local +Y axis → world Z, local −Z → sky
     ctx.scene.add(g);
 
     // rest the model on the ground plane and frame the camera on its bounding box
