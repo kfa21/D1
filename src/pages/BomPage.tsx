@@ -7,7 +7,7 @@ import { generateBOM, buildProcurement, ProcurementContext } from '../engine/bom
 import { optimizeProcurement } from '../engine/optimize';
 import { estimateProject } from '../engine/estimate';
 import { fmt } from '../engine/units';
-import { downloadCSV } from '../cad';
+import { exportSheet, sheetMeta } from '../cad';
 import { printElementById } from '../print';
 import { exportBoqPdf } from '../pdfexport';
 import { getMat } from '../engine/materials';
@@ -95,7 +95,20 @@ export default function BomPage() {
             >
               ⤓ BOQ PDF (file)
             </button>{' '}
-            <button onClick={() => downloadCSV('bom.csv', [['Tag', 'Category', 'Item', 'Spec', 'Material', 'Qty', 'Unit', 'Unit kg', 'Mass kg'], ...data.items.map((i) => [i.tag, i.category, i.item, i.spec, getMat(i.material).name, i.qty, i.unit, i.unitMassKg ?? '', fmt(i.massKg, 1)])])}>
+            <button
+              onClick={() => {
+                const massKg = data.items.reduce((s, i) => s + i.massKg, 0);
+                exportSheet({
+                  filename: 'bom',
+                  title: `BILL OF MATERIALS / MTO (${data.items.length} items)`,
+                  meta: sheetMeta(settings, `${equipment.length} tags · mass in kg`),
+                  columns: ['Tag', 'Category', 'Item', 'Spec', 'Material', 'Qty', 'Unit', 'Unit kg', 'Mass kg'],
+                  rows: data.items.map((i) => [i.tag, i.category, i.item, i.spec, getMat(i.material).name, i.qty, i.unit, i.unitMassKg ?? '', fmt(i.massKg, 1)]),
+                  totals: ['', '', 'TOTAL', '', '', '', 'kg', '', fmt(massKg, 1)],
+                  notes: ['Quantities follow the Unit column; unit kg is the mass of one unit.'],
+                });
+              }}
+            >
               Export BOM CSV
             </button>
           </div>
@@ -127,7 +140,23 @@ export default function BomPage() {
       {view === 'procurement' && (
         <>
           <div style={{ marginBottom: 8 }}>
-            <button onClick={() => downloadCSV('plate_procurement.csv', [['Tag/part', 'Material', 'Req t (mm)', 'Stock t (mm)', 'Added (mm)', 'Part W×L (mm)', 'Parts', 'Plate W×L (mm)', 'Plates', 'Wastage %', 'Mass kg', 'Est. cost BHD (base)'], ...data.proc.lines.map((l: PlateProcurementLine) => [l.id, getMat(l.material).name, fmt(l.thkRequested, 1), l.thkStock, fmt(l.thkAdded, 1), `${l.partW}×${l.partL}`, l.partCount, `${l.plateW}×${l.plateL}`, l.platesNeeded, fmt(l.wastagePct, 1), fmt(l.massKg, 0), fmt(l.estimatedCostUSD, 0)])])}>
+            <button
+              onClick={() => {
+                const lines = data.proc.lines;
+                const plates = lines.reduce((s, l) => s + l.platesNeeded, 0);
+                const massKg = lines.reduce((s, l) => s + l.massKg, 0);
+                const cost = lines.reduce((s, l) => s + l.estimatedCostUSD, 0);
+                exportSheet({
+                  filename: 'plate_procurement',
+                  title: `PLATE PROCUREMENT PLAN (${lines.length} parts)`,
+                  meta: sheetMeta(settings, 'Thicknesses snapped to market stock sizes; parts nested onto standard plate dimensions'),
+                  columns: ['Tag/part', 'Material', 'Req t (mm)', 'Stock t (mm)', 'Added (mm)', 'Part W×L (mm)', 'Parts', 'Plate W×L (mm)', 'Plates', 'Wastage %', 'Mass kg', `Est. cost ${settings.rateBase}`],
+                  rows: lines.map((l: PlateProcurementLine) => [l.id, getMat(l.material).name, fmt(l.thkRequested, 1), l.thkStock, fmt(l.thkAdded, 1), `${l.partW}×${l.partL}`, l.partCount, `${l.plateW}×${l.plateL}`, l.platesNeeded, fmt(l.wastagePct, 1), fmt(l.massKg, 0), fmt(l.estimatedCostUSD, 0)]),
+                  totals: ['', 'TOTAL', '', '', '', '', '', '', plates, '', fmt(massKg, 0), fmt(cost, 0)],
+                  notes: [`Cost in base currency ${settings.rateBase}.`],
+                });
+              }}
+            >
               Export procurement CSV
             </button>
             <span className="muted small" style={{ marginLeft: 10 }}>
@@ -212,7 +241,26 @@ export default function BomPage() {
 
           <div style={{ marginBottom: 8 }} className="no-print">
             <button className="primary" onClick={() => printElementById('opt-print-root', 'Optimized procurement')}>⎙ PDF — optimized plan</button>{' '}
-            <button onClick={() => downloadCSV('optimized_procurement.csv', [['Material', 'Req t', 'Stock t', 'Part W×L', 'Parts', 'Tags', 'Plate W×L', 'Plates', 'Baseline plates', 'Wastage %', 'Mass kg', 'Cost BHD (base)'], ...data.opt.lines.map((l) => [getMat(l.material)?.name ?? l.material, fmt(l.thkRequested, 1), l.thkStock, `${l.partW}×${l.partL}`, l.partCount, l.mergedFromTags.join(' '), `${l.plateW}×${l.plateL}`, l.platesNeeded, l.baselinePlates, fmt(l.wastagePct, 1), fmt(l.massKg, 0), fmt(l.estimatedCostUSD, 0)])])}>Export optimized CSV</button>
+            <button
+              onClick={() => {
+                const lines = data.opt.lines;
+                const plates = lines.reduce((s, l) => s + l.platesNeeded, 0);
+                const baseline = lines.reduce((s, l) => s + l.baselinePlates, 0);
+                const massKg = lines.reduce((s, l) => s + l.massKg, 0);
+                const cost = lines.reduce((s, l) => s + l.estimatedCostUSD, 0);
+                exportSheet({
+                  filename: 'optimized_procurement',
+                  title: `OPTIMIZED PROCUREMENT PLAN (${lines.length} material groups)`,
+                  meta: sheetMeta(settings, 'Cross-tag plate merging and thickness harmonisation vs the per-tag baseline'),
+                  columns: ['Material', 'Req t', 'Stock t', 'Part W×L', 'Parts', 'Tags', 'Plate W×L', 'Plates', 'Baseline plates', 'Wastage %', 'Mass kg', `Cost ${settings.rateBase}`],
+                  rows: lines.map((l) => [getMat(l.material)?.name ?? l.material, fmt(l.thkRequested, 1), l.thkStock, `${l.partW}×${l.partL}`, l.partCount, l.mergedFromTags.join(' '), `${l.plateW}×${l.plateL}`, l.platesNeeded, l.baselinePlates, fmt(l.wastagePct, 1), fmt(l.massKg, 0), fmt(l.estimatedCostUSD, 0)]),
+                  totals: ['', '', '', '', '', '', '', plates, baseline, '', fmt(massKg, 0), fmt(cost, 0)],
+                  notes: [`Baseline ${baseline} plates → ${plates} plates after optimisation. Cost in base currency ${settings.rateBase}.`],
+                });
+              }}
+            >
+              Export optimized CSV
+            </button>
           </div>
 
           <div className="tablewrap" style={{ maxHeight: 620 }}>

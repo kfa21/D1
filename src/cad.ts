@@ -132,9 +132,67 @@ export function exportDXF(equip: Equipment, calc: EquipmentCalc) {
   download(`${equip.tag || 'equipment'}.dxf`, L.join('\n'), 'application/dxf');
 }
 
+const csvField = (v: string | number): string => {
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+/** Quote/escape a table as RFC-4180 CSV text. */
+export function toCsv(rows: (string | number)[][]): string {
+  return rows.map((r) => r.map(csvField).join(',')).join('\n');
+}
+
 export function downloadCSV(filename: string, rows: (string | number)[][]) {
-  const csv = rows
-    .map((r) => r.map((c) => (typeof c === 'string' && /[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : String(c))).join(','))
-    .join('\n');
-  download(filename, csv, 'text/csv');
+  download(filename, toCsv(rows), 'text/csv');
+}
+
+/** A spreadsheet-style export: title block, headings, data, totals, notes. */
+export interface SheetSpec {
+  /** file stem — `.csv` is appended */
+  filename: string;
+  title: string;
+  /** context lines under the title (project, client, date, currency, revision) */
+  meta?: string[];
+  columns: string[];
+  rows: (string | number)[][];
+  /** totals row, separated from the data by a blank line */
+  totals?: (string | number)[];
+  /** trailing basis / disclaimer lines */
+  notes?: string[];
+}
+
+/** Rows of a sheet export, in the order Excel reads them: title block, blank,
+ *  headings, data, blank, totals, blank, notes. Pure so the layout is testable. */
+export function buildSheetRows(spec: SheetSpec): (string | number)[][] {
+  const width = spec.columns.length;
+  const pad = (r: (string | number)[]): (string | number)[] => {
+    const out = r.slice(0, width);
+    while (out.length < width) out.push('');
+    return out;
+  };
+  const out: (string | number)[][] = [[spec.title], ...(spec.meta ?? []).map((m) => [m]), []];
+  out.push([...spec.columns]);
+  for (const r of spec.rows) out.push(pad(r));
+  if (spec.totals) {
+    out.push([]);
+    out.push(pad(spec.totals));
+  }
+  if (spec.notes?.length) {
+    out.push([]);
+    for (const n of spec.notes) out.push([n]);
+  }
+  return out;
+}
+
+/** Title block shared by every export so files carry their project context. */
+export function sheetMeta(settings: { projectName: string; clientName: string; rateBase: string; currency: string }, extra?: string): string[] {
+  const lines = [`${settings.projectName}${settings.clientName ? ` · Client: ${settings.clientName}` : ''}`];
+  lines.push(`${new Date().toLocaleString()} · base ${settings.rateBase} · values shown in ${settings.currency} · Rev 0`);
+  if (extra) lines.push(extra);
+  return lines;
+}
+
+/** Download a titled, headed sheet as a .csv that opens cleanly in Excel. */
+export function exportSheet(spec: SheetSpec) {
+  download(`${spec.filename}.csv`, toCsv(buildSheetRows(spec)), 'text/csv');
 }

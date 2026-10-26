@@ -8,7 +8,7 @@ import { computeEquipment } from '../engine/compute';
 import { fmt } from '../engine/units';
 import { reportUnits, unitModeLabel } from '../engine/reportUnits';
 import { exportDatasheetPdf } from '../pdfexport';
-import { downloadCSV, exportDXF, exportOBJ } from '../cad';
+import { exportSheet, sheetMeta, exportDXF, exportOBJ } from '../cad';
 import { getMat } from '../engine/materials';
 import { printElementById } from '../print';
 
@@ -42,7 +42,23 @@ export default function Reports() {
         <button className="primary" onClick={() => printElementById('report-sheet', `${equip.tag} — calculation report`)}>⎙ PDF — this tag</button>
         <button onClick={() => void exportDatasheetPdf(equip, calc, { projectName: settings.projectName, clientName: settings.clientName, units: settings.units })}>⤓ Datasheet PDF (file)</button>{' '}
         <button className="green" onClick={() => printElementById('project-report', `${settings.projectName} — project report`)}>⎙ PDF — full project</button>
-        <button onClick={() => downloadCSV(`${equip.tag}_calc.csv`, reportRows(equip.tag, equip.name, equip.designPressure, equip.designTemp, calc))}>Export calc CSV</button>
+        <button
+          onClick={() => {
+            const sheet = reportSheet(calc);
+            exportSheet({
+              filename: `${equip.tag}_calc`,
+              title: `${equip.tag} — DESIGN CALCULATION DATA`,
+              meta: sheetMeta(settings, `${equip.name} · design ${equip.designPressure} bar at ${equip.designTemp} °C · ${calc.codeRef}`),
+              ...sheet,
+              notes: [
+                `MAWP ${fmt(calc.mawpBar, 2)} bar · hydrotest ${fmt(calc.hydroTestBar, 2)} bar · dry weight ${fmt(calc.weightDryKg, 0)} kg · weld length ${fmt(calc.weldLengthM, 1)} m`,
+                'Indicative calculation per ASME VIII-1 / API 650 / API 661 / TEMA — verify against the licensed code editions.',
+              ],
+            });
+          }}
+        >
+          Export calc CSV
+        </button>
         <button onClick={() => exportDXF(equip, calc)}>Export DXF outline</button>
         <button onClick={() => exportOBJ(equip, calc)}>Export OBJ model</button>
       </div>
@@ -410,18 +426,21 @@ export default function Reports() {
   );
 }
 
-function reportRows(
-  tag: string,
-  name: string,
-  designP: number,
-  designT: number,
-  calc: ReturnType<typeof computeEquipment>
-): (string | number)[][] {
-  const rows: (string | number)[][] = [['Section', 'ID mm', 'T-T mm', 't req', 't+CA', 't nom', 'MAWP bar', 'Util %', 'Governing']];
-  calc.sections.forEach((s, i) => {
-    rows.push([i + 1, s.spec.dia, s.spec.ttLength, fmt(s.tReq, 2), fmt(s.tMinNominal, 2), s.tNominal, fmt(s.mawpHoop, 2), (s.utilization * 100).toFixed(0), s.governing]);
-  });
-  rows.push([]);
-  rows.push(['Tag', tag, name, designP + ' bar', designT + ' °C', 'MAWP ' + fmt(calc.mawpBar, 2) + ' bar', 'Hydro ' + fmt(calc.hydroTestBar, 2) + ' bar']);
-  return rows;
+function reportSheet(calc: ReturnType<typeof computeEquipment>): {
+  columns: string[];
+  rows: (string | number)[][];
+} {
+  const columns = ['Sec', 'ID mm', 'T-T mm', 't req', 't+CA', 't nom', 'MAWP bar', 'Util %', 'Governing'];
+  const rows: (string | number)[][] = calc.sections.map((s, i) => [
+    i + 1,
+    s.spec.dia,
+    s.spec.ttLength,
+    fmt(s.tReq, 2),
+    fmt(s.tMinNominal, 2),
+    s.tNominal,
+    fmt(s.mawpHoop, 2),
+    (s.utilization * 100).toFixed(0),
+    s.governing,
+  ]);
+  return { columns, rows };
 }

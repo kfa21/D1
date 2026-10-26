@@ -11,7 +11,7 @@ import { computeEquipment } from '../engine/compute';
 import { estimateProject, EstimateLine, DEFAULT_RATES, type TagEstimate } from '../engine/estimate';
 import { summarizeEstimate, type EstimateGroup } from '../engine/estimateSummary';
 import { fmt } from '../engine/units';
-import { downloadCSV } from '../cad';
+import { exportSheet, sheetMeta } from '../cad';
 import { printElementById } from '../print';
 import { exportEstimatePdf } from '../pdfexport';
 import { CURRENCIES } from '../engine/currency';
@@ -165,10 +165,30 @@ export default function EstimatePage() {
   );
 
   const exportCsv = () =>
-    downloadCSV('estimate.csv', [
-      ['Tag', 'Group', 'Activity', 'Qty', 'Unit', `Rate ${settings.rateBase}`, `Amount ${settings.rateBase}`],
-      ...est.lines.map((l: EstimateLine) => [l.tag, l.group, l.activity, fmt(l.qty, 2), l.unit, fmt(l.rateUSD, 2), fmt(l.amountUSD, 2)]),
-    ]);
+    exportSheet({
+      filename: 'estimate',
+      title: `COST ESTIMATE — detail lines (${est.lines.length})`,
+      meta: sheetMeta(
+        settings,
+        `${est.perTag.length} tags · ${fmt(t.shopHours, 0)} shop hours · rates in ${settings.rateBase}`
+      ),
+      columns: ['Tag', 'Group', 'Activity', 'Qty', 'Unit', `Rate (${settings.rateBase})`, `Amount (${settings.rateBase})`],
+      rows: est.lines.map((l: EstimateLine) => [
+        l.tag,
+        l.group,
+        l.activity,
+        fmt(l.qty, 2),
+        l.unit,
+        fmt(l.rateUSD, 2),
+        fmt(l.amountUSD, 2),
+      ]),
+      totals: ['', '', 'Direct cost subtotal (before markups)', '', '', '', fmt(t.subtotalUSD, 2)],
+      notes: [
+        `Grand total incl. ${settings.rates.overheadPct}% overhead, ${settings.rates.profitPct}% profit and ${settings.rates.contingencyPct}% contingency: ${fmt(t.grandUSD, 2)} ${settings.rateBase}`,
+        `Base currency ${settings.rateBase}; the app converts to ${settings.currency} at the Settings exchange rate.`,
+        'Indicative budgetary estimate — verify rates before order.',
+      ],
+    });
 
   return (
     <div>

@@ -11,7 +11,7 @@ import { defaultNdtPlan } from '../defaults';
 import { NDT_METHOD_LABELS, NDT_TIMING_LABELS } from '../engine/ndt';
 import { defaultItpStages, mergeItpStages, effectiveDurationH, itpStageName, ITP_PHASE_LABELS, ITP_HOUR_PRESETS } from '../engine/itp';
 import type { Equipment, ItpStagePhase, ItpStageTiming } from '../engine/types';
-import { downloadCSV } from '../cad';
+import { exportSheet, sheetMeta } from '../cad';
 import { requestFixFor } from '../fixNav';
 import { printElementById } from '../print';
 import { fmt } from '../engine/units';
@@ -260,8 +260,49 @@ export default function Inspection() {
         <h3>Combined ITP — requirement per selected inspection level (W = witness, H = hold, R = review)</h3>
         <div style={{ marginBottom: 8 }} className="no-print">
           <button className="primary" onClick={() => printElementById('itp-print-root', 'Inspection & Test Plan')}>⎙ PDF — ITP</button>{' '}
-          <button onClick={() => downloadCSV('itp.csv', [['Tag', 'Activity', 'Code', 'Requirement', 'Witness'], ...equipment.flatMap(rows)],)}>{' '}Export ITP CSV</button>
-          <button onClick={() => downloadCSV('itp_stages.csv', [['Tag', 'Stage code', 'Stage', 'Timing phases', 'Est. h', 'Manual h', 'Effective h'], ...equipment.flatMap((e) => { const d = stageData(e); return d.stages.map((st) => [e.tag, st.code, itpStageName(st.code), st.phases.length ? st.phases.map((p) => ITP_PHASE_LABELS[p]).join(' | ') : 'not ticked (skipped)', fmt(st.durationH, 1), st.durationOverrideH ?? '', fmt(effectiveDurationH(st, d.ref.get(st.code)), 1)]); })])}>Export stage schedule CSV</button>
+          <button
+            onClick={() => {
+              const rowsAll = equipment.flatMap(rows);
+              exportSheet({
+                filename: 'itp',
+                title: `INSPECTION & TEST PLAN (${rowsAll.length} activities)`,
+                meta: sheetMeta(settings, 'W = witness · H = hold · R = review, per the selected inspection level'),
+                columns: ['Tag', 'Activity', 'Code', 'Requirement', 'Witness'],
+                rows: rowsAll,
+                notes: ['Requirements derive from the code, the inspection level and the RT category of each tag.'],
+              });
+            }}
+          >
+            {' '}Export ITP CSV
+          </button>
+          <button
+            onClick={() => {
+              const flat = equipment.flatMap((e) => {
+                const d = stageData(e);
+                return d.stages.map((st) => [
+                  e.tag,
+                  st.code,
+                  itpStageName(st.code),
+                  st.phases.length ? st.phases.map((p) => ITP_PHASE_LABELS[p]).join(' | ') : 'not ticked (skipped)',
+                  fmt(st.durationH, 1),
+                  st.durationOverrideH ?? '',
+                  fmt(effectiveDurationH(st, d.ref.get(st.code)), 1),
+                ]);
+              });
+              const sum = (i: number) => flat.reduce((s, r) => s + (Number(r[i]) || 0), 0);
+              exportSheet({
+                filename: 'itp_stages',
+                title: `ITP STAGE SCHEDULE (${flat.length} stage rows)`,
+                meta: sheetMeta(settings, 'Effective hours = manual override where set, otherwise the engine estimate, apportioned by ticked phases'),
+                columns: ['Tag', 'Stage code', 'Stage', 'Timing phases', 'Est. h', 'Manual h', 'Effective h'],
+                rows: flat,
+                totals: ['', '', 'Project total', '', fmt(sum(4), 1), fmt(sum(5), 1), fmt(sum(6), 1)],
+                notes: ['Unticked stages contribute 0 h.'],
+              });
+            }}
+          >
+            Export stage schedule CSV
+          </button>
         </div>
         <div id="itp-print-root" style={{ display: 'none' }}>
           <h2>Inspection & Test Plan — {settings.projectName ?? 'project'}</h2>
