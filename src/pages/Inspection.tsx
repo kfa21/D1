@@ -1,7 +1,8 @@
 // Inspection & Test Plan page — ASME VIII Appendix 3.1 / 3.2 selection per tag,
 // stage timing & duration (phase checkboxes with hours selection on check),
-// preferred-method context and hold points. Per-method NDT plan editing lives
-// in the Register (it feeds costing); it is intentionally not duplicated here.
+// preferred-method context and hold points. The per-weld NDT plan itself is
+// engine-derived (RT category + thickness), read-only here, and feeds costing
+// and the ITP rows — it is no longer editable in the Register.
 
 import { useMemo } from 'react';
 import { useStore, setState } from '../store';

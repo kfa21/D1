@@ -8,10 +8,10 @@ import { computeEquipment } from '../engine/compute';
 import { MATERIALS } from '../engine/materials';
 import { PIPES, SCHEDULES } from '../engine/pipes';
 import { uid, fmt } from '../engine/units';
-import { newEquipment, demoProject, defaultNdtPlan } from '../defaults';
-import { suggestNdtMethod, NDT_METHOD_LABELS } from '../engine/ndt';
+import { newEquipment, demoProject } from '../defaults';
+import { suggestNdtMethod } from '../engine/ndt';
 import { recommendStructure } from '../engine/supports';
-import type { CladSpec, NdtItemSpec } from '../engine/types';
+import type { CladSpec } from '../engine/types';
 import { useStore, setState, getStore } from '../store';
 
 /** Human labels for nozzle kinds (SR = safety relief). */
@@ -233,11 +233,6 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
   const upNz = (id: string, patch: Partial<NozzleSpec>) =>
     update(equip.id, { nozzles: equip.nozzles.map((n) => (n.id === id ? { ...n, ...patch } : n)) });
 
-  const upNdt = (method: string, patch: Partial<NdtItemSpec>) => {
-    const plan = equip.ndtPlan ?? defaultNdtPlan(equip.rtCategory);
-    update(equip.id, { ndtPlan: plan.map((p) => (p.method === method ? { ...p, ...patch } : p)) });
-  };
-
   const addInternal = () => {
     const it: InternalsSpec = {
       id: uid('in'), kind: 'sieveTray', count: 10, spacing: 600,
@@ -383,29 +378,11 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
               )}
             </div>
 
-            <h3 style={{ marginTop: 16 }}>NDT plan (per weld method)</h3>
-            <div className="tablewrap">
-              <table className="grid">
-                <thead><tr><th>Method</th><th>On</th><th>Timing</th><th>Extent</th><th>Note</th></tr></thead>
-                <tbody>
-                  {(equip.ndtPlan ?? defaultNdtPlan(equip.rtCategory)).map((p, i, arr) => (
-                    <tr key={p.method}>
-                      <td>{NDT_METHOD_LABELS[p.method]}</td>
-                      <td><input type="checkbox" checked={p.enabled} disabled={p.method === 'rt' && equip.rtCategory === 'none'} onChange={(e) => upNdt(arr[i].method, { enabled: e.target.checked })} /></td>
-                      <td><select value={p.timing} onChange={(e) => upNdt(arr[i].method, { timing: e.target.value as never })}>
-                        <option value="during">Interstage (during welding)</option>
-                        <option value="afterPwht">After PWHT</option>
-                        <option value="final">Final (before hydro)</option>
-                      </select></td>
-                      <td><select value={p.extent} onChange={(e) => upNdt(arr[i].method, { extent: e.target.value as never })}>
-                        <option value="full">100 %</option><option value="spot">Spot</option><option value="sample">Sample</option>
-                      </select></td>
-                      <td><input value={p.note} onChange={(e) => upNdt(arr[i].method, { note: e.target.value })} style={{ minWidth: 200 }} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <h3 style={{ marginTop: 16 }}>Preferred NDT method</h3>
+            <p className="muted small">
+              The per-weld NDT plan is derived from the RT category, shell thickness and clad condition — it is shown
+              read-only on the Inspection &amp; ITP page and drives estimate costing from there.
+            </p>
             {(() => {
               const maxT = Math.max(0, ...calc.sections.map((s) => s.tNominal));
               const sug = suggestNdtMethod(maxT, equip.orientation, !!calc.clad);
