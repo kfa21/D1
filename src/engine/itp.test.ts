@@ -99,6 +99,41 @@ describe('ITP stage schedule', () => {
     expect(itpTotalHours(cleared)).toBeCloseTo(itpTotalHours(defaults) - defaultHydro, 6);
   });
 
+  it('phase boxes add and remove hours against the default phase coverage', () => {
+    const eq = vesselWithNdT();
+    const defaults = defaultItpStages(eq, computeEquipment(eq));
+    const mt = defaults.find((s) => s.code === 'NDT-MT')!;
+    expect(mt.phases.length).toBeGreaterThan(1); // multi-phase stage
+    const base = effectiveDurationH(mt, mt.phases);
+    // at default coverage the apportionment factor is exactly 1
+    expect(base).toBeCloseTo(mt.durationH, 6);
+    // unticking one of the default phases removes its share
+    const oneOfTwo = { ...mt, phases: [mt.phases[0]] };
+    expect(effectiveDurationH(oneOfTwo, mt.phases)).toBeCloseTo(base / 2, 6);
+    // ticking an extra phase adds hours on top of the default coverage
+    const extra = { ...mt, phases: [...mt.phases, 'receiving' as const] };
+    expect(effectiveDurationH(extra, mt.phases)).toBeCloseTo(base * 1.5, 6);
+    // nothing ticked → stage skipped
+    expect(effectiveDurationH({ ...mt, phases: [] }, mt.phases)).toBe(0);
+  });
+
+  it('tag totals apportion with the default schedule and stay stable when untouched', () => {
+    const eq = vesselWithNdT();
+    const defaults = defaultItpStages(eq, computeEquipment(eq));
+    expect(itpTotalHours(defaults, defaults)).toBeCloseTo(itpTotalHours(defaults), 6);
+    const hydro = defaults.find((s) => s.code === 'HYDRO')!;
+    const cleared = defaults.map((s) => (s.code === 'HYDRO' ? { ...s, phases: [] } : s));
+    expect(itpTotalHours(cleared, defaults)).toBeCloseTo(itpTotalHours(defaults, defaults) - hydro.durationH, 6);
+    // manual hours are scaled the same way as auto hours
+    const rt = defaults.find((s) => s.code === 'NDT-RT')!;
+    expect(rt.phases.length).toBeGreaterThan(1);
+    const manual = defaults.map((s) => (s.code === 'NDT-RT' ? { ...s, durationOverrideH: 4 } : s));
+    const half = manual.map((s) => (s.code === 'NDT-RT' ? { ...s, phases: s.phases.slice(0, 1) } : s));
+    const rtHalf = half.find((s) => s.code === 'NDT-RT')!;
+    expect(rtHalf.durationOverrideH).toBe(4);
+    expect(effectiveDurationH(rtHalf, rt.phases)).toBeCloseTo((4 * rtHalf.phases.length) / rt.phases.length, 6);
+  });
+
   it('empty saved list falls back to defaults', () => {
     const eq = vesselWithNdT();
     const defaults = defaultItpStages(eq, computeEquipment(eq));

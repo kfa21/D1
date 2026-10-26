@@ -74,17 +74,27 @@ export function mergeItpStages(defaults: ItpStageTiming[], saved: ItpStageTiming
 export const ITP_HOUR_PRESETS = [0.5, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24, 40];
 
 /**
- * Effective duration: an unchecked stage (no production-phase boxes ticked) is not performed
- * and contributes 0 h; otherwise the manual override wins over the engine estimate.
+ * Effective duration — apportioned to the production-phase boxes actually ticked.
+ *
+ *  * no box ticked  → the stage is not performed, 0 h;
+ *  * otherwise the manual override wins over the engine estimate;
+ *  * when `refPhases` (the stage's default phase set) is supplied, the result
+ *    is scaled by ticked/default: ticking an extra box adds hours, unticking
+ *    one removes them, so every checkbox click moves the total. At the default
+ *    tick state the scale factor is exactly 1.
  */
-export function effectiveDurationH(s: ItpStageTiming): number {
-  if (!s.phases || s.phases.length === 0) return 0;
-  return s.durationOverrideH !== null && s.durationOverrideH >= 0 ? s.durationOverrideH : s.durationH;
+export function effectiveDurationH(s: ItpStageTiming, refPhases?: ItpStagePhase[]): number {
+  const ticked = s.phases?.length ?? 0;
+  if (ticked === 0) return 0;
+  const base = s.durationOverrideH !== null && s.durationOverrideH >= 0 ? s.durationOverrideH : s.durationH;
+  if (!refPhases || refPhases.length === 0) return base;
+  return (base * ticked) / refPhases.length;
 }
 
-/** Total effective inspection hours for a tag. */
-export function itpTotalHours(stages: ItpStageTiming[]): number {
-  return stages.reduce((sum, s) => sum + effectiveDurationH(s), 0);
+/** Total effective inspection hours for a tag (pass the default schedule to apportion by ticked phases). */
+export function itpTotalHours(stages: ItpStageTiming[], defaults?: ItpStageTiming[]): number {
+  const ref = defaults ? new Map(defaults.map((d) => [d.code, d.phases])) : undefined;
+  return stages.reduce((sum, s) => sum + effectiveDurationH(s, ref?.get(s.code)), 0);
 }
 
 /** Stage name by code (for tables/exports). */

@@ -9,11 +9,24 @@ import { useStore, setState } from '../store';
 import { computeEquipment } from '../engine/compute';
 import { defaultNdtPlan } from '../defaults';
 import { NDT_METHOD_LABELS, NDT_TIMING_LABELS } from '../engine/ndt';
-import { defaultItpStages, mergeItpStages, effectiveDurationH, itpTotalHours, itpStageName, ITP_PHASE_LABELS, ITP_HOUR_PRESETS } from '../engine/itp';
+import { defaultItpStages, mergeItpStages, effectiveDurationH, itpStageName, ITP_PHASE_LABELS, ITP_HOUR_PRESETS } from '../engine/itp';
 import type { Equipment, ItpStagePhase, ItpStageTiming } from '../engine/types';
 import { downloadCSV } from '../cad';
 import { printElementById } from '../print';
 import { fmt } from '../engine/units';
+
+/**
+ * Merged stage schedule for a tag, plus the default phase set used as the
+ * apportionment basis: ticking an extra phase box adds hours, unticking one
+ * removes them, all unticked drops the stage to 0 h.
+ */
+function stageData(e: Equipment, calc = computeEquipment(e)) {
+  const defaults = defaultItpStages(e, calc);
+  const stages = mergeItpStages(defaults, e.itpStages);
+  const ref = new Map(defaults.map((d) => [d.code, d.phases]));
+  const total = stages.reduce((s, st) => s + effectiveDurationH(st, ref.get(st.code)), 0);
+  return { defaults, stages, ref, total };
+}
 
 interface ITPRow {
   activity: string;
@@ -72,7 +85,7 @@ export default function Inspection() {
         <div className="kpi"><span className="v">{equipment.filter((e) => e.inspectionLevel === '3.2').length}</span><span className="l">App. 3.2 tags (U-1)</span></div>
         <div className="kpi"><span className="v">{fmt(equipment.reduce((s, e) => s + computeEquipment(e).weldLengthM, 0), 0)} m</span><span className="l">Weld length under ITP</span></div>
         <div className="kpi"><span className="v">{equipment.filter((e) => e.ndtPlan?.some((p) => p.enabled && p.method === 'putTofd')).length}</span><span className="l">Tags with PaUT/TOFD</span></div>
-        <div className="kpi green"><span className="v">{fmt(equipment.reduce((s, e) => itpTotalHours(mergeItpStages(defaultItpStages(e, computeEquipment(e)), e.itpStages)), 0), 0)} h</span><span className="l">Total inspection hours (project)</span></div>
+        <div className="kpi green"><span className="v">{fmt(equipment.reduce((s, e) => s + stageData(e).total, 0), 0)} h</span><span className="l">Total inspection hours (project)</span></div>
       </div>
 
       <div className="tablewrap" style={{ marginBottom: 16 }}>
@@ -106,9 +119,13 @@ export default function Inspection() {
         </table>
       </div>      <div className="card" style={{ marginBottom: 16 }}>
         <h3>Stage timing & duration — check the phases each stage applies to; tick a box to unlock its hours selection (auto or manual)</h3>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          Every box you tick adds that phase's share of the stage hours to the tag total; untick a box and the hours
+          drop back out. A stage with nothing ticked is skipped (0 h). Auto hours come from the engine norms; the
+          manual box replaces them before the same phase scaling is applied.
+        </p>
         {summary.map(({ e, calc }) => {
-          const stages = mergeItpStages(defaultItpStages(e, calc), e.itpStages);
-          const totalH = itpTotalHours(stages);
+          const { stages, ref, total: totalH } = stageData(e, calc);
           const upStage = (code: string, patch: Partial<ItpStageTiming>) => {
             setState((s) => ({
               equipment: s.equipment.map((x) => {
@@ -141,6 +158,8 @@ export default function Inspection() {
                   <tbody>
                     {stages.map((st) => {
                       const active = st.phases.length > 0;
+                      const eff = effectiveDurationH(st, ref.get(st.code));
+                      const deltaVsAuto = eff - st.durationH;
                       const selValue =
                         st.durationOverrideH === null
                           ? 'auto'
@@ -160,7 +179,7 @@ export default function Inspection() {
                               ))}
                             </span>
                           </td>
-                          <td className="num calc">{active ? fmt(st.durationH, 1) : '—'}</td>
+                          <td className="num calc" title="Engine estimate at the default phase coverage">{active ? fmt(st.durationH, 1) : '—'}</td>
                           <td className="num">
                             {active ? (
                               <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
@@ -198,7 +217,12 @@ export default function Inspection() {
                             )}
                           </td>
                           <td className="num">
-                            <strong>{fmt(effectiveDurationH(st), 1)}</strong>
+                            <strong>{fmt(eff, 1)}</strong>
+                            {active && Math.abs(deltaVsAuto) >= 0.05 && (
+                              <span className="small muted" style={{ marginLeft: 4 }} title="Change caused by the phase boxes you ticked">
+                                {deltaVsAuto > 0 ? '▲ +' : '▼ −'}{fmt(Math.abs(deltaVsAuto), 1)} h
+                              </span>
+                            )}
                             {!active && <span className="badge" style={{ marginLeft: 4 }}>skipped</span>}
                             {active && st.durationOverrideH !== null && <span className="badge warn" style={{ marginLeft: 4 }}>manual</span>}
                           </td>
@@ -221,14 +245,14 @@ export default function Inspection() {
         <div style={{ marginBottom: 8 }} className="no-print">
           <button className="primary" onClick={() => printElementById('itp-print-root', 'Inspection & Test Plan')}>⎙ PDF — ITP</button>{' '}
           <button onClick={() => downloadCSV('itp.csv', [['Tag', 'Activity', 'Code', 'Requirement', 'Witness'], ...equipment.flatMap(rows)],)}>{' '}Export ITP CSV</button>
-          <button onClick={() => downloadCSV('itp_stages.csv', [['Tag', 'Stage code', 'Stage', 'Timing phases', 'Est. h', 'Manual h', 'Effective h'], ...equipment.flatMap((e) => mergeItpStages(defaultItpStages(e, computeEquipment(e)), e.itpStages).map((st) => [e.tag, st.code, itpStageName(st.code), st.phases.length ? st.phases.map((p) => ITP_PHASE_LABELS[p]).join(' | ') : 'not ticked (skipped)', fmt(st.durationH, 1), st.durationOverrideH ?? '', fmt(effectiveDurationH(st), 1)]))])}>Export stage schedule CSV</button>
+          <button onClick={() => downloadCSV('itp_stages.csv', [['Tag', 'Stage code', 'Stage', 'Timing phases', 'Est. h', 'Manual h', 'Effective h'], ...equipment.flatMap((e) => { const d = stageData(e); return d.stages.map((st) => [e.tag, st.code, itpStageName(st.code), st.phases.length ? st.phases.map((p) => ITP_PHASE_LABELS[p]).join(' | ') : 'not ticked (skipped)', fmt(st.durationH, 1), st.durationOverrideH ?? '', fmt(effectiveDurationH(st, d.ref.get(st.code)), 1)]); })])}>Export stage schedule CSV</button>
         </div>
         <div id="itp-print-root" style={{ display: 'none' }}>
           <h2>Inspection & Test Plan — {settings.projectName ?? 'project'}</h2>
           <table className="grid">
             <thead><tr><th>Tag</th><th>Stage</th><th>Timing phases</th><th>Est. h</th><th>Manual h</th><th>Effective h</th></tr></thead>
-            <tbody>{equipment.flatMap((e) => mergeItpStages(defaultItpStages(e, computeEquipment(e)), e.itpStages).map((st) => <tr key={e.id + st.code}><td>{e.tag}</td><td>{itpStageName(st.code)}</td><td>{st.phases.length ? st.phases.map((p) => ITP_PHASE_LABELS[p]).join(', ') : 'not ticked (skipped)'}</td><td>{fmt(st.durationH, 1)}</td><td>{st.durationOverrideH ?? '—'}</td><td>{fmt(effectiveDurationH(st), 1)}</td></tr>))}</tbody>
-            <tfoot><tr><td colSpan={5}>Project inspection hours</td><td>{fmt(equipment.reduce((s, e) => itpTotalHours(mergeItpStages(defaultItpStages(e, computeEquipment(e)), e.itpStages)), 0), 1)}</td></tr></tfoot>
+            <tbody>{equipment.flatMap((e) => { const d = stageData(e); return d.stages.map((st) => <tr key={e.id + st.code}><td>{e.tag}</td><td>{itpStageName(st.code)}</td><td>{st.phases.length ? st.phases.map((p) => ITP_PHASE_LABELS[p]).join(', ') : 'not ticked (skipped)'}</td><td>{fmt(st.durationH, 1)}</td><td>{st.durationOverrideH ?? '—'}</td><td>{fmt(effectiveDurationH(st, d.ref.get(st.code)), 1)}</td></tr>); })}</tbody>
+            <tfoot><tr><td colSpan={5}>Project inspection hours</td><td>{fmt(equipment.reduce((s, e) => s + stageData(e).total, 0), 1)}</td></tr></tfoot>
           </table>
           <h2>Combined ITP</h2>
           <table className="grid">
