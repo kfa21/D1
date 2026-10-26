@@ -419,6 +419,13 @@ export function hxPlateItems(equip: Equipment, calc: EquipmentCalc): { items: BO
   return { items, plateReqs };
 }
 
+const FIN_TYPE_LABEL: Record<string, string> = {
+  lFooted: 'L-footed',
+  serrated: 'serrated L-footed',
+  gFooted: 'G-footed/embedded',
+  integral: 'integral (extruded)',
+};
+
 export function finFanItems(equip: Equipment, calc: EquipmentCalc): BOMItem[] {
   const items: BOMItem[] = [];
   const ff = equip.finfan!;
@@ -433,7 +440,7 @@ export function finFanItems(equip: Equipment, calc: EquipmentCalc): BOMItem[] {
   });
   items.push({
     id: `${equip.id}-ff-fins`, equipId: equip.id, tag: equip.tag, category: 'Other',
-    item: 'Fin strip', spec: `Ø${ff.finOD} × ${ff.finThk} mm @ ${ff.finPitch} fpi`,
+    item: 'Fin strip', spec: `Ø${ff.finOD} × ${ff.finThk} mm @ ${ff.finPitch} fpi, ${FIN_TYPE_LABEL[ff.finType ?? 'lFooted']}`,
     material: ff.finMatKey, qty: 1, unit: 'm',
     massKg: (c.finnedAreaM2 * (ff.finThk / 1000) * 1200),
     note: `~${c.finnedAreaM2.toFixed(0)} m² finned area`,

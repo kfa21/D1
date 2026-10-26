@@ -9,6 +9,14 @@ import { computeVessel } from './asme';
 const FT3_PER_M3 = 35.3147;
 const G_PER_KG = 2.20462;
 
+/** Air density at the site (ISA standard atmosphere, troposphere 0–11 km):
+ *  ρ = 1.225·(1 − 2.25577e-5·h)^4.25587 kg/m³. Sea level = 1.225, 1000 m ≈ 1.112,
+ *  2000 m ≈ 1.007 — replaces the old hard-coded 1.2 kg/m³. */
+export function siteAirDensity(elevationM: number): number {
+  const h = Math.min(11000, Math.max(0, Number.isFinite(elevationM) ? elevationM : 0));
+  return 1.225 * Math.pow(1 - 2.25577e-5 * h, 4.25587);
+}
+
 export function computeFinFan(equip: Equipment): EquipmentCalc {
   const ff = equip.finfan!;
   const warnings: Warning[] = [];
@@ -57,16 +65,17 @@ export function computeFinFan(equip: Equipment): EquipmentCalc {
   const thermalOK = areaAvail >= ff.dutyKW;
   const airRise = ff.airRiseC > 0 ? ff.airRiseC : 15;
 
-  // Air flow from duty: m_air = Q/(cp·ΔT)
+  // Air flow from duty: m_air = Q/(cp·ΔT); volume flow at the site density (ISA)
+  const rho = siteAirDensity(ff.siteElevationM ?? 0);
   const cpAir = 1.006; // kJ/kg·K
   const mAirKgS = (ff.dutyKW * 1000) / (cpAir * Math.max(5, airRise));
-  const airVolM3s = mAirKgS / 1.2; // kg/s → m³/s
+  const airVolM3s = mAirKgS / rho; // kg/s → m³/s
   const airFlowCMH = airVolM3s * 3600;
 
-  // Air velocity & ΔP
+  // Air velocity & ΔP (the row correlation is referenced to 1.2 kg/m³ air)
   const faceVel = airVolM3s / Math.max(0.1, faceArea); // m/s
   const rowsFactor = 0.12; // in H2O per row at 4 m/s baseline
-  const bundleH2O = rows * rowsFactor * Math.pow(faceVel / 4, 1.6);
+  const bundleH2O = rows * rowsFactor * Math.pow(faceVel / 4, 1.6) * (rho / 1.2);
   const plenum = ff.plenumLossH2O > 0 ? ff.plenumLossH2O : 0.5;
   const airDPH2O = bundleH2O + plenum;
 
@@ -76,10 +85,14 @@ export function computeFinFan(equip: Equipment): EquipmentCalc {
   const fanBHP = (qCfm * airDPH2O) / (6356 * eta);
   const fanKW = fanBHP * 0.7457;
 
-  // Fan coverage ≥ 40% of bundle face area (API 661 guidance)
-  const fanAreaMin = 0.4 * faceArea;
-  const fanDia = Math.sqrt((4 * fanAreaMin) / Math.PI);
-  const plenumDia = Math.sqrt((4 * Math.max(faceArea, fanAreaMin)) / Math.PI);
+  // Fan coverage ≥ 40% of the face area of the BAY the fan serves (API 661
+  // guidance): auto-size when no fan diameter is entered, otherwise check the
+  // entered one. Coverage and diameter are reported on the calc.
+  const fanAreaMin = 0.4 * faceAreaPerBay;
+  const autoFanDia = 1000 * Math.sqrt((4 * fanAreaMin) / Math.PI); // mm (area in m²)
+  const fanDia = ff.fanDiaMm && ff.fanDiaMm > 0 ? ff.fanDiaMm : autoFanDia;
+  const fanArea = (Math.PI / 4) * Math.pow(fanDia / 1000, 2);
+  const fanCoveragePct = faceAreaPerBay > 0 ? (fanArea / faceAreaPerBay) * 100 : 0;
 
   if (faceVel > 6) {
     warnings.push({ level: 'warning', code: 'AF-01', msg: `Face velocity ${faceVel.toFixed(1)} m/s > 6 m/s — noise/erosion; increase face area` });
@@ -91,6 +104,22 @@ export function computeFinFan(equip: Equipment): EquipmentCalc {
     warnings.push({ level: 'error', code: 'AF-03', msg: `Thermal shortfall: ${areaAvail.toFixed(0)} kW available < ${ff.dutyKW} kW duty (U = ${U} W/m²K)` });
   }
   warnings.push({ level: 'info', code: 'AF-04', msg: 'Confirm air ΔP with fan curve and fin/tube vendor rating (API 661 §7/§8)' });
+  if (fanCoveragePct < 40 - 1e-9) {
+    warnings.push({
+      level: 'warning',
+      code: 'AF-05',
+      msg: `Fan Ø${fanDia.toFixed(0)} mm covers ${fanCoveragePct.toFixed(0)}% of the bay face area — below the 40% API 661 guidance; enlarge the fan Ø or reduce the face area`,
+    });
+  }
+  const baysN = Math.max(1, ff.bays);
+  const fanKwPerFan = fanKW / baysN;
+  if (ff.motorKw && ff.motorKw > 0 && ff.motorKw < fanKwPerFan) {
+    warnings.push({
+      level: 'warning',
+      code: 'AF-06',
+      msg: `Fan motor ${ff.motorKw} kW < required ${fanKwPerFan.toFixed(1)} kW per fan (${fanKW.toFixed(1)} kW across ${baysN} bay${baysN === 1 ? '' : 's'}) — select a larger motor`,
+    });
+  }
 
   // Weights
   const tubeMassPerM =
@@ -123,6 +152,9 @@ export function computeFinFan(equip: Equipment): EquipmentCalc {
     weightBundleKg: weightBundle,
     weightOperatingKg: weightOperating, // already includes structure — was double-counted
     rowsOK: rows >= 6 && rows <= 9,
+    airDensity: rho,
+    fanDiaMm: fanDia,
+    fanCoveragePct,
   };
 
   return {

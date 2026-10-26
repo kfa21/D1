@@ -10,6 +10,7 @@ import { PIPES, SCHEDULES } from '../engine/pipes';
 import { uid, fmt } from '../engine/units';
 import { newEquipment, demoProject } from '../defaults';
 import { suggestNdtMethod } from '../engine/ndt';
+import { siteAirDensity } from '../engine/api661';
 import { recommendStructure } from '../engine/supports';
 import type { CladSpec } from '../engine/types';
 import { useStore, setState, getStore } from '../store';
@@ -1006,13 +1007,38 @@ function FinFanEqEditor({ equip }: { equip: Equipment }) {
       <label className="f"><span>Fin OD (mm)</span><input type="number" value={ff.finOD} onChange={(e) => p({ finOD: +e.target.value })} /></label>
       <label className="f"><span>Fin pitch (fpi)</span><input type="number" value={ff.finPitch} onChange={(e) => p({ finPitch: +e.target.value })} /></label>
       <label className="f"><span>Fin thickness (mm)</span><input type="number" step="0.05" value={ff.finThk} onChange={(e) => p({ finThk: +e.target.value })} /></label>
+      <label className="f"><span>Fin type</span>
+        <select value={ff.finType ?? 'lFooted'} onChange={(e) => p({ finType: e.target.value as never })} title="Recorded on the datasheet and BOM; the thermal rating still uses the entered/auto overall U">
+          <option value="lFooted">L-footed (ring)</option>
+          <option value="serrated">Serrated L-footed</option>
+          <option value="gFooted">G-footed / embedded</option>
+          <option value="integral">Integral (extruded)</option>
+        </select>
+      </label>
       <label className="f"><span>Duty (kW)</span><input id={fid('ffDutyKW')} type="number" value={ff.dutyKW} onChange={(e) => p({ dutyKW: +e.target.value })} /><FixNote equipId={equip.id} field="ffDutyKW" /></label>
       <label className="f"><span>Process in (°C)</span><input type="number" value={ff.processInC} onChange={(e) => p({ processInC: +e.target.value })} /></label>
       <label className="f"><span>Process out (°C)</span><input type="number" value={ff.processOutC} onChange={(e) => p({ processOutC: +e.target.value })} /></label>
       <label className="f"><span>Air in (°C)</span><input type="number" value={ff.airInC} onChange={(e) => p({ airInC: +e.target.value })} /></label>
+      <label className="f"><span>Air temperature rise (°C, 0 = 15)</span><input type="number" value={ff.airRiseC} onChange={(e) => p({ airRiseC: +e.target.value })} /></label>
+      <label className="f"><span>Site elevation (m)</span>
+        <input
+          type="number"
+          title={`ISA air density at this elevation: ${siteAirDensity(ff.siteElevationM ?? 0).toFixed(3)} kg/m³ — drives air volume flow, face velocity and fan power`}
+          value={ff.siteElevationM ?? 0}
+          onChange={(e) => p({ siteElevationM: +e.target.value })}
+        />
+      </label>
       <label className="f"><span>U finned area (W/m²K, 0=auto)</span><input type="number" value={ff.uAir} onChange={(e) => p({ uAir: +e.target.value })} /></label>
       <label className="f"><span>Fan efficiency</span><input type="number" step="0.05" value={ff.fanEfficiency} onChange={(e) => p({ fanEfficiency: +e.target.value })} /></label>
       <label className="f"><span>Plenum loss (in H₂O)</span><input type="number" step="0.05" value={ff.plenumLossH2O} onChange={(e) => p({ plenumLossH2O: +e.target.value })} /></label>
+      <label className="f"><span>Fan Ø (mm, 0 = auto ≥40%)</span>
+        <input id={fid('ffFanDia')} type="number" value={ff.fanDiaMm ?? 0} onChange={(e) => p({ fanDiaMm: +e.target.value })} />
+        <FixNote equipId={equip.id} field="ffFanDia" />
+      </label>
+      <label className="f"><span>Motor (kW, 0 = n/a)</span>
+        <input id={fid('ffMotorKw')} type="number" value={ff.motorKw ?? 0} onChange={(e) => p({ motorKw: +e.target.value })} />
+        <FixNote equipId={equip.id} field="ffMotorKw" />
+      </label>
       <label className="f"><span>Tube material (tube/pipe grades)</span>
         <select value={ff.tubeMatKey} onChange={(e) => p({ tubeMatKey: e.target.value })}>{MATERIALS.filter((m) => m.form === 'pipe').map((m) => <option key={m.key} value={m.key}>{m.name}</option>)}</select>
       </label>

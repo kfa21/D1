@@ -340,6 +340,15 @@ export interface FinFanSpec {
   finMatKey: string;
   headerThk: number;
   tubeCount: number; // 0 => auto
+  /** site elevation for the air density (m; absent/0 = sea level, ISA 1.225 kg/m³) */
+  siteElevationM?: number;
+  /** fin form — recorded on the datasheet/BOM; the thermal rating still runs on
+   *  the entered/auto overall U (a fin-efficiency re-rate is not implemented) */
+  finType?: 'lFooted' | 'serrated' | 'gFooted' | 'integral';
+  /** fan diameter (mm; absent/0 = auto-size to ≥40 % of the bundle face area) */
+  fanDiaMm?: number;
+  /** fan motor rating at the shaft (kW; absent/0 = no motor specified) */
+  motorKw?: number;
 }
 
 /** Flat-bar external-pressure stiffening ring drawn on the vessel. */
@@ -726,6 +735,12 @@ export interface FinFanCalc {
   weightBundleKg: number;
   weightOperatingKg: number;
   rowsOK: boolean;
+  /** air density at the site elevation (kg/m³, ISA) */
+  airDensity: number;
+  /** fan diameter used (mm) — the entered one, or the auto ≥40 % coverage size */
+  fanDiaMm: number;
+  /** fan plan area / bundle face area */
+  fanCoveragePct: number;
 }
 
 export interface BOMItem {

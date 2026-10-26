@@ -156,6 +156,10 @@ export function newEquipment(type: EquipType, srNo: number): Equipment {
             finMatKey: 'SA-240-304',
             headerThk: 16,
             tubeCount: 0,
+            siteElevationM: 0,
+            finType: 'lFooted' as const,
+            fanDiaMm: 0,
+            motorKw: 0,
           },
         }
       : {}),

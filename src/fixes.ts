@@ -81,6 +81,8 @@ export const WARNING_FIX: Record<string, FieldFix> = {
   'AF-02': { tab: 'type', field: 'ffRows', suggest: 'Rows per bank outside the common 6–9 practice: set Rows deep inside that range (or justify the deviation in the design notes).' },
   'AF-03': { tab: 'type', field: 'ffDutyKW', suggest: 'Available kW below duty: add rows/finned length/fins, raise the air flow, or reduce the specified Duty.' },
   'AF-04': { tab: '', field: '', suggest: 'Confirm the air ΔP against the fan curve / vendor rating — the engine screens only. No field to change.' },
+  'AF-05': { tab: 'type', field: 'ffFanDia', suggest: 'Fan area below 40% of the bay face area (API 661): increase the Fan Ø input (0 = auto sizes it to exactly 40%), or reduce the face area by shortening the finned length / rows.' },
+  'AF-06': { tab: 'type', field: 'ffMotorKw', suggest: 'Motor rating below the required fan power: raise Motor (kW) above the fan shaft power shown in the Fin-fan block (total kW ÷ bays), or reduce the air flow / ΔP.' },
 
   // ---- TEMA exchangers ----
   'HX-01': { tab: 'type', field: 'hxShellDiaOD', suggest: 'Bundle-to-shell clearance below 10 mm: increase the Shell OD input (or let it auto-size) so the bundle clears the shell.' },

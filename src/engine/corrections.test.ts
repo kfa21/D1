@@ -24,6 +24,7 @@ import { kelloggEquivPressureBar, neckStresses, screenNozzleLoad, wrcShellShear 
 import { bellJB, bellJC, bellJL, esduNusselt, kernFriction, tubeVibration } from './shellside';
 import { combinedRingSection, effectiveShellWidth, requiredRingInertia, stiffenerRingCheck } from './rings';
 import { computeEquipment } from './compute';
+import { siteAirDensity } from './api661';
 import { demoProject, newEquipment } from '../defaults';
 import { checkWarningCodes } from './warnings';
 import type { Equipment } from './types';
@@ -939,5 +940,55 @@ describe('nozzle → shell course resolved from its elevation (not the stored se
     expect(below.nozzles[0].sectionId).toBe('c1');
     expect(below.warnings.some((x) => x.code === 'NZ-03')).toBe(true);
     expect(checkWarningCodes([...above.warnings, ...below.warnings]).problems).toEqual([]);
+  });
+});
+
+describe('API 661 — site air density & fan block (data-entry batch)', () => {
+  const finfan = () => demoProject().find((e) => e.equipType === 'finfan')!;
+
+  it('ISA density matches the published standard-atmosphere values', () => {
+    expect(siteAirDensity(0)).toBeCloseTo(1.225, 6);
+    expect(siteAirDensity(1000)).toBeCloseTo(1.112, 3); // ≈ 1.1117
+    expect(siteAirDensity(2000)).toBeCloseTo(1.007, 2); // ≈ 1.0065
+    expect(siteAirDensity(-100)).toBeCloseTo(1.225, 6); // clamped below sea level
+    expect(siteAirDensity(50_000)).toBeLessThan(0.4); // clamped at the 11 km tropopause
+  });
+
+  it('the auto fan sits at 40 % coverage; an entered fan below it warns AF-05', () => {
+    const auto = computeEquipment(finfan());
+    expect(auto.finfan).toBeTruthy();
+    expect(auto.finfan!.fanCoveragePct).toBeCloseTo(40, 6);
+    expect(auto.finfan!.airDensity).toBeCloseTo(1.225, 6); // sea-level default
+    expect(auto.warnings.some((w) => w.code === 'AF-05')).toBe(false);
+
+    const eq = finfan();
+    eq.finfan!.fanDiaMm = 500;
+    const small = computeEquipment(eq);
+    expect(small.finfan!.fanCoveragePct).toBeLessThan(40);
+    expect(small.warnings.some((w) => w.code === 'AF-05')).toBe(true);
+    expect(checkWarningCodes(small.warnings).problems).toEqual([]);
+  });
+
+  it('a motor below the required fan power warns AF-06', () => {
+    const eq = finfan();
+    eq.finfan!.motorKw = 1;
+    const c = computeEquipment(eq);
+    expect(c.finfan!.fanKW).toBeGreaterThan(1);
+    expect(c.warnings.some((w) => w.code === 'AF-06')).toBe(true);
+
+    const ok = finfan();
+    ok.finfan!.motorKw = Math.ceil((c.finfan!.fanKW / Math.max(1, ok.finfan!.bays)) * 1.1); // comfortably above the requirement
+    expect(computeEquipment(ok).warnings.some((w) => w.code === 'AF-06')).toBe(false);
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+  });
+
+  it('site elevation drives the air volume flow through the density', () => {
+    const sea = computeEquipment(finfan());
+    const high = finfan();
+    high.finfan!.siteElevationM = 3000;
+    const m = computeEquipment(high);
+    expect(m.finfan!.airDensity).toBeLessThan(1.1);
+    expect(m.finfan!.airFlowCMH).toBeGreaterThan(sea.finfan!.airFlowCMH); // thinner air → more volume
+    expect(m.finfan!.fanKW).toBeGreaterThan(sea.finfan!.fanKW); // same mass flow, bigger volume → more BHP
   });
 });

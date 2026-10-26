@@ -74,6 +74,8 @@ export const WARNING_CATALOG: Record<string, WarningSpec> = {
   'AF-02': { level: 'info', note: 'Rows per bank outside common 6–9 practice' },
   'AF-03': { level: 'error', note: 'Thermal shortfall — available kW below duty' },
   'AF-04': { level: 'info', note: 'Confirm air ΔP with fan curve and vendor rating' },
+  'AF-05': { level: 'warning', note: 'Fan covers < 40% of the bay face area (API 661 guidance)' },
+  'AF-06': { level: 'warning', note: 'Fan motor rating below the required fan power' },
   // TEMA exchangers (tema.ts)
   'HX-01': { level: 'warning', note: 'Bundle-to-shell clearance below 10 mm' },
   'HX-02': { level: 'error', note: 'Thermal area shortfall (TEMA/required area not met)' },
