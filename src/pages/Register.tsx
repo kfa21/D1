@@ -1001,7 +1001,7 @@ function TankEqEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
       <label className="f"><span>Seismic design</span><input type="checkbox" checked={tk.seismic} onChange={(e) => p({ seismic: e.target.checked })} /></label>
       <label className="f"><span>Wind / stiffening rings provided (§5.8.7)</span><input id={fid('tankStiffenerRings')} type="checkbox" checked={tk.stiffenerRings} onChange={(e) => p({ stiffenerRings: e.target.checked })} /><FixNote equipId={equip.id} field="tankStiffenerRings" /></label>
       <label className="f"><span>Shell allowable override (MPa, 0=table)</span><input type="number" step="0.1" value={tk.shellAllowableOverride} onChange={(e) => p({ shellAllowableOverride: +e.target.value })} /></label>
-      <label className="f"><span>Max liquid level (mm, 0=TT)</span><input type="number" value={tk.maxDesignLiquidLevel} onChange={(e) => p({ maxDesignLiquidLevel: +e.target.value })} /></label>
+      <label className="f"><span>Max liquid level (mm, 0=TT)</span><input id={fid('tankMaxDesignLiquidLevel')} type="number" value={tk.maxDesignLiquidLevel} onChange={(e) => p({ maxDesignLiquidLevel: +e.target.value })} /><FixNote equipId={equip.id} field="tankMaxDesignLiquidLevel" /></label>
     </div>
   );
 }

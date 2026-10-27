@@ -66,6 +66,7 @@ export const WARNING_FIX: Record<string, FieldFix> = {
   'T650-04': { tab: 'type', field: 'tankRoofType', suggest: 'External floating roof: check seal selection, stability and the roof drain on the Tank data tab (seals are costed as purchased items in the BOM).' },
   'T650-05': { tab: '', field: '', suggest: 'An external floating roof requires an upper wind girder (§5.8.7): include it in the structural scope.' },
   'T650-06': { tab: 'type', field: 'tankRoofType', suggest: 'Internal floating roof: verify vapor-space venting and guider arrangements (§5.8.2) — switch Roof type if a fixed roof with IFR deck is intended.' },
+  'T650-07': { tab: 'type', field: 'tankMaxDesignLiquidLevel', suggest: 'The design liquid level is above the shell: API 650 sizes the courses on the liquid height, so this over-sizes the shell and overstates the volume. Set Max liquid level (mm, 0 = TT) on the Tank data tab to ≤ the tank T-T length (enter 0 to use the shell height).', },
   'T650-08': { tab: 'type', field: 'tankBottomThk', suggest: 'Annular plate below Table 5-1a: raise the Bottom t input (annular thickness is derived from the table plus the selected width) or widen the annular ring.' },
   'T650-09': { tab: 'type', field: 'tankAnnularBottom', suggest: 'Annular plate width should be ≥ 600 mm from the shell (§5.5.3): enable the annular bottom plate on the Tank data tab.' },
   'T650-10': { tab: 'type', field: 'tankBottomThk', suggest: 'Bottom plate below the 6 mm corroded minimum (§5.5.1): enter a larger Bottom t (0 = auto already applies 6 mm + CA).' },

@@ -61,6 +61,7 @@ export const WARNING_CATALOG: Record<string, WarningSpec> = {
   'T650-04': { level: 'info', note: 'External floating roof — seals, stability & roof-drain advisory (API 650 §5.8.3)' },
   'T650-05': { level: 'info', note: 'Upper wind girder mandatory for external floating roof (API 650 §5.8.7)' },
   'T650-06': { level: 'info', note: 'Internal floating roof — vapor-space venting & guider advisory (API 650 §5.8.2)' },
+  'T650-07': { level: 'warning', note: 'Design liquid level exceeds the shell height — courses sized on the liquid height' },
   'T650-08': { level: 'warning', note: 'Annular bottom plate below Table 5-1a requirement' },
   'T650-09': { level: 'info', note: 'Annular plate width ≥ 600 mm from shell advisory (§5.5.3)' },
   'T650-10': { level: 'warning', note: 'Bottom plate below the 6 mm corroded minimum (§5.5.1)' },

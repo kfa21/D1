@@ -20,7 +20,7 @@ import {
 import { externalPressureCheck, externalRequiredThickness, zickHornStress, zickK3, zickK2, zickSaddle } from './asme';
 import { studCount } from './pipes';
 import { annularThicknessFromTable, coneRoofAreaFactor, computeTank, iterateVdpCourse, roofSlopeRun, vdpFirstCourseThickness, vdpUpperCourseThickness } from './api650';
-import { kelloggEquivPressureBar, neckStresses, screenNozzleLoad, wrcShellShear } from './wrc107';
+import { hasLoad, kelloggEquivPressureBar, neckStresses, screenNozzleLoad, toSI, wrcShellShear } from './wrc107';
 import { bellJB, bellJC, bellJL, esduNusselt, kernFriction, tubeVibration } from './shellside';
 import { combinedRingSection, effectiveShellWidth, requiredRingInertia, stiffenerRingCheck } from './rings';
 import { computeEquipment } from './compute';
@@ -483,6 +483,56 @@ describe('API 650 variable design point method (§5.6.4)', () => {
     expect(one.converged).toBe(false);
     expect(one.tDesign).toBeGreaterThan(5); // last iterate still usable
   });
+
+  it('warns when a course exhausts the 5-pass VDP iteration (T650-11, C3)', () => {
+    // Found by parameter scan: D = 62 m, H = 20 m, G = 1.5, CA = 3 mm — the
+    // fixed-point map's slope approaches 1 at this scale, so the guard must
+    // report rather than silently ship the last iterate.
+    const tk = newEquipment('tank', 15);
+    tk.sections[0] = { ...tk.sections[0], dia: 62000, ttLength: 20000 };
+    tk.tank!.maxDesignLiquidLevel = 20000;
+    tk.tank!.specificGravity = 1.5;
+    tk.tank!.annularBottom = false;
+    tk.corrosionAllowance = 3;
+    tk.materialKey = 'SA-516-70';
+    tk.externalPressure = 0;
+    const c = computeTank(tk);
+    expect(c.tank!.shellMethod).toBe('vdp');
+    const w = c.warnings.find((x) => x.code === 'T650-11');
+    expect(w, 'T650-11 should fire for this geometry').toBeDefined();
+    expect(w!.level).toBe('warning');
+    expect(w!.msg).toMatch(/did not converge/);
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+    // the last iterate is still usable — every course keeps a positive thickness
+    expect(c.tank!.shellCourses.every((s) => s.tNominal > 0)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C6 — the T650-07 numbering gap: the code is now catalogued, fixable AND emitted
+// ---------------------------------------------------------------------------
+
+describe('T650-07 design liquid level above the shell (C6)', () => {
+  it('warns when Max liquid level exceeds the T-T shell height', () => {
+    const tk = newEquipment('tank', 16);
+    tk.sections[0] = { ...tk.sections[0], dia: 12000, ttLength: 14000 };
+    tk.tank!.maxDesignLiquidLevel = 16000; // 2 m above the shell
+    const c = computeTank(tk);
+    const w = c.warnings.find((x) => x.code === 'T650-07');
+    expect(w, 'T650-07 should fire').toBeDefined();
+    expect(w!.level).toBe('warning');
+    expect(w!.msg).toContain('16000');
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+  });
+
+  it('stays silent when the level is at or below the shell height', () => {
+    const tk = newEquipment('tank', 17);
+    tk.sections[0] = { ...tk.sections[0], dia: 12000, ttLength: 14000 };
+    tk.tank!.maxDesignLiquidLevel = 14000;
+    expect(computeTank(tk).warnings.some((x) => x.code === 'T650-07')).toBe(false);
+    tk.tank!.maxDesignLiquidLevel = 0; // 0 = use TT
+    expect(computeTank(tk).warnings.some((x) => x.code === 'T650-07')).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -540,6 +590,24 @@ describe('WRC 107 nozzle local-load screening', () => {
     // F = 10 kN, M = 1 kN·m, G = 200 mm → 4F/(π·G²) + 16M/(π·G³)
     // = 0.31831 + 0.63662 = 0.95492 MPa = 9.55 bar
     expect(kelloggEquivPressureBar(10000, 1e6, 200)).toBeCloseTo(9.55, 2);
+  });
+
+  it('hasLoad / toSI — load presence gate and kN→N unit conversion (C5)', () => {
+    // hasLoad: undefined, all-zero and sub-epsilon loads must all be "no load"
+    expect(hasLoad(undefined)).toBe(false);
+    expect(hasLoad({ fx: 0, fy: 0, fz: 0, mx: 0, my: 0, mz: 0 })).toBe(false);
+    expect(hasLoad({ fx: 1e-12, fy: 0, fz: 0, mx: 0, my: 0, mz: 0 })).toBe(false);
+    // any real component (force OR moment, positive or negative) counts
+    expect(hasLoad({ fx: 0, fy: 0, fz: 0, mx: 0, my: 0, mz: -0.05 })).toBe(true);
+    expect(hasLoad({ fx: 0.001, fy: 0, fz: 0, mx: 0, my: 0, mz: 0 })).toBe(true);
+
+    // toSI: forces kN → N (×1e3), moments kN·m → N·mm (×1e6), axes preserved
+    const si = toSI({ fx: 3, fy: 4, fz: -2, mx: 0.1, my: 0.2, mz: -0.5 });
+    expect(si).toEqual({ P: 3000, V1: 4000, V2: -2000, Mt: 1e5, Mo1: 2e5, Mo2: -5e5 });
+    // zero stays zero through the conversion
+    expect(toSI({ fx: 0, fy: 0, fz: 0, mx: 0, my: 0, mz: 0 })).toEqual({
+      P: 0, V1: 0, V2: 0, Mt: 0, Mo1: 0, Mo2: 0,
+    });
   });
 
   it('screens a loaded demo nozzle (NL-01) and skips no-load nozzles', () => {

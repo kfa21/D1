@@ -208,6 +208,15 @@ export function computeTank(equip: Equipment): EquipmentCalc {
   const Hmm = tank.maxDesignLiquidLevel > 0 ? tank.maxDesignLiquidLevel : sec.ttLength;
   const Hm = Hmm / 1000;
   const G = Math.max(0.4, tank.specificGravity);
+  // §5.6 sizes the shell on the LIQUID height, so a level above the shell
+  // silently over-sizes every course and overstates the volume — data check.
+  if (tank.maxDesignLiquidLevel > 0 && tank.maxDesignLiquidLevel > sec.ttLength + 1e-6) {
+    warnings.push({
+      level: 'warning',
+      code: 'T650-07',
+      msg: `Design liquid level ${Math.round(tank.maxDesignLiquidLevel)} mm exceeds the shell height ${Math.round(sec.ttLength)} mm — courses and volume are sized on the liquid height; set Max liquid level ≤ the tank T-T length`,
+    });
+  }
   const ca = Math.max(0, equip.corrosionAllowance);
   const st = API650_STRESSES[equip.materialKey] ?? API650_STRESSES.default;
   const Sd = tank.shellAllowableOverride > 0 ? tank.shellAllowableOverride : st.Sd;
