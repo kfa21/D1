@@ -289,6 +289,19 @@ export default function EstimatePage() {
         <div className="kpi"><span className="v">{money(m.costPerTagUSD, settings)}</span><span className="l">Average cost per tag</span></div>
       </div>
 
+      {/* 02 Special — price and man-hours normalised on empty equipment weight */}
+      <div className="row" style={{ marginBottom: 14 }}>
+        <div className="kpi" style={{ borderColor: 'var(--accent)' }}>
+          <span className="v">{money(m.costPerEmptyTonUSD, settings)} / t</span>
+          <span className="l">02 Special — price / empty equipment weight (t)</span>
+        </div>
+        <div className="kpi" style={{ borderColor: 'var(--accent)' }}>
+          <span className="v">{fmt(m.hoursPerEmptyTon, 1)} h / t</span>
+          <span className="l">02 Special — manhours / empty equipment weight (t)</span>
+        </div>
+        <div className="kpi"><span className="v">{fmt(m.dryKg / 1000, 2)} t</span><span className="l">Empty equipment weight (dry, total)</span></div>
+      </div>
+
       <div className="row" style={{ marginBottom: 14 }}>
         <div className="card">
           <h3>Cost structure <span className="badge info">share of direct cost</span></h3>
@@ -460,6 +473,7 @@ export default function EstimatePage() {
               <tr><td>Dry weight · weld length</td><td className="num">{fmt(m.dryKg / 1000, 2)} t · {fmt(m.weldM, 0)} m</td></tr>
               <tr><td>Shop hours (incl. eng/QA %)</td><td className="num">{fmt(m.shopHours, 0)} h</td></tr>
               <tr><td>Cost per kg / per weld m</td><td className="num">{money(m.costPerKgUSD, settings)} · {money(m.costPerWeldMUSD, settings)}</td></tr>
+              <tr><td>02 Special — price / manhours per empty ton</td><td className="num">{money(m.costPerEmptyTonUSD, settings)}/t · {fmt(m.hoursPerEmptyTon, 1)} h/t</td></tr>
               <tr><td>Plate stock sizes</td><td className="num">{settings.plateStock.length} sizes</td></tr>
             </tbody>
           </table>

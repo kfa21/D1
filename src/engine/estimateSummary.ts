@@ -48,6 +48,10 @@ export interface EstimateMetrics {
   costPerWeldMUSD: number;
   hoursPerWeldM: number;
   hoursPerTag: number;
+  /** "02 Special": grand price per tonne of empty (dry) equipment weight */
+  costPerEmptyTonUSD: number;
+  /** "02 Special": shop man-hours per tonne of empty equipment weight */
+  hoursPerEmptyTon: number;
 }
 
 export interface EstimateSummary {
@@ -129,6 +133,10 @@ export function summarizeEstimate(
     costPerWeldMUSD: safeDiv(t.grandUSD, phys.weldM),
     hoursPerWeldM: safeDiv(t.shopHours, phys.weldM),
     hoursPerTag: safeDiv(t.shopHours, res.perTag.length),
+    // "02 Special" ratios — price and man-hours per TONNE of empty equipment
+    // weight (dryKg is kg, so divide by 1000 to get tonnes)
+    costPerEmptyTonUSD: safeDiv(t.grandUSD, phys.dryKg / 1000),
+    hoursPerEmptyTon: safeDiv(t.shopHours, phys.dryKg / 1000),
   };
 
   return { groups, split, ladder, topDrivers, metrics };

@@ -83,6 +83,8 @@ describe('summarizeEstimate', () => {
     expect(s.metrics.costPerKgUSD).toBe(0);
     expect(s.metrics.costPerWeldMUSD).toBe(0);
     expect(s.metrics.hoursPerWeldM).toBe(0);
+    expect(s.metrics.costPerEmptyTonUSD).toBe(0); // 02 Special — no divide-by-zero
+    expect(s.metrics.hoursPerEmptyTon).toBe(0);
     expect(s.groups.every((g) => Number.isFinite(g.pct))).toBe(true);
   });
 
@@ -101,6 +103,10 @@ describe('summarizeEstimate', () => {
     expect(s.ladder.slice(0, 4).reduce((a, x) => a + x.amountUSD, 0)).toBeCloseTo(res.totals.grandUSD, 6);
     expect(s.metrics.costPerKgUSD).toBeGreaterThan(0);
     expect(s.metrics.hoursPerWeldM).toBeGreaterThan(0);
+    // 02 Special: price and man-hours per tonne of EMPTY equipment weight
+    const dryT = calc.weightDryKg / 1000;
+    expect(s.metrics.costPerEmptyTonUSD).toBeCloseTo(res.totals.grandUSD / dryT, 6);
+    expect(s.metrics.hoursPerEmptyTon).toBeCloseTo(res.totals.shopHours / dryT, 6);
     expect(s.topDrivers.length).toBeGreaterThan(0);
   });
 });
