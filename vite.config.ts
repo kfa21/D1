@@ -31,6 +31,8 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    // .tsx files are component tests — they opt into jsdom via their own
+    // `@vitest-environment jsdom` docblock; engine tests stay on node
+    include: ['src/**/*.test.{ts,tsx}'],
   },
 });
