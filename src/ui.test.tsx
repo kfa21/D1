@@ -82,6 +82,27 @@ describe('Estimate screen (C8)', () => {
   });
 });
 
+describe('AI datasheet import guard rails', () => {
+  it('stops before any network call when the API key is missing', () => {
+    resetStore();
+    setSettings({ geminiKey: '' });
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: /Gemini Code Review/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Import datasheet/ }));
+    expect(screen.getByText(/Add your Gemini API key/)).toBeTruthy();
+  });
+
+  it('stops before any network call when no datasheet is attached', () => {
+    resetStore();
+    setSettings({ geminiKey: 'test-key' }); // set BEFORE render so the handler sees it
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: /Gemini Code Review/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Import datasheet/ }));
+    expect(screen.getByText(/Attach the client datasheet first/)).toBeTruthy();
+    setSettings({ geminiKey: '' }); // never leave a credential in the store
+  });
+});
+
 describe('Register click-to-fix targets (C8)', () => {
   it('exposes the T650-07 fix field (Max liquid level) on the Tank data tab', () => {
     const eq = resetStore();
@@ -113,6 +134,24 @@ describe('Register click-to-fix targets (C8)', () => {
     }
     // default state: every course inherits the tag material
     expect(tank.tank!.courseGrades ?? []).toEqual([]);
+  });
+
+  it('renders the correct-value suggestion beside an erroring field (fixValues)', () => {
+    const eq = resetStore();
+    const tank = eq.find((e) => e.equipType === 'tank')!;
+    tank.tank!.annularBottom = false;
+    tank.corrosionAllowance = 3;
+    tank.tank!.bottomThk = 0; // auto 9 mm, entered 6 → T650-10 fires
+    setState({ selectedEquipId: tank.id });
+    render(<Register />);
+    fireEvent.click(screen.getByRole('button', { name: /Storage Tanks/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Tank data' }));
+    const note = document.querySelector('.fix-note');
+    expect(note, 'a persistent fix note must render under the field').toBeTruthy();
+    expect(note!.textContent).toContain('T650-10');
+    expect(note!.textContent).toContain('Correct value');
+    expect(note!.textContent).toContain('≥ 9 mm');
+    expect(note!.textContent).toContain('Observed:');
   });
 
   it('keeps the store snapshot consistent after a render (no leaked selection)', () => {

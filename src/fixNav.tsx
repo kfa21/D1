@@ -3,9 +3,12 @@
 // opens the right tab, DetailEditor focuses the field, and <FixNote/> renders
 // the correction hint directly below that field.
 
-import { useSyncExternalStore } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
 import { WARNING_CATALOG } from './engine/warnings';
-import { fixFor, fieldId, type FixTab } from './fixes';
+import { fixFor, fieldId, WARNING_FIX, type FixTab } from './fixes';
+import { useStore } from './store';
+import { computeEquipment } from './engine/compute';
+import { suggestedValue } from './fixValues';
 
 export interface FixRequest {
   equipId: string;
@@ -69,26 +72,63 @@ export function focusField(r: FixRequest): boolean {
   return true;
 }
 
-/** Correction hint that renders directly below the field it belongs to. */
+/**
+ * Correction note rendered directly below the field it belongs to.
+ *
+ * Shows EVERY active warning whose registry entry targets this field (not only
+ * after a click), each with the static correction hint, the engine's observed
+ * message, and — when one is computable — a concrete CORRECT VALUE to enter
+ * (see fixValues.suggestedValue). A click-to-fix from a warning list brings
+ * that code's note to the top and focuses the field.
+ */
 export function FixNote({ equipId, field }: { equipId: string; field: string }) {
   const fix = useFix();
-  if (!fix || fix.equipId !== equipId || !field || fix.field !== field) return null;
-  const fx = fixFor(fix.code);
-  if (!fx) return null;
-  const level = WARNING_CATALOG[fix.code]?.level ?? 'info';
+  const equip = useStore((s) => s.equipment.find((e) => e.id === equipId));
+  const calc = useMemo(() => (equip ? computeEquipment(equip) : null), [equip]);
+  const [dismissed, setDismissed] = useState<string[]>([]);
+  if (!equip || !calc || !field) return null;
+
+  const clickedHere = fix?.equipId === equipId && fix.field === field;
+  const active = calc.warnings
+    .filter((w) => WARNING_FIX[w.code]?.field === field && !dismissed.includes(w.code))
+    .sort((a, b) => (clickedHere && fix!.code === a.code ? -1 : clickedHere && fix!.code === b.code ? 1 : 0));
+  if (active.length === 0) return null;
+
   return (
-    <div className={`finding ${level} fix-note`} role="note">
-      <div>
-        <strong>{fix.code}</strong> — how to correct: {fx.suggest}
-      </div>
-      <button
-        className="ghost"
-        title="Dismiss suggestion"
-        style={{ marginTop: 4 }}
-        onClick={() => requestFix(null)}
-      >
-        ✕ Dismiss
-      </button>
-    </div>
+    <>
+      {active.map((w) => {
+        const fx = fixFor(w.code);
+        if (!fx) return null;
+        const level = WARNING_CATALOG[w.code]?.level ?? 'info';
+        const sug = suggestedValue(w.code, equip, calc);
+        return (
+          <div key={w.code} className={`finding ${level} fix-note`} role="note">
+            <div>
+              <strong>{w.code}</strong> — how to correct: {fx.suggest}
+            </div>
+            <div className="small muted" style={{ marginTop: 2 }}>
+              Observed: {w.msg}
+            </div>
+            {sug && (
+              <div style={{ marginTop: 2 }}>
+                ✔ Correct value: <strong>{sug.value}</strong>
+                <span className="small muted"> — {sug.basis}</span>
+              </div>
+            )}
+            <button
+              className="ghost"
+              title="Dismiss suggestion"
+              style={{ marginTop: 4 }}
+              onClick={() => {
+                setDismissed((d) => [...d, w.code]);
+                if (fix?.code === w.code) requestFix(null);
+              }}
+            >
+              ✕ Dismiss
+            </button>
+          </div>
+        );
+      })}
+    </>
   );
 }
