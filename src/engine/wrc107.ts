@@ -21,6 +21,14 @@
 // every screened nozzle carries the NL-01 caveat. Screening acceptance uses a
 // typical primary+secondary local-load criterion of 1.5 x S — verify against
 // the governing code edition / project specification.
+//
+// D1 research note (blocked, confirmed): WRC bulletins are commercially sold
+// (wrcforengineers.org / Accuris catalog) and no verified open-source
+// implementation of the response curves exists. The accepted workaround stays
+// what the batch plan says: USER-SUPPLIED coefficient tables — if the project
+// team owns the bulletin data, paste the P/Q/T/G curve values as inputs and we
+// can wire them in; until then, screen here and substantiate with FEA/DBA
+// (Appendix 46 route) for design.
 
 import type { NozzleLoadCalc, NozzleLoads, Warning } from './types';
 

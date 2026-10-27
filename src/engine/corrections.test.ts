@@ -19,7 +19,7 @@ import {
 } from './tema';
 import { externalPressureCheck, externalRequiredThickness, zickHornStress, zickK3, zickK2, zickSaddle } from './asme';
 import { studCount } from './pipes';
-import { annularThicknessFromTable, coneRoofAreaFactor, computeTank, iterateVdpCourse, roofSlopeRun, vdpFirstCourseThickness, vdpUpperCourseThickness } from './api650';
+import { annularThicknessFromTable, coneRoofAreaFactor, computeTank, iterateVdpCourse, roofSlopeRun, vdpApplicabilityLH, vdpFirstCourseThickness, vdpUpperCourseThickness } from './api650';
 import { hasLoad, kelloggEquivPressureBar, neckStresses, screenNozzleLoad, toSI, wrcShellShear } from './wrc107';
 import { bellJB, bellJC, bellJL, esduNusselt, kernFriction, tubeVibration } from './shellside';
 import { combinedRingSection, effectiveShellWidth, requiredRingInertia, stiffenerRingCheck } from './rings';
@@ -532,6 +532,59 @@ describe('T650-07 design liquid level above the shell (C6)', () => {
     expect(computeTank(tk).warnings.some((x) => x.code === 'T650-07')).toBe(false);
     tk.tank!.maxDesignLiquidLevel = 0; // 0 = use TT
     expect(computeTank(tk).warnings.some((x) => x.code === 'T650-07')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D2 — §5.6.4 L/H applicability of the variable design point method
+// ---------------------------------------------------------------------------
+
+describe('API 650 VDP L/H applicability (D2, T650-14)', () => {
+  it('reproduces the SI form: L = √(500·D·t), L(mm)/H(m) vs 1000/6', () => {
+    // D = 60 m, t = 30 mm → L = √(500·60·30) = 948.68 mm; H = 10 m → 94.9 ≤ 166.7
+    const ok = vdpApplicabilityLH(60, 30, 10);
+    expect(ok.Lmm).toBeCloseTo(948.68, 2);
+    expect(ok.ratio).toBeCloseTo(94.868, 3);
+    expect(ok.ok).toBe(true);
+    // boundary: ratio exactly 1000/6 passes, one tick above fails
+    const L = Math.sqrt(500 * 60 * 30);
+    expect(vdpApplicabilityLH(60, 30, L / (1000 / 6)).ok).toBe(true);
+    expect(vdpApplicabilityLH(60, 30, L / (1000 / 6) - 0.01).ok).toBe(false);
+    // degenerate inputs never crash or divide by zero
+    expect(vdpApplicabilityLH(60, 30, 0).ok).toBe(true);
+    expect(vdpApplicabilityLH(0, 0, 0).ratio).toBe(0);
+  });
+
+  it('emits T650-14 when the ratio exceeds the limit, silent for normal tanks', () => {
+    // 62 m VDP tank with a bottom course forced thick by a tiny allowable
+    // override → L climbs past 1000/6 · H and the guard must fire
+    const tk = newEquipment('tank', 18);
+    tk.sections[0] = { ...tk.sections[0], dia: 62000, ttLength: 10000 };
+    tk.tank!.maxDesignLiquidLevel = 10000;
+    tk.tank!.specificGravity = 1.5;
+    // artificial low allowable (4 MPa) → bottom course ≈ 255 mm →
+    // L = √(500·62·255) ≈ 2810 mm vs H = 10 m → ratio ≈ 281 > 166.7
+    tk.tank!.shellAllowableOverride = 4;
+    tk.tank!.annularBottom = false;
+    tk.corrosionAllowance = 0;
+    tk.externalPressure = 0;
+    const c = computeTank(tk);
+    expect(c.tank!.shellMethod).toBe('vdp');
+    const w = c.warnings.find((x) => x.code === 'T650-14');
+    expect(w, 'T650-14 should fire for this geometry').toBeDefined();
+    expect(w!.level).toBe('warning');
+    expect(w!.msg).toContain('1000/6');
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+
+    // a realistic 62 m tank stays well inside the limit — no noise
+    const ok = newEquipment('tank', 19);
+    ok.sections[0] = { ...ok.sections[0], dia: 62000, ttLength: 20000 };
+    ok.tank!.maxDesignLiquidLevel = 20000;
+    ok.tank!.specificGravity = 1.5;
+    ok.tank!.annularBottom = false;
+    ok.corrosionAllowance = 3;
+    ok.externalPressure = 0;
+    expect(computeTank(ok).warnings.some((x) => x.code === 'T650-14')).toBe(false);
   });
 });
 

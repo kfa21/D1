@@ -170,6 +170,15 @@ export function externalRequiredThickness(
 // Only the 120° and 150° entries are verified against the original paper; values
 // between them are interpolated and below 120° clamps to the 120° (conservative)
 // end — the codes normally limit saddle contact to ≥ 120°.
+// D4 research note (documented, not replaced): Zick's coefficients are
+// published only at 120° and 150° in the primary literature (Zick Table I).
+// Independent research found (a) intermediate-angle tables at 2° steps exist in
+// the Pressure Vessel Design Manual, but (b) NO source endorsing interpolation
+// for arbitrary angles, and (c) a second manual using a DIFFERENT K3 convention
+// (0.880/0.485 — a different coefficient definition, not a correction of ours).
+// We keep the published 120°/150° anchors, log-interpolate between them
+// (labelled indicative in the reports) and clamp below 120° to the conservative
+// anchor — which also matches the "saddle ≥ 120°" guidance.
 const ZICK_K3: [number, number][] = [
   [120, 0.528],
   [150, 0.0316],

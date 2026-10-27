@@ -26,7 +26,7 @@ describe('warning → clickable fix registry', () => {
     const NO_FIELD = [
       'AF-04', 'DBA-02', 'DBA-03', 'HX-04', 'HX-05', 'HX-09', 'HX-11',
       'NL-01', 'NL-03', 'RG-01', 'RG-02', 'RG-03', 'SYS',
-      'T650-01', 'T650-02', 'T650-03', 'T650-05', 'T650-11',
+      'T650-01', 'T650-02', 'T650-03', 'T650-05', 'T650-11', 'T650-14',
     ].sort();
     const actual = Object.entries(WARNING_FIX)
       .filter(([, fx]) => !fx.field)

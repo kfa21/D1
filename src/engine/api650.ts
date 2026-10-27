@@ -172,6 +172,24 @@ export function iterateVdpCourse(
   return { tDesign, tTest, x, converged };
 }
 
+/** §5.6.4 applicability of the variable design point method (D2).
+ *  L = √(500·D·t) with D in METRES and t (bottom-course shell thickness) in
+ *  MILLIMETRES → L in millimetres; API compares L in mm against H in metres
+ *  against the threshold 1000/6 (USC form: L in inches / H in feet ≤ 2) —
+ *  equivalently L_m/H_m ≤ 1/6. The unit convention is deliberate: do NOT mix
+ *  conversions and treat 1000/6 as a plain dimensionless ratio. Above the
+ *  limit the standard routes the shell to elastic analysis.
+ *  Source: API 650 14th-edition preview §5.6.4 + a public worked calculation. */
+export function vdpApplicabilityLH(
+  Dm: number,
+  tBottomMm: number,
+  Hm: number
+): { Lmm: number; ratio: number; ok: boolean } {
+  const Lmm = Math.sqrt(Math.max(0, 500 * Dm * tBottomMm));
+  const ratio = Hm > 0 ? Lmm / Hm : 0;
+  return { Lmm, ratio, ok: !(Hm > 0) || ratio <= 1000 / 6 };
+}
+
 // ---------------------------------------------------------------------------
 // API 650 Table 5-1a (SI) — annular bottom-plate thickness
 // ---------------------------------------------------------------------------
@@ -313,6 +331,18 @@ export function computeTank(equip: Equipment): EquipmentCalc {
         .map((i) => nCourses - i)
         .join(', ')} (numbering from top) — thicknesses taken from the last iterate; verify`,
     });
+  }
+  // §5.6.4 applicability (D2): above L/H = 1000/6 the standard routes the shell
+  // to elastic analysis, not the variable design point method.
+  if (useVdp) {
+    const lh = vdpApplicabilityLH(Dm, courses[0].tNominal, Hm);
+    if (!lh.ok) {
+      warnings.push({
+        level: 'warning',
+        code: 'T650-14',
+        msg: `L/H = ${lh.ratio.toFixed(1)} exceeds the API 650 §5.6.4 applicability limit of 1000/6 (L = √(500·D·t) = ${lh.Lmm.toFixed(0)} mm from the ${courses[0].tNominal.toFixed(1)} mm bottom course, H = ${Hm} m) — beyond this ratio the shell must be designed by elastic analysis, not the VDP method`,
+      });
+    }
   }
 
   const bottomThkSel = Math.max(6, tank.bottomThk || 6);
