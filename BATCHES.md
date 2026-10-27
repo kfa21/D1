@@ -94,6 +94,8 @@ This file is the single source of truth for incremental work on this project.
 
 - [x] **G1** All spreadsheet exports as formatted .xlsx — the seven `exportSheet()` call sites (BOM, plate procurement, optimized procurement, estimate detail, ITP, stage schedule, calc data) wrote RFC-4180 CSV; they now go through `src/xlsx.ts` (dependency-free OOXML writer: frozen styled header, per-column widths, real numbers with `#,##0` formats, bordered totals, italic notes). `toCsv`/`downloadCSV`/`buildSheetRows` removed; cad.test.ts covers layout, ZIP integrity and workbook structure, and the output was validated with openpyxl. — `18de687`
 - [x] **G2** Estimate **02 Special** metrics — price / empty equipment weight (t) and manhours / empty equipment weight (t): zero-safe ratios in `summarizeEstimate`, dedicated KPI row on Estimate, quoted in the basis-of-estimate table, golden-tested — `28ff23e`
+- [x] **G3** AI datasheet import — Gemini reads the attached client datasheet (PDF/image) and proposes a patch of INPUT values only (P/T/MDMT, CA, material, RT, shell geometry + head forms, nozzles merged by tag, tank extras); `src/datasheetImport.ts` parses (fence/prose tolerant) and applies defensively (type/range/enum validation, rejects reported not applied), the prompt lists every derivation with its arithmetic, and AiReview shows a review-before-apply change table; calculated results are always re-derived by the engine — `131fc3b`
+- [x] **G4** Correct value beside the erroring field — `src/fixValues.ts` computes the value to enter for every field-targeted code from the live calc (required thicknesses + CA, MAWP/UG-28 ceilings, B16.5 class step-ups, tank floors/ceilings, anchor-bolt area, tube count, fan Ø, material temperature limit); FixNote now lists every active warning on its field with hint + observed message + ✔ correct value, per-code dismissal — `80fe3ff`
 
 **Suggested order:** E1 → E2 → F1 → F2 → E3 → E4 → E5 → F3 → E6 → E7; F4 only on request. E1/E2 and F1/F3 change calculated results — land their golden tests before UI polish.
 
@@ -147,10 +149,13 @@ npx tsc --noEmit && npx vitest run        # confirm green before editing
 
 **All planned batches are complete**: Phases A–G including the Phase C
 clean-up (C1/C3/C5/C6/C7/C8), the 02 Special estimate metrics (G2),
-F4 per-course grades + hydrotest density, and the Phase D research
+F4 per-course grades + hydrotest density, the Phase D research
 (D2 implemented, D3 verified, D4 documented; D1 confirmed blocked with
-the user-pasted-table workaround documented in `wrc107.ts`).
+the user-pasted-table workaround documented in `wrc107.ts`), the AI
+datasheet import (G3) and correct-value suggestions beside erroring
+fields (G4).
 Open ideas for the next session: C4 (WRC azimuth + shell-side interaction
 completion), extracting a licensed API 650 edition to re-verify D3 wording,
-and splitting the main JS chunk (now ~516 kB, over the 500 kB advisory
-since the jspdf 4.x bump).
+splitting the main JS chunk (now ~516 kB, over the 500 kB advisory
+since the jspdf 4.x bump), and a live end-to-end test of G3 against a
+real scanned datasheet with a Gemini key configured.
