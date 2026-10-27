@@ -263,7 +263,28 @@ export function computeTank(equip: Equipment): EquipmentCalc {
   let shellKg = 0;
   let tGov = 0;
   const nonConverged: number[] = [];
+  // F4 — per-course plate grade: courseGrades[i] (0 = bottom course) overrides
+  // the tag material for THAT course's allowable stresses. Unknown grades fall
+  // back to the tag material and are reported (T650-15).
+  const courseGrades = tank.courseGrades ?? [];
+  const unknownGrades = new Set<string>();
+  let SdBot = Sd; // bottom-course stresses feed Table 5-1a (annular ring)
+  let StBot = St;
   for (let i = 0; i < nCourses; i++) {
+    const requested = (courseGrades[i] ?? '').trim();
+    const grade = requested || equip.materialKey;
+    const gradeSt = API650_STRESSES[grade];
+    if (requested && !gradeSt) unknownGrades.add(requested);
+    // an unknown grade must not leak into BOM/estimate pricing — fall back to
+    // the tag material for BOTH the stress and the reported course material
+    const effGrade = gradeSt ? grade : equip.materialKey;
+    const cst = gradeSt ?? st;
+    const cSd = tank.shellAllowableOverride > 0 ? tank.shellAllowableOverride : cst.Sd;
+    const cSt = cst.St;
+    if (i === 0) {
+      SdBot = cSd;
+      StBot = cSt;
+    }
     const designHeadM = Math.max(0, Hm - (i * courseH) / 1000);
     let tDesign: number;
     let tTest: number;
@@ -274,23 +295,23 @@ export function computeTank(equip: Equipment): EquipmentCalc {
     if (useVdp) {
       if (i === 0) {
         // bottom course: dedicated §5.6.4 first-course equation (no x point)
-        const f = vdpFirstCourseThickness(Dm, designHeadM, G, Sd, St, ca);
+        const f = vdpFirstCourseThickness(Dm, designHeadM, G, cSd, cSt, ca);
         tDesign = f.td;
         tTest = f.tt;
       } else {
         // upper courses: design point x = min(x1, x2, x3) above the course
         // bottom; iterate because x depends on this course's corroded thickness.
         const trial0 = Math.max(
-          (4.9 * Dm * Math.max(0, designHeadM - 0.3) * G) / Sd + ca,
-          (4.9 * Dm * Math.max(0, designHeadM - 0.3)) / St,
+          (4.9 * Dm * Math.max(0, designHeadM - 0.3) * G) / cSd + ca,
+          (4.9 * Dm * Math.max(0, designHeadM - 0.3)) / cSt,
           minShell
         );
         const it = iterateVdpCourse({
           Dm,
           headM: designHeadM,
           G,
-          Sd,
-          St,
+          Sd: cSd,
+          St: cSt,
           ca,
           RmMm: Dmm / 2,
           trial0,
@@ -304,8 +325,8 @@ export function computeTank(equip: Equipment): EquipmentCalc {
       }
     } else {
       const hPoint = designHeadM - 0.3; // one-foot method: 0.3 m above course bottom
-      tDesign = (4.9 * Dm * Math.max(0, hPoint) * G) / Sd + ca;
-      tTest = (4.9 * Dm * Math.max(0, hPoint)) / St;
+      tDesign = (4.9 * Dm * Math.max(0, hPoint) * G) / cSd + ca;
+      tTest = (4.9 * Dm * Math.max(0, hPoint)) / cSt;
       designPointMm = 300;
     }
     const tMin = Math.max(minShell, tDesign, tTest);
@@ -319,9 +340,16 @@ export function computeTank(equip: Equipment): EquipmentCalc {
       tTest,
       tMinCode: minShell,
       tNominal: tMin,
-      material: equip.materialKey,
+      material: effGrade,
     });
     shellKg += Math.PI * Dm * (courseH / 1000) * (tMin / 1000) * 7850;
+  }
+  if (unknownGrades.size > 0) {
+    warnings.push({
+      level: 'warning',
+      code: 'T650-15',
+      msg: `Shell course grade(s) ${[...unknownGrades].join(', ')} are not in the API 650 Table 5.2 stress table — those courses were sized with the tag material ${equip.materialKey}; pick one of the listed grades on the Tank data tab`,
+    });
   }
   if (nonConverged.length > 0) {
     warnings.push({
@@ -368,8 +396,8 @@ export function computeTank(equip: Equipment): EquipmentCalc {
   if (tank.annularBottom && courses.length > 0) {
     const c1 = courses[0]; // bottom course
     const t1Corr = Math.max(0.1, c1.tNominal - ca);
-    const sProd = (Math.max(0, c1.tDesign - ca) / t1Corr) * Sd;
-    const sHyd = (c1.tTest / Math.max(0.1, c1.tNominal)) * St;
+    const sProd = (Math.max(0, c1.tDesign - ca) / t1Corr) * SdBot;
+    const sHyd = (c1.tTest / Math.max(0.1, c1.tNominal)) * StBot;
     const tbTable = Math.max(
       6,
       annularThicknessFromTable(t1Corr, sProd),
@@ -469,14 +497,17 @@ export function computeTank(equip: Equipment): EquipmentCalc {
       code: 'T650-02',
       msg: `Top/intermediate wind girder recommended (shell compressive stress ${windGirderStressMPa.toFixed(1)} MPa vs allowable ${shellAllowComp.toFixed(1)} MPa, H = ${Hm.toFixed(1)} m)`,
     });
-  }
+  }  const volume = (Math.PI / 4) * Dm * Dm * Hm;
 
-  const volume = (Math.PI / 4) * Dm * Dm * Hm;
-  const hydroWater = volume * 1000; // kg at G=1 test
-  const testPressureBar = (Hm * 997 * 9.81) / 1e5;
+  // F4 — hydrotest medium density is an editable tank field (default 997 kg/m³,
+  // water at ~25 °C); it feeds the test-water mass, the hydrostatic test
+  // pressure head and the operating weight.
+  const rhoHydro = tank.hydroTestDensity && tank.hydroTestDensity > 0 ? tank.hydroTestDensity : 997;
+  const hydroWater = volume * rhoHydro;
+  const testPressureBar = (Hm * rhoHydro * 9.81) / 1e5;
 
   const weightDry = shellKg + bottomWeight + roofWeight + base.weightDryKg * 0.15; // + nozzles/attachments
-  const weightOperatingKg = weightDry + volume * 997 * 0.9;
+  const weightOperatingKg = weightDry + volume * rhoHydro * 0.9;
 
   // Anchor bolts — the same elastic bolt-group engine as vessels/columns (wind OR
   // seismic, separate cases not combined), API 650 §5.11 basis, ≤ 600 mm spacing.

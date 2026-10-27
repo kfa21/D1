@@ -81,6 +81,8 @@ export function newEquipment(type: EquipType, srNo: number): Equipment {
             roofSlope: '1:16' as const,
             annularRingWidthMm: 600,
             maxDesignLiquidLevel: 0,
+            hydroTestDensity: 997,
+            // courseGrades omitted → every shell course inherits materialKey
           },
         }
       : {}),

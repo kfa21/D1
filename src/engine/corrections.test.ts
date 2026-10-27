@@ -24,6 +24,7 @@ import { hasLoad, kelloggEquivPressureBar, neckStresses, screenNozzleLoad, toSI,
 import { bellJB, bellJC, bellJL, esduNusselt, kernFriction, tubeVibration } from './shellside';
 import { combinedRingSection, effectiveShellWidth, requiredRingInertia, stiffenerRingCheck } from './rings';
 import { computeEquipment } from './compute';
+import { tankItems } from './bom';
 import { siteAirDensity } from './api661';
 import { demoProject, newEquipment } from '../defaults';
 import { checkWarningCodes } from './warnings';
@@ -532,6 +533,96 @@ describe('T650-07 design liquid level above the shell (C6)', () => {
     expect(computeTank(tk).warnings.some((x) => x.code === 'T650-07')).toBe(false);
     tk.tank!.maxDesignLiquidLevel = 0; // 0 = use TT
     expect(computeTank(tk).warnings.some((x) => x.code === 'T650-07')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F4 — per-course shell plate grade + hydrotest medium density
+// ---------------------------------------------------------------------------
+
+describe('F4 — per-course tank plate grade & hydrotest density', () => {
+  /** D = 60 m, H = 12 m (6 × 2000 mm courses), G = 1, CA = 6 mm, one-foot:
+   *  the TOP course sits above the 8 mm code minimum in both grades, so its
+   *  thickness scales exactly with the grade's S_d. */
+  const mk = (grades?: string[]) => {
+    const tk = newEquipment('tank', 20);
+    tk.sections[0] = { ...tk.sections[0], dia: 60000, ttLength: 12000 };
+    tk.tank!.maxDesignLiquidLevel = 12000;
+    tk.tank!.specificGravity = 1;
+    tk.tank!.annularBottom = false;
+    tk.tank!.bottomThk = 12; // keep T650-10 out of the fixture
+    tk.corrosionAllowance = 6;
+    tk.externalPressure = 0;
+    tk.materialKey = 'SA-516-70';
+    if (grades) tk.tank!.courseGrades = grades;
+    return { tk, c: computeTank(tk) };
+  };
+
+  it('sizes each course against its own grade (golden hand calc)', () => {
+    const uni = mk().c;
+    // top two courses in SA-285-C (S_d = 137) instead of the tag SA-516-70 (173)
+    const mix = mk(['', '', '', '', 'SA-285-C', 'SA-285-C']).c;
+
+    // courseGrades is bottom-up: index 4,5 = the two uppermost courses
+    expect(mix.tank!.shellCourses[5].material).toBe('SA-285-C');
+    expect(mix.tank!.shellCourses[4].material).toBe('SA-285-C');
+    for (let i = 0; i < 4; i++) expect(mix.tank!.shellCourses[i].material).toBe('SA-516-70');
+
+    // golden: top course head = 12 − 5×2 = 2 m → one-foot at 1.7 m
+    //   SA-285-C: t = 4.9·60·1.7·1/137 + 6 = 9.648 mm
+    //   SA-516-70: t = 4.9·60·1.7·1/173 + 6 = 8.889 mm
+    expect(mix.tank!.shellCourses[5].tDesign).toBeCloseTo(9.648, 2);
+    expect(uni.tank!.shellCourses[5].tDesign).toBeCloseTo(8.889, 2);
+
+    // bottom course carries the SAME grade in both runs → identical thickness
+    expect(mix.tank!.shellCourses[0].tDesign).toBeCloseTo(uni.tank!.shellCourses[0].tDesign, 9);
+    expect(mix.tank!.shellCourses[0].material).toBe('SA-516-70');
+
+    // heavier top courses → more shell steel
+    expect(mix.tank!.shellWeightKg).toBeGreaterThan(uni.tank!.shellWeightKg);
+    expect(checkWarningCodes(mix.warnings).problems).toEqual([]);
+  });
+
+  it('reports an unknown course grade and falls back to the tag material (T650-15)', () => {
+    const { c } = mk(['SA-999-NOT-A-GRADE']);
+    const w = c.warnings.find((x) => x.code === 'T650-15');
+    expect(w, 'T650-15 should fire').toBeDefined();
+    expect(w!.level).toBe('warning');
+    expect(w!.msg).toContain('SA-999-NOT-A-GRADE');
+    expect(c.tank!.shellCourses[0].material).toBe('SA-516-70'); // fallback, sized as the tag
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+  });
+
+  it('BOM prices each shell course under its own grade', () => {
+    const { tk, c } = mk(['', '', '', '', 'SA-285-C', 'SA-285-C']);
+    const { items, plateReqs } = tankItems(tk, c);
+    // courseNo is counted from the top: 1 = top course (grade 285), 6 = bottom
+    const top = items.find((i) => i.id === `${tk.id}-tk-c1`)!;
+    const bottom = items.find((i) => i.id === `${tk.id}-tk-c6`)!;
+    expect(top.material).toBe('SA-285-C');
+    expect(bottom.material).toBe('SA-516-70');
+    expect(plateReqs.find((r) => r.partName === 'Shell course 1')!.material).toBe('SA-285-C');
+  });
+
+  it('hydrotest medium density drives test water, test head and operating weight', () => {
+    const tk = newEquipment('tank', 21);
+    tk.sections[0] = { ...tk.sections[0], dia: 30000, ttLength: 10000 };
+    tk.tank!.maxDesignLiquidLevel = 10000;
+    tk.externalPressure = 0;
+    tk.tank!.hydroTestDensity = 1100;
+    const c = computeTank(tk);
+    const volume = (Math.PI / 4) * 30 * 30 * 10; // 7068.58 m³
+    expect(c.tank!.volumeM3).toBeCloseTo(volume, 6);
+    expect(c.tank!.hydroWaterKg).toBeCloseTo(volume * 1100, 3);
+    expect(c.hydroTestBar).toBeCloseTo((10 * 1100 * 9.81) / 1e5, 6);
+    expect(c.weightOperatingKg - c.weightDryKg).toBeCloseTo(volume * 1100 * 0.9, 3);
+    expect(c.weightHydroKg - c.weightDryKg).toBeCloseTo(volume * 1100, 3);
+
+    // default medium = 997 kg/m³ (water), never the old hard-coded 1000
+    const d = newEquipment('tank', 22);
+    d.sections[0] = { ...d.sections[0], dia: 30000, ttLength: 10000 };
+    d.externalPressure = 0;
+    expect(computeTank(d).tank!.hydroWaterKg).toBeCloseTo(volume * 997, 3);
   });
 });
 

@@ -230,22 +230,30 @@ export default function Reports() {
           <>
             <h3>API 650 shell courses — {calc.tank!.shellMethod === 'vdp' ? 'variable design point (§5.6.4)' : 'one-foot (§5.6.3)'}</h3>
             <table className="grid" style={{ marginBottom: 12 }}>
-              <thead><tr>                    <th>Course (from top)</th><th className="num">Height (mm)</th><th className="num">Design head (m)</th><th className="num">Design pt (mm)</th><th className="num">t design (mm)</th><th className="num">t test (mm)</th><th className="num">t nominal (mm)</th></tr></thead>
+              <thead><tr>                    <th>Course (from top)</th><th className="num">Height (mm)</th><th className="num">Design head (m)</th><th className="num">Design pt (mm)</th><th className="num">t design (mm)</th><th className="num">t test (mm)</th><th className="num">t nominal (mm)</th><th>Grade</th></tr></thead>
               <tbody>
-                {calc.tank.shellCourses.map((c) => (
-                  <tr key={c.courseNo}>
-                    <td className="num">{c.courseNo}</td>
-                    <td className="num">{fmt(c.heightMm, 0)}</td>
-                    <td className="num">{fmt(c.designHeadM, 2)}</td>
-                    <td className="num">{c.designPointMm !== undefined ? fmt(c.designPointMm, 0) : '—'}</td>
-                    <td className="num calc">{fmt(c.tDesign, 2)}</td>
-                    <td className="num">{fmt(c.tTest, 2)}</td>
-                    <td className="num">{fmt(c.tNominal, 1)}</td>
-                  </tr>
-                ))}
+                {calc.tank.shellCourses.map((c, i) => {
+                  // i is the bottom-up course index = the courseGrades index
+                  const inherited = (equip.tank?.courseGrades?.[i] ?? '').trim() === '';
+                  const mixed = (equip.tank?.courseGrades ?? []).some((g) => g?.trim());
+                  return (
+                    <tr key={c.courseNo}>
+                      <td className="num">{c.courseNo}</td>
+                      <td className="num">{fmt(c.heightMm, 0)}</td>
+                      <td className="num">{fmt(c.designHeadM, 2)}</td>
+                      <td className="num">{c.designPointMm !== undefined ? fmt(c.designPointMm, 0) : '—'}</td>
+                      <td className="num calc">{fmt(c.tDesign, 2)}</td>
+                      <td className="num">{fmt(c.tTest, 2)}</td>
+                      <td className="num">{fmt(c.tNominal, 1)}</td>
+                      <td className="small" title={inherited && mixed ? `Inherits the tag material ${equip.materialKey}` : undefined}>
+                        {c.material}{inherited && mixed ? ' *' : ''}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
-            <p className="small">Bottom plate {calc.tank.bottomThk} mm{calc.tank.annularThk > calc.tank.bottomThk ? ` (annular ${calc.tank.annularThk} mm)` : ''} · roof {calc.tank.roofThk} mm, slope 1:{calc.tank.roofSlopeRun} · volume {fmt(calc.tank.volumeM3, 0)} m³ · test water {fmt(calc.tank.hydroWaterKg / 1000, 0)} m³{calc.tank.windGirderRequired ? ' · wind girder recommended' : ''}</p>
+            <p className="small">Bottom plate {calc.tank.bottomThk} mm{calc.tank.annularThk > calc.tank.bottomThk ? ` (annular ${calc.tank.annularThk} mm)` : ''} · roof {calc.tank.roofThk} mm, slope 1:{calc.tank.roofSlopeRun} · volume {fmt(calc.tank.volumeM3, 0)} m³ · test water {fmt(calc.tank.hydroWaterKg / 1000, 0)} m³ @ {fmt(equip.tank?.hydroTestDensity && equip.tank.hydroTestDensity > 0 ? equip.tank.hydroTestDensity : 997, 0)} kg/m³{calc.tank.windGirderRequired ? ' · wind girder recommended' : ''}</p>
           </>
         )}
 

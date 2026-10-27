@@ -11,6 +11,7 @@ import { uid, fmt } from '../engine/units';
 import { newEquipment, demoProject } from '../defaults';
 import { suggestNdtMethod } from '../engine/ndt';
 import { siteAirDensity } from '../engine/api661';
+import { API650_STRESSES } from '../engine/api650';
 import { recommendStructure } from '../engine/supports';
 import type { CladSpec } from '../engine/types';
 import { useStore, setState, getStore } from '../store';
@@ -1002,6 +1003,46 @@ function TankEqEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
       <label className="f"><span>Wind / stiffening rings provided (§5.8.7)</span><input id={fid('tankStiffenerRings')} type="checkbox" checked={tk.stiffenerRings} onChange={(e) => p({ stiffenerRings: e.target.checked })} /><FixNote equipId={equip.id} field="tankStiffenerRings" /></label>
       <label className="f"><span>Shell allowable override (MPa, 0=table)</span><input type="number" step="0.1" value={tk.shellAllowableOverride} onChange={(e) => p({ shellAllowableOverride: +e.target.value })} /></label>
       <label className="f"><span>Max liquid level (mm, 0=TT)</span><input id={fid('tankMaxDesignLiquidLevel')} type="number" value={tk.maxDesignLiquidLevel} onChange={(e) => p({ maxDesignLiquidLevel: +e.target.value })} /><FixNote equipId={equip.id} field="tankMaxDesignLiquidLevel" /></label>
+      <label className="f"><span>Hydrotest medium ρ (kg/m³)</span><input id={fid('tankHydroDensity')} type="number" step="1" min={500} value={tk.hydroTestDensity ?? 997} onChange={(e) => p({ hydroTestDensity: +e.target.value })} /></label>
+      {calc.tank && (
+        <div style={{ gridColumn: 'span 2', border: '1px solid var(--line, #ddd)', borderRadius: 8, padding: 10 }}>
+          <h4 style={{ margin: '0 0 6px' }}>
+            Shell course plate grade <span className="muted small">(API 650 allows a different grade per course — blank = inherit tag material; sized against Table 5.2 stresses)</span>
+          </h4>
+          <div className="tablewrap">
+            <table className="grid">
+              <thead><tr><th>Course (from top)</th><th className="num">Height (mm)</th><th className="num">t nominal (mm)</th><th>Plate grade</th></tr></thead>
+              <tbody>
+                {calc.tank.shellCourses.map((c, i) => (
+                  <tr key={c.courseNo}>
+                    <td className="num">{c.courseNo}</td>
+                    <td className="num">{fmt(c.heightMm, 0)}</td>
+                    <td className="num calc">{fmt(c.tNominal, 1)}</td>
+                    <td>
+                      <select
+                        id={fid(`tankCourseGrade${i}`)}
+                        value={tk.courseGrades?.[i] ?? ''}
+                        onChange={(e) => {
+                          const g = [...(tk.courseGrades ?? [])];
+                          g[i] = e.target.value;
+                          p({ courseGrades: g });
+                        }}
+                      >
+                        <option value="">— inherit tag material ({equip.materialKey}) —</option>
+                        {Object.keys(API650_STRESSES)
+                          .filter((k) => k !== 'default')
+                          .map((k) => (
+                            <option key={k} value={k}>{k}</option>
+                          ))}
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

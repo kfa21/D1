@@ -480,13 +480,13 @@ export function tankItems(equip: Equipment, calc: EquipmentCalc): { items: BOMIt
     const n = Math.max(1, Math.ceil(circ / 6000));
     plateReqs.push({
       equipId: equip.id, tag: equip.tag, partName: `Shell course ${course.courseNo}`,
-      material: equip.materialKey, thk: course.tNominal,
+      material: course.material, thk: course.tNominal,
       w: course.heightMm, l: circ / n, count: n,
     });
     items.push({
       id: `${equip.id}-tk-c${course.courseNo}`, equipId: equip.id, tag: equip.tag, category: 'Plate',
       item: `Shell course ${course.courseNo}`, spec: `${course.heightMm.toFixed(0)} × ${(circ / n).toFixed(0)} × ${course.tNominal.toFixed(1)} mm`,
-      material: equip.materialKey, qty: n, unit: 'ea',
+      material: course.material, qty: n, unit: 'ea',
       massKg: n * (course.heightMm / 1000) * (circ / n / 1000) * (course.tNominal / 1000) * 7850,
       plateReq: { w: course.heightMm, l: circ / n, thk: course.tNominal },
     });

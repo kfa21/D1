@@ -95,6 +95,26 @@ describe('Register click-to-fix targets (C8)', () => {
     expect(input, 'T650-07 fix target input must exist in the DOM').toBeTruthy();
   });
 
+  it('exposes the F4 fields: hydrotest density and a grade select per shell course', () => {
+    const eq = resetStore();
+    const tank = eq.find((e) => e.equipType === 'tank')!;
+    setState({ selectedEquipId: tank.id });
+    render(<Register />);
+    fireEvent.click(screen.getByRole('button', { name: /Storage Tanks/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Tank data' }));
+
+    const rho = document.getElementById(`f-${tank.id}-tankHydroDensity`) as HTMLInputElement | null;
+    expect(rho, 'hydrotest density input').toBeTruthy();
+    expect(rho!.value).toBe('997'); // default = water
+
+    const calc = computeEquipment(tank);
+    for (let i = 0; i < calc.tank!.shellCourses.length; i++) {
+      expect(document.getElementById(`f-${tank.id}-tankCourseGrade${i}`), `grade select ${i}`).toBeTruthy();
+    }
+    // default state: every course inherits the tag material
+    expect(tank.tank!.courseGrades ?? []).toEqual([]);
+  });
+
   it('keeps the store snapshot consistent after a render (no leaked selection)', () => {
     expect(getStore().equipment.length).toBeGreaterThan(0);
   });

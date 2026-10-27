@@ -219,6 +219,14 @@ export interface TankSpec {
   primarySeal?: TankSealPrimary;
   /** secondary seal (external floating roof) */
   secondarySeal?: TankSealSecondary;
+  /**
+   * Per-course shell plate grade (F4) — API 650 allows a different grade per
+   * course. Index = course counted from the BOTTOM (0 = bottom course); an
+   * empty/absent entry means that course inherits the tag's materialKey.
+   */
+  courseGrades?: string[];
+  /** hydrotest medium density, kg/m³ (default 997 = water at ~25 °C) */
+  hydroTestDensity?: number;
 }
 
 /** Optional structural steelwork around the equipment (skid, portal, pedestal…). */

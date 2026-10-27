@@ -107,7 +107,7 @@ export default function AiReview() {
             windGirderRequired: calc.tank.windGirderRequired,
             courses: calc.tank.shellCourses.map((c) => ({
               course: c.courseNo, designHead_m: c.designHeadM, designPoint_mm: c.designPointMm,
-              tDesign_mm: fmt(c.tDesign, 2), tNominal_mm: c.tNominal,
+              tDesign_mm: fmt(c.tDesign, 2), tNominal_mm: c.tNominal, grade: c.material,
             })),
           } : undefined,
           pwht: calc.pwht,

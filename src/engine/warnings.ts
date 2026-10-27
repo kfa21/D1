@@ -69,6 +69,7 @@ export const WARNING_CATALOG: Record<string, WarningSpec> = {
   'T650-12': { level: 'warning', note: 'Annular ring width below the 600 mm §5.5.3 minimum' },
   'T650-13': { level: 'info', note: 'Stiffening rings / wind girders declared on the tag — treated as provided (§5.8.7)' },
   'T650-14': { level: 'warning', note: 'L/H above the §5.6.4 VDP applicability limit (1000/6) — elastic analysis governs' },
+  'T650-15': { level: 'warning', note: 'Shell course grade not in the API 650 Table 5.2 stress table — sized with the tag material' },
   // Nozzle local loads — WRC 107 screening (wrc107.ts)
   'NL-01': { level: 'info', note: 'Nozzle local-load screening basis + utilisation (WRC 107 structure)' },
   'NL-02': { level: 'warning', note: 'Nozzle local-load screening utilisation over 1.5·S' },
