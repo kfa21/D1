@@ -57,21 +57,21 @@ This file is the single source of truth for incremental work on this project.
 
 ## Phase C — Known code-review defects (fix before/with the batch noted)
 
-- [ ] **C1** Non-annular bottom plates: confirm the 6 mm floor is applied as `6 + CA` (corroded) and not nominal — *verify B2 landed correctly; fix if not.*
+- [x] **C1** Non-annular bottom plates: confirm the 6 mm floor is applied as `6 + CA` (corroded) and not nominal — verified + pinned by test — `ac53b21`
 - [x] **C2** Tank weights: `annularThk` reflected in `bottomWeight` (B2); roof-slope constants (`1.055`, `1.05`, `0.6`) now named, and the cone factor is derived from the F3 slope selector — retired by F3 `18c5d3e`.
-- [ ] **C3** VDP fixed 5-pass loop: warn when a course does not converge (only reported, not yet warned).
+- [x] **C3** VDP fixed 5-pass loop: warn when a course does not converge — T650-11 emitted with the failing course numbers, tested on a scanned real geometry (D=62 m, H=20 m, G=1.5) — `ac53b21`
 - [ ] **C4** WRC screening: resolve nozzle loads into the shell frame via nozzle azimuth; add shell-side interaction of shear + pressure as a single utilisation (partially done in B6).
-- [ ] **C5** `hasLoad` / `toSI` exported but untested — add unit tests or un-export.
-- [ ] **C6** T650-07 numbering gap in the warning catalog — renumber or fill.
-- [ ] **C7** Loads grid `repeat(6, 1fr)` cramped on narrow screens — responsive layout.
-- [ ] **C8** No UI/component tests (engine-only coverage).
+- [x] **C5** `hasLoad` / `toSI` exported but untested — unit tests added (presence gate, epsilon, unit axes) — `ac53b21`
+- [x] **C6** T650-07 numbering gap in the warning catalog — filled: catalogued, emitted for level > shell height, fixable via the Max liquid level field — `ac53b21`
+- [x] **C7** Loads grid `repeat(6, 1fr)` cramped on narrow screens — already `auto-fit, minmax(110px, 1fr)` since B4; verified `ac53b21`
+- [x] **C8** No UI/component tests (engine-only coverage) — jsdom + @testing-library/react: App shell (nav, live status strip, storage-failure notice), Estimate 02 Special KPIs, Register click-to-fix + F4 field DOM coverage — `26775ab`
 
-## Phase D — Explicitly deferred (blocked / research)
+## Phase D — Explicitly deferred (blocked / research) — researched in this session
 
-- [ ] **D1** Full curve-based WRC 107/537 shell stresses — **blocked**: response curves are licensed bulletin data. Acceptable workaround: user-pasted coefficient tables as inputs.
-- [ ] **D2** API 650 VDP `L/H` applicability check — mixed-unit form unverified.
-- [ ] **D3** Verify VDP upper-course `x` equations and annular `+CA` treatment against a licensed API 650 edition.
-- [ ] **D4** K₂/K₃ saddle coefficients published only at 120°/150° — currently interpolated; document or replace.
+- [~] **D1** Full curve-based WRC 107/537 shell stresses — **confirmed blocked**: WRC bulletins are commercially sold (wrcforengineers.org, Accuris catalog) and no verified open-source implementation of the response curves exists; WRC 537 is paid equation-form data, not a free substitute. Workaround documented in `wrc107.ts`: user-pasted coefficient tables (project owns the data) + FEA/DBA (Appendix 46) for substantiation. Code change: none (`e550307`).
+- [x] **D2** API 650 VDP `L/H` applicability check — **implemented**: `vdpApplicabilityLH()` + T650-14. L = √(500·D·t), D in m and t in mm → L in mm; compare L(mm)/H(m) against 1000/6 (USC: in/ft ≤ 2) — the mixed-unit form is deliberate, do not treat 1000/6 as dimensionless. Source: API 650 14th-edition preview §5.6.4 (studylib.net/doc/27936943) + worked calc (scribd.com/doc/501732025). — `e550307`
+- [x] **D3** Verify VDP upper-course `x` equations and annular `+CA` treatment — **verified against public sources**: x₁ = 0.61√(r·t_u) + 320·C·H, x₂ = 1000·C·H, x₃ = 1.22√(r·t_u) with t_u CORRODED; C from K = t_L/t_u; t_d adds CA once at the end, t_t (hydrotest) has NO CA — our implementation matches on all points. Sources as D2; final compliance still needs the project's licensed edition. (`e550307`)
+- [x] **D4** K₂/K₃ saddle coefficients — **documented (not replaced)**: anchors 1.171/0.799 (K₂) and 0.528/0.0316 (K₃) match published Zick Table I values at 120°/150°; research found intermediate-angle tables at 2° steps exist in the Pressure Vessel Design Manual but NO source endorses arbitrary-angle interpolation, and a second manual uses a different K₃ convention (0.880/0.485 — different definition). Retained log-interpolation labelled indicative; <120° clamps conservatively (also the published ≥120° guidance). Sources: Stikvoort 2019 (scribd.com/doc/491007835), Moss manual material (scribd.com/doc/230863084). (`e550307`)
 
 ## Phase E — Code-review scan findings (fix first — E1/E2 change numbers)
 
@@ -88,11 +88,12 @@ This file is the single source of truth for incremental work on this project.
 - [x] **F1** Fin-fan datasheet fields — `FinFanSpec.airRiseC` exists but has **no editor field** (silently defaults to 15 °C). Add: air temperature rise / air outlet, site design data (elevation → air density replacing the hard-coded 1.2 kg/m³, relative humidity), fin type (L-footed / serrated / G-footed / integral) feeding fin efficiency in the area model, explicit fouling factor (U is currently "0 = auto 55" with fouling folded in), and a fan block (fan diameter or auto-size with the ≥40 % coverage readout, drive type, motor rating). New fields need `warnings.ts` codes + `fixes.ts` targets + golden tests per the batch rules. — `2096ffd`
 - [x] **F2** Fin-fan live readouts in the editor — surface face velocity, air flow (CMH), finned area, actual tube count, fan BHP/kW and thermal margin (today they surface only in `mawpNote` on Reports), reusing the engine's discarded `fanDia` / `plenumDia` / `fanAreaMin`; remove the unused `d1` "placeholder" in `api661.ts` LMTD and tidy the uncertain `bundleWidth` comment. — `473791b`
 - [x] **F3** Tank roof/bottom fields — `18c5d3e` — roof slope selector (1:16 / 1:20 / custom) replacing the hard-coded `roofSlope = 1.055`, named and sourced dome factor (retires **C2**), annular ring width field (default 600 mm per §5.5.3, currently a literal), and decide `stiffenerRings` — it's in `TankSpec` + defaults but has no UI and no engine read: wire it to the §5.8.7 girder advisory or delete it.
-- [ ] **F4** *(optional, larger — split if started)* per-course shell plate grade for tanks (API 650 allows different grades per course; engine, BOM and Reports all assume one `materialKey`) + hydrotest medium density (hard-coded 997 kg/m³).
+- [x] **F4** per-course shell plate grade for tanks (API 650 allows different grades per course; engine, BOM and Reports all assume one `materialKey`) + hydrotest medium density (hard-coded 997 kg/m³) — `b93e0fa`
 
 ## Phase G — Later requests
 
 - [x] **G1** All spreadsheet exports as formatted .xlsx — the seven `exportSheet()` call sites (BOM, plate procurement, optimized procurement, estimate detail, ITP, stage schedule, calc data) wrote RFC-4180 CSV; they now go through `src/xlsx.ts` (dependency-free OOXML writer: frozen styled header, per-column widths, real numbers with `#,##0` formats, bordered totals, italic notes). `toCsv`/`downloadCSV`/`buildSheetRows` removed; cad.test.ts covers layout, ZIP integrity and workbook structure, and the output was validated with openpyxl. — `18de687`
+- [x] **G2** Estimate **02 Special** metrics — price / empty equipment weight (t) and manhours / empty equipment weight (t): zero-safe ratios in `summarizeEstimate`, dedicated KPI row on Estimate, quoted in the basis-of-estimate table, golden-tested — `28ff23e`
 
 **Suggested order:** E1 → E2 → F1 → F2 → E3 → E4 → E5 → F3 → E6 → E7; F4 only on request. E1/E2 and F1/F3 change calculated results — land their golden tests before UI polish.
 
@@ -144,6 +145,12 @@ grep -n "^- \[ \]\|^- \[~\]" BATCHES.md   # what is next
 npx tsc --noEmit && npx vitest run        # confirm green before editing
 ```
 
-Phases E and F1–F3 are complete (see the `[x]` entries above). What remains:
-the cheap Phase C items (C1 verify, C3, C5, C6, C7), C8 (UI tests), F4 (per-course
-plate grade) on request, and the blocked Phase D research items.
+**All planned batches are complete**: Phases A–G including the Phase C
+clean-up (C1/C3/C5/C6/C7/C8), the 02 Special estimate metrics (G2),
+F4 per-course grades + hydrotest density, and the Phase D research
+(D2 implemented, D3 verified, D4 documented; D1 confirmed blocked with
+the user-pasted-table workaround documented in `wrc107.ts`).
+Open ideas for the next session: C4 (WRC azimuth + shell-side interaction
+completion), extracting a licensed API 650 edition to re-verify D3 wording,
+and splitting the main JS chunk (now ~516 kB, over the 500 kB advisory
+since the jspdf 4.x bump).
