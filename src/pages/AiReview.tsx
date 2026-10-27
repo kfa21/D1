@@ -7,6 +7,8 @@ import { useRef, useState } from 'react';
 import { useStore, setState, getStore, setSettings } from '../store';
 import { computeEquipment } from '../engine/compute';
 import { fmt } from '../engine/units';
+import type { Equipment } from '../engine/types';
+import { IMPORT_PROMPT, applyDatasheetImport, parseDatasheetResponse, type ApplyResult, type DatasheetImport } from '../datasheetImport';
 
 const SYSTEM_PROMPT = `You are a senior pressure-vessel design checker experienced with ASME Section VIII Division 1 & 2, API 650, API 661 and TEMA.
 You receive a JSON datasheet of one equipment tag (inputs + calculated results + warnings) and optionally an attached client datasheet document.
@@ -34,6 +36,8 @@ export default function AiReview() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [parsed, setParsed] = useState<Record<string, ReviewResponse>>({});
+  /** pending datasheet→tag import: parsed patch + computed preview, before/after apply */
+  const [imp, setImp] = useState<{ parsed: DatasheetImport; preview: ApplyResult; applied: boolean } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const equip = equipment.find((e) => e.id === selectedId) ?? equipment[0];
@@ -163,6 +167,93 @@ export default function AiReview() {
     }
   };
 
+  /** current INPUTS only — what the model must reconcile against (no calculated data) */
+  const snapshotOf = (e: Equipment) => ({
+    tag: e.tag,
+    name: e.name,
+    type: e.equipType,
+    orientation: e.orientation,
+    designPressure_bar: e.designPressure,
+    designTemp_C: e.designTemp,
+    mdmt_C: e.mdmt,
+    corrosionAllowance_mm: e.corrosionAllowance,
+    materialKey: e.materialKey,
+    rtCategory: e.rtCategory,
+    sections: e.sections.map((s) => ({
+      dia: s.dia, ttLength: s.ttLength, headTop: s.headTop, headBottom: s.headBottom,
+      shellThk: s.shellThk, headThkTop: s.headThkTop, headThkBot: s.headThkBot,
+    })),
+    nozzles: e.nozzles.map((n) => ({
+      tag: n.tag, service: n.service, dn: n.dn, flangeClass: n.flangeClass,
+      elevation: n.elevation, azimuth: n.azimuth, kind: n.kind,
+    })),
+    tank: e.tank
+      ? {
+          fluidName: e.tank.fluidName, specificGravity: e.tank.specificGravity, roofType: e.tank.roofType,
+          maxDesignLiquidLevel: e.tank.maxDesignLiquidLevel, bottomThk: e.tank.bottomThk,
+        }
+      : undefined,
+  });
+
+  /** Read the attached datasheet with Gemini and propose a patch for this tag. */
+  const runImport = async () => {
+    if (!equip) return;
+    if (!settings.geminiKey) {
+      setErr('Add your Gemini API key in Settings first.');
+      return;
+    }
+    const ds = getStore()._datasheetData[equip.id];
+    const dsMeta = datasheets.find((d) => d.equipId === equip.id);
+    if (!ds || !dsMeta) {
+      setErr('Attach the client datasheet first (📎 Attach datasheet) — the import reads that file.');
+      return;
+    }
+    setBusy(true);
+    setErr('');
+    setImp(null);
+    try {
+      const body = {
+        systemInstruction: { parts: [{ text: IMPORT_PROMPT }] },
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: `Current tag input values (JSON):\n${JSON.stringify(snapshotOf(equip), null, 2)}` },
+              { text: `Attached client datasheet: ${dsMeta.name}` },
+              { inline_data: { mime_type: dsMeta.mime, data: ds } },
+            ],
+          },
+        ],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0 },
+      };
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${settings.geminiModel}:generateContent`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': settings.geminiKey },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(`Gemini API ${res.status}: ${t.slice(0, 400)}`);
+      }
+      const json = await res.json();
+      const text: string = json?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? '').join('') ?? '';
+      const parsedImp = parseDatasheetResponse(text);
+      // compute the preview NOW — applying later uses exactly this result
+      setImp({ parsed: parsedImp, preview: applyDatasheetImport(equip, parsedImp), applied: false });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyImport = () => {
+    if (!equip || !imp || imp.applied) return;
+    setState((s) => ({ equipment: s.equipment.map((e) => (e.id === equip.id ? imp.preview.equip : e)) }));
+    setImp({ ...imp, applied: true });
+  };
+
   const review = equip ? parsed[equip.id] ?? null : null;
   const stored = equip ? reviews.find((r) => r.equipId === equip.id) : null;
 
@@ -179,6 +270,7 @@ export default function AiReview() {
         </button>
         <button onClick={() => fileRef.current?.click()}>📎 Attach datasheet (PDF/image)</button>
         <input ref={fileRef} type="file" accept=".pdf,image/*,.txt,.csv" hidden onChange={(e) => e.target.files?.[0] && attachFile(e.target.files[0])} />
+        <button className="primary" onClick={runImport} disabled={busy || !equip}>📥 Import datasheet → fill tag</button>
         {!settings.geminiKey && <span className="badge warn">API key not set — configure in Settings</span>}
       </div>
 
@@ -195,6 +287,58 @@ export default function AiReview() {
         <div className="finding warning">
           ⚠ “{staleDatasheets.find((d) => d.equipId === equip.id)!.name}” was attached earlier, but its file content is
           not saved in this browser — it will be <strong>omitted</strong> from the review. Re-attach the file to include it.
+        </div>
+      )}
+
+      {imp && !imp.applied && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <h3>Proposed changes for {equip!.tag} — review before applying</h3>
+          {imp.parsed.derived.length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              <div className="small"><strong>Derived from stated data:</strong></div>
+              <ul className="small muted" style={{ margin: '2px 0 0', paddingLeft: 18 }}>
+                {imp.parsed.derived.map((d, i) => <li key={i}>{d}</li>)}
+              </ul>
+            </div>
+          )}
+          {imp.preview.changes.length > 0 ? (
+            <table className="grid">
+              <thead><tr><th>Field</th><th>Current</th><th>From datasheet</th></tr></thead>
+              <tbody>
+                {imp.preview.changes.map((c, i) => (
+                  <tr key={i}>
+                    <td className="mono small">{c.field}</td>
+                    <td className="num">{c.from}</td>
+                    <td className="num calc">{c.to}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="muted small">Nothing to change — the datasheet matches the current values.</p>
+          )}
+          {(imp.preview.skipped.length > 0 || imp.parsed.missing.length > 0) && (
+            <p className="small muted" style={{ marginTop: 6 }}>
+              Not applied: {[...imp.preview.skipped, ...imp.parsed.missing].join(' · ')}
+            </p>
+          )}
+          <div className="row" style={{ marginTop: 8 }}>
+            <button className="primary" onClick={applyImport} disabled={imp.preview.changes.length === 0}>
+              ✔ Apply {imp.preview.changes.length} change(s)
+            </button>
+            <button onClick={() => setImp(null)}>✕ Discard</button>
+          </div>
+          <p className="small muted" style={{ marginTop: 6 }}>
+            Only inputs are patched. Thicknesses, MAWP, weights, volumes and warnings are re-derived by the engine
+            after applying — the model never writes calculated values.
+          </p>
+        </div>
+      )}
+
+      {imp?.applied && (
+        <div className="finding ok" style={{ marginBottom: 12 }}>
+          ✅ Applied {imp.preview.changes.length} change(s) to {equip!.tag}. Re-run the compliance review to refresh
+          the results.
         </div>
       )}
 
@@ -232,6 +376,11 @@ export default function AiReview() {
         <p className="muted small">
           The tag's full input datasheet and all calculated results are sent to Google Gemini ({settings.geminiModel}) together with any
           attached client datasheet file. Gemini checks the design against the applicable code clauses and proposes optimizations.
+          <br />
+          <strong>Import datasheet → fill tag</strong> reads the attached client datasheet (PDF or image), proposes only
+          the INPUT values stated on it (P, T, MDMT, material, geometry, nozzles — with every derivation listed for
+          audit), and lets you review and apply the patch; anything not stated stays as it is, and everything the
+          engine calculates is re-derived locally after applying.
           The key stays in your browser (Settings) and calls go straight to the Gemini API. For production use, route calls through
           your own backend to keep the key server-side.
         </p>
