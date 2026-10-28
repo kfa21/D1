@@ -290,6 +290,40 @@ function buildVessel(g: THREE.Group, equip: Equipment, calc: EquipmentCalc, o: B
       geo.scale(1, 0.5, 1);
       return geo;
     }
+    if (type === 'toriFD' || type === 'toriD') {
+      // Torispherical head: crown + knuckle (ASME)
+      const D = 2 * R;
+      const L = type === 'toriFD' ? D : D; // crown radius
+      const r = type === 'toriFD' ? 0.06 * D : 0.17 * D; // knuckle radius
+      const points: THREE.Vector2[] = [];
+      // Build profile from outside to center? Or build as lathe
+      // Start at shell junction (R, 0) going up along knuckle
+      const steps = 40;
+      // Knuckle: arc centered at (R-r, r)
+      for (let i = 0; i <= steps / 2; i++) {
+        const angle = Math.PI / 2 - (i / (steps / 2)) * Math.acos(1 - Math.min(1, r / Math.max(1e-6, r))); // approximate
+        const a = Math.PI / 2 * (i / (steps / 2));
+        const x = (R - r) + r * Math.sin(a);
+        const y = r - r * Math.cos(a);
+        if (x >= 0) points.push(new THREE.Vector2(x, y));
+      }
+      // Crown: arc centered on axis
+      const rc = Math.sqrt((L - r) ** 2 - (R - r) ** 2);
+      const yc = r + rc;
+      for (let i = 1; i <= steps / 2; i++) {
+        const a = Math.acos((R - r) / (L - r)) + (i / (steps / 2)) * (Math.PI / 2 - Math.acos((R - r) / (L - r)));
+        const x = (L - r) * Math.sin(a);
+        const y = yc - (L - r) * Math.cos(a);
+        if (x >= 0 && y > 0) points.push(new THREE.Vector2(x, y));
+      }
+      // If points don't look right, fall back to sphere cap scaled to depth
+      if (points.length < 5) {
+        const alpha = Math.acos(Math.max(-1, Math.min(1, 1 - d / Math.max(1, R))));
+        return new THREE.SphereGeometry(R, 64, 24, 0, Math.PI * 2, 0, alpha);
+      }
+      const geo = new THREE.LatheGeometry(points, 64);
+      return geo;
+    }
     const alpha = Math.acos(Math.max(-1, Math.min(1, 1 - d / Math.max(1, R))));
     return new THREE.SphereGeometry(R, 64, 24, 0, Math.PI * 2, 0, alpha);
   };
