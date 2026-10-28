@@ -96,6 +96,8 @@ This file is the single source of truth for incremental work on this project.
 - [x] **G2** Estimate **02 Special** metrics — price / empty equipment weight (t) and manhours / empty equipment weight (t): zero-safe ratios in `summarizeEstimate`, dedicated KPI row on Estimate, quoted in the basis-of-estimate table, golden-tested — `28ff23e`
 - [x] **G3** AI datasheet import — Gemini reads the attached client datasheet (PDF/image) and proposes a patch of INPUT values only (P/T/MDMT, CA, material, RT, shell geometry + head forms, nozzles merged by tag, tank extras); `src/datasheetImport.ts` parses (fence/prose tolerant) and applies defensively (type/range/enum validation, rejects reported not applied), the prompt lists every derivation with its arithmetic, and AiReview shows a review-before-apply change table; calculated results are always re-derived by the engine — `131fc3b`
 - [x] **G4** Correct value beside the erroring field — `src/fixValues.ts` computes the value to enter for every field-targeted code from the live calc (required thicknesses + CA, MAWP/UG-28 ceilings, B16.5 class step-ups, tank floors/ceilings, anchor-bolt area, tube count, fan Ø, material temperature limit); FixNote now lists every active warning on its field with hint + observed message + ✔ correct value, per-code dismissal — `80fe3ff`
+- [x] **G5** Firebase cloud backup — `src/cloud.ts` + Settings → **Cloud backup (Firebase)**: paste the web config (snippet/JSON tolerant), anonymous sign-in, save the same sanitised payload the JSON export writes, list / load / delete saved copies. Firestore rules are printed verbatim for the console because they are what make a shared database private (every doc scoped to `request.auth.uid`); every Firebase failure is translated into an actionable sentence (missing rules, database not created, anonymous sign-in off, payload over the 900 KB document limit). The SDK loads through `dynamic import()` so it ships in lazy chunks, never in the initial bundle — `d9bd453`
+- [x] **G6** Gemini page transparency — a **Data being sent to Gemini** panel listing every input group with real values, the engine results that ride along, attachment status, model/endpoint/temperature and the exact request body after each call (base64 elided); the import preview became an entry review: badge strip, effect on MAWP/weight/findings before → after, labelled change table with Δ column, `unchanged` (stated but already correct) from `ApplyResult`, rejected/not-stated list, raw parsed response, and a post-apply entry log — `ad7ba94`
 
 **Suggested order:** E1 → E2 → F1 → F2 → E3 → E4 → E5 → F3 → E6 → E7; F4 only on request. E1/E2 and F1/F3 change calculated results — land their golden tests before UI polish.
 
@@ -152,8 +154,9 @@ clean-up (C1/C3/C5/C6/C7/C8), the 02 Special estimate metrics (G2),
 F4 per-course grades + hydrotest density, the Phase D research
 (D2 implemented, D3 verified, D4 documented; D1 confirmed blocked with
 the user-pasted-table workaround documented in `wrc107.ts`), the AI
-datasheet import (G3) and correct-value suggestions beside erroring
-fields (G4).
+datasheet import (G3), correct-value suggestions beside erroring
+fields (G4), Firebase cloud backup (G5) and the Gemini data-sent /
+data-entered transparency panels (G6).
 Open ideas for the next session: C4 (WRC azimuth + shell-side interaction
 completion), extracting a licensed API 650 edition to re-verify D3 wording,
 splitting the main JS chunk (now ~516 kB, over the 500 kB advisory
