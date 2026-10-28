@@ -1,7 +1,18 @@
 // Settings — project info, units, currency & FX, plate stock, rate card, Gemini key, data backup.
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useStore, setSettings, setState, money, defaultSettings, exportProjectJson, importProjectData } from '../store';
+import {
+  CLOUD_RULES,
+  cloudDelete,
+  cloudList as fetchCloudList,
+  cloudLoad,
+  cloudSave,
+  connectCloud,
+  isConfigured,
+  parseFirebaseConfig,
+  type CloudEntry,
+} from '../cloud';
 import { CURRENCIES, CurrencyCode } from '../engine/currency';
 import type { PlateSize } from '../engine/plates';
 import { MATERIALS } from '../engine/materials';
@@ -24,6 +35,69 @@ export default function SettingsPage() {
       ),
     [equipment, s.rates, s.plateStock, s.manhourOverrides]
   );
+
+  // ---- cloud backup (Firebase) ----
+  const [pasted, setPasted] = useState('');
+  const [pastedOk, setPastedOk] = useState(false);
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudMsg, setCloudMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [cloudUid, setCloudUid] = useState('');
+  const [cloudSaved, setCloudSaved] = useState<CloudEntry[]>([]);
+  const cfg = s.firebaseConfig;
+  const hasCfg = isConfigured(cfg);
+
+  const cloudRun = async (fn: () => Promise<void>) => {
+    setCloudBusy(true);
+    setCloudMsg(null);
+    try {
+      await fn();
+    } catch (e) {
+      setCloudMsg({ kind: 'err', text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
+  const connect = () =>
+    cloudRun(async () => {
+      const uid = await connectCloud(cfg);
+      setCloudUid(uid);
+      setCloudMsg({ kind: 'ok', text: `Connected (user ${uid.slice(0, 8)}…).` });
+      setCloudSaved(await fetchCloudList());
+    });
+
+  const saveToCloud = () =>
+    cloudRun(async () => {
+      await connectCloud(cfg);
+      const payload = exportProjectJson();
+      await cloudSave({ name: s.projectName || 'Untitled project', payload, tags: equipment.length });
+      setCloudSaved(await fetchCloudList());
+      setCloudMsg({ kind: 'ok', text: `Saved “${s.projectName}” (${(payload.length / 1024).toFixed(0)} KB) to the cloud.` });
+    });
+
+  const listCloud = () =>
+    cloudRun(async () => {
+      await connectCloud(cfg);
+      setCloudSaved(await fetchCloudList());
+      setCloudMsg({ kind: 'ok', text: 'List refreshed.' });
+    });
+
+  const loadFromCloud = (entry: CloudEntry) =>
+    cloudRun(async () => {
+      await connectCloud(cfg);
+      const payload = await cloudLoad(entry.id);
+      importProjectData(JSON.parse(payload));
+      setCloudMsg({ kind: 'ok', text: `Loaded “${entry.name}” — ${entry.tags} tag(s).` });
+    });
+
+  const removeFromCloud = (entry: CloudEntry) =>
+    cloudRun(async () => {
+      if (!confirm(`Delete the saved copy “${entry.name}” from the cloud?`)) return;
+      await connectCloud(cfg);
+      await cloudDelete(entry.id);
+      setCloudSaved(await fetchCloudList());
+      setCloudMsg({ kind: 'ok', text: `Deleted “${entry.name}”.` });
+    });
 
   const setPlate = (i: number, patch: Partial<PlateSize>) => {
     const stock = s.plateStock.map((p, idx) => (idx === i ? { ...p, ...patch } : p));
@@ -204,6 +278,89 @@ export default function SettingsPage() {
           Sanity check: 1 BHD = {s.fxRates[s.currency] ?? CURRENCIES[s.currency].rate} {s.currency} → example{' '}
           {money(1000, s)}
         </p>
+      </div>
+
+      <div className="card">
+        <h3>Cloud backup (Firebase)</h3>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          Save this project to your own Firebase project and pull it back on any device. Everything is written to
+          Firestore through the browser; the Gemini key and attachment files are never uploaded (the same sanitised
+          payload the JSON export writes).
+        </p>
+
+        {!hasCfg && (
+          <label className="f">
+            <span>Paste your firebaseConfig (from the Firebase console → Project settings → Your apps)</span>
+            <textarea
+              rows={3}
+              placeholder={'const firebaseConfig = {\n  apiKey: "AIza…",\n  authDomain: "my-app.firebaseapp.com",\n  projectId: "my-app",\n};'}
+              value={pasted}
+              onChange={(e) => {
+                setPasted(e.target.value);
+                const p = parseFirebaseConfig(e.target.value);
+                setPastedOk(Boolean(p));
+                if (p) setSettings({ firebaseConfig: p });
+              }}
+            />
+          </label>
+        )}
+        {pastedOk && hasCfg && <p className="small">✅ Config detected — {cfg.projectId} ({cfg.authDomain})</p>}
+
+        <div className="grid2">
+          <label className="f"><span>API key (public identifier)</span>
+            <input value={cfg.apiKey} placeholder="AIza…" onChange={(e) => setSettings({ firebaseConfig: { ...cfg, apiKey: e.target.value } })} />
+          </label>
+          <label className="f"><span>Auth domain</span>
+            <input value={cfg.authDomain} placeholder="my-app.firebaseapp.com" onChange={(e) => setSettings({ firebaseConfig: { ...cfg, authDomain: e.target.value } })} />
+          </label>
+          <label className="f"><span>Project ID</span>
+            <input value={cfg.projectId} placeholder="my-app" onChange={(e) => setSettings({ firebaseConfig: { ...cfg, projectId: e.target.value } })} />
+          </label>
+        </div>
+
+        <div className="row" style={{ marginTop: 6 }}>
+          <button className="primary" disabled={cloudBusy || !hasCfg} onClick={connect}>
+            {cloudBusy ? '…' : 'Connect'}
+          </button>
+          <button disabled={cloudBusy || !hasCfg} onClick={saveToCloud}>☁ Save project</button>
+          <button disabled={cloudBusy || !hasCfg} onClick={listCloud}>↻ Refresh list</button>
+        </div>
+        {cloudUid && <p className="small muted">Signed in as {cloudUid} (anonymous — each browser gets its own account, scoped by the rules below).</p>}
+        {cloudMsg && <div className={`finding ${cloudMsg.kind === 'ok' ? 'ok' : 'error'}`}>{cloudMsg.text}</div>}
+
+        {cloudSaved.length > 0 && (
+          <table className="grid" style={{ marginTop: 8 }}>
+            <thead><tr><th>Saved project</th><th className="num">Tags</th><th className="num">Size</th><th>Saved</th><th></th></tr></thead>
+            <tbody>
+              {cloudSaved.map((e) => (
+                <tr key={e.id}>
+                  <td className="small">{e.name}</td>
+                  <td className="num small">{e.tags}</td>
+                  <td className="num small">{(e.bytes / 1024).toFixed(0)} KB</td>
+                  <td className="small muted">{e.savedAtMs ? new Date(e.savedAtMs).toLocaleString() : '—'}</td>
+                  <td className="num">
+                    <button className="ghost" disabled={cloudBusy} onClick={() => loadFromCloud(e)}>Load</button>{' '}
+                    <button className="ghost danger" disabled={cloudBusy} onClick={() => removeFromCloud(e)}>Delete</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        <details style={{ marginTop: 8 }}>
+          <summary className="small muted">Setup: two one-time steps in the Firebase console</summary>
+          <ol className="small muted" style={{ paddingLeft: 18, marginTop: 6 }}>
+            <li><strong>Authentication → Sign-in method → Anonymous</strong> — enable it (the app signs in without a password).</li>
+            <li><strong>Firestore → Create database</strong>, then paste these rules so every user sees only their own saves:
+              <pre className="code" style={{ marginTop: 6 }}>{CLOUD_RULES}</pre>
+            </li>
+          </ol>
+          <p className="small muted">
+            The config above is public (it ships in every Firebase web bundle); the rules are what keep the data private.
+            Free tier: 1 GiB storage, 50k reads / 20k writes a day — far above what saves this project needs.
+          </p>
+        </details>
       </div>
     </div>
 

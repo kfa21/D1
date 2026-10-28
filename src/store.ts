@@ -17,6 +17,8 @@ export interface Settings {
   rates: RateCard;
   geminiKey: string;
   geminiModel: string;
+  /** Firebase web config for cloud backup (public identifiers, not secrets) */
+  firebaseConfig: { apiKey: string; authDomain: string; projectId: string };
   projectName: string;
   clientName: string;
   /** manual hours per man-hour basis key (Settings → man-hours table); absent = engine auto */
@@ -113,6 +115,7 @@ export const defaultSettings: Settings = {
   rates: DEFAULT_RATES,
   geminiKey: '',
   geminiModel: 'gemini-2.5-flash',
+  firebaseConfig: { apiKey: '', authDomain: '', projectId: '' },
   projectName: 'New Project',
   clientName: '',
   manhourOverrides: {},
