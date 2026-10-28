@@ -3,7 +3,7 @@
 // The API key is entered by the user and stored locally (Settings). Calls go
 // directly from the browser to generativelanguage.googleapis.com v1beta.
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useMemo, useState } from 'react';
 import { useStore, setState, getStore, setSettings } from '../store';
 import { computeEquipment } from '../engine/compute';
 import { fmt } from '../engine/units';
@@ -38,6 +38,8 @@ export default function AiReview() {
   const [parsed, setParsed] = useState<Record<string, ReviewResponse>>({});
   /** pending datasheet→tag import: parsed patch + computed preview, before/after apply */
   const [imp, setImp] = useState<{ parsed: DatasheetImport; preview: ApplyResult; applied: boolean } | null>(null);
+  /** the exact request body of the last Gemini call, for the "data sent" panel */
+  const [lastCall, setLastCall] = useState<{ kind: 'review' | 'import'; at: number; bytes: number; attachment: string | null; json: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const equip = equipment.find((e) => e.id === selectedId) ?? equipment[0];
@@ -134,6 +136,7 @@ export default function AiReview() {
         contents: [{ role: 'user', parts }],
         generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
       };
+      setLastCall({ kind: 'review', at: Date.now(), bytes: JSON.stringify(body).length, attachment: dsMeta?.name ?? null, json: displayBody(body) });
 
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${settings.geminiModel}:generateContent`;
       const res = await fetch(url, {
@@ -226,6 +229,7 @@ export default function AiReview() {
         ],
         generationConfig: { responseMimeType: 'application/json', temperature: 0 },
       };
+      setLastCall({ kind: 'import', at: Date.now(), bytes: JSON.stringify(body).length, attachment: dsMeta.name, json: displayBody(body) });
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${settings.geminiModel}:generateContent`;
       const res = await fetch(url, {
         method: 'POST',
@@ -256,6 +260,15 @@ export default function AiReview() {
 
   const review = equip ? parsed[equip.id] ?? null : null;
   const stored = equip ? reviews.find((r) => r.equipId === equip.id) : null;
+  const attachedMeta = equip ? datasheets.find((d) => d.equipId === equip.id) ?? null : null;
+
+  /** engine results before and after the proposed patch — what entering the data will change */
+  const impact = useMemo(() => {
+    if (!equip) return null;
+    const before = computeEquipment(equip);
+    const after = imp ? computeEquipment(imp.preview.equip) : null;
+    return { before, after };
+  }, [equip, imp]);
 
   if (equipment.length === 0) return <div className="card">Create equipment tags in the Register first.</div>;
 
@@ -290,41 +303,125 @@ export default function AiReview() {
         </div>
       )}
 
+      {equip && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <h3>Data being sent to Gemini</h3>
+          <p className="small muted" style={{ marginTop: 0 }}>
+            Model <strong>{settings.geminiModel}</strong> · endpoint <span className="mono">generativelanguage.googleapis.com/v1beta</span> ·
+            temperature {lastCall?.kind === 'import' ? '0' : '0.2'} · the API key stays in this browser.
+            {lastCall && (
+              <>
+                {' '}Last call: <strong>{lastCall.kind === 'review' ? 'compliance review' : 'datasheet import'}</strong> at{' '}
+                {new Date(lastCall.at).toLocaleTimeString()} — {(lastCall.bytes / 1024).toFixed(1)} KB sent.
+              </>
+            )}
+          </p>
+          <table className="grid">
+            <tbody>
+              {inputSummary(equip).map(([k, v]) => (
+                <tr key={k}>
+                  <td style={{ width: 250 }}><strong className="small">{k}</strong></td>
+                  <td className="small">{v}</td>
+                </tr>
+              ))}
+              <tr>
+                <td><strong className="small">Engine results sent</strong></td>
+                <td className="small">
+                  MAWP {fmt(impact?.before.mawpBar ?? 0, 2)} bar · dry weight {fmt(impact?.before.weightDryKg ?? 0, 0)} kg ·{' '}
+                  {impact?.before.warnings.length ?? 0} finding(s) — every thickness, utilisation and warning shown
+                  above is re-derived locally from these inputs, never accepted from the model.
+                </td>
+              </tr>
+              <tr>
+                <td><strong className="small">Client datasheet file</strong></td>
+                <td className="small">
+                  {attachedMeta ? `${attachedMeta.name} · ${(attachedMeta.size / 1024).toFixed(0)} KB · ${attachedMeta.mime}` : 'none attached — only the tag JSON below is sent'}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          {lastCall && (
+            <details style={{ marginTop: 8 }}>
+              <summary className="small muted">Exact request body of the last call ({(lastCall.bytes / 1024).toFixed(1)} KB)</summary>
+              <pre className="code" style={{ maxHeight: 280, overflow: 'auto' }}>{lastCall.json}</pre>
+            </details>
+          )}
+        </div>
+      )}
+
       {imp && !imp.applied && (
         <div className="card" style={{ marginBottom: 12 }}>
-          <h3>Proposed changes for {equip!.tag} — review before applying</h3>
+          <h3>Proposed data entry for {equip!.tag} — review before applying</h3>
+          <div className="row" style={{ marginBottom: 8, gap: 6 }}>
+            <span className="badge info">{imp.preview.changes.length} to enter</span>
+            <span className="badge">{imp.preview.unchanged.length} verified identical</span>
+            <span className="badge warn">{imp.preview.skipped.length + imp.parsed.missing.length} not applied</span>
+          </div>
+          {impact?.after && (
+            <div className="finding" style={{ marginBottom: 8 }}>
+              <strong>What entering this data changes:</strong> MAWP {fmt(impact.before.mawpBar, 2)} →{' '}
+              {fmt(impact.after.mawpBar, 2)} bar · dry weight {fmt(impact.before.weightDryKg, 0)} →{' '}
+              {fmt(impact.after.weightDryKg, 0)} kg · findings {impact.before.warnings.length} →{' '}
+              {impact.after.warnings.length}
+              {imp.preview.changes.length === 0 && ' (no input changes, so nothing moves)'}
+            </div>
+          )}
           {imp.parsed.derived.length > 0 && (
             <div style={{ marginBottom: 8 }}>
-              <div className="small"><strong>Derived from stated data:</strong></div>
+              <div className="small"><strong>Derived from stated data (arithmetic for audit):</strong></div>
               <ul className="small muted" style={{ margin: '2px 0 0', paddingLeft: 18 }}>
                 {imp.parsed.derived.map((d, i) => <li key={i}>{d}</li>)}
               </ul>
             </div>
           )}
           {imp.preview.changes.length > 0 ? (
-            <table className="grid">
-              <thead><tr><th>Field</th><th>Current</th><th>From datasheet</th></tr></thead>
-              <tbody>
-                {imp.preview.changes.map((c, i) => (
-                  <tr key={i}>
-                    <td className="mono small">{c.field}</td>
-                    <td className="num">{c.from}</td>
-                    <td className="num calc">{c.to}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="tablewrap">
+              <table className="grid">
+                <thead><tr><th>Group</th><th>Field</th><th className="num">Current</th><th className="num">Entering</th><th className="num">Δ</th></tr></thead>
+                <tbody>
+                  {imp.preview.changes.map((c, i) => (
+                    <tr key={i}>
+                      <td className="small muted">{groupOf(c.field)}</td>
+                      <td className="small"><strong>{labelOf(c.field)}</strong> <span className="mono muted small">{c.field}</span></td>
+                      <td className="num small">{c.from}</td>
+                      <td className="num calc small"><strong>{c.to}</strong></td>
+                      <td className="num small">{deltaOf(c.from, c.to)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <p className="muted small">Nothing to change — the datasheet matches the current values.</p>
           )}
-          {(imp.preview.skipped.length > 0 || imp.parsed.missing.length > 0) && (
-            <p className="small muted" style={{ marginTop: 6 }}>
-              Not applied: {[...imp.preview.skipped, ...imp.parsed.missing].join(' · ')}
-            </p>
+          {imp.preview.unchanged.length > 0 && (
+            <details style={{ marginTop: 6 }}>
+              <summary className="small muted">
+                {imp.preview.unchanged.length} stated value(s) already match the tag — read and verified, not written
+              </summary>
+              <ul className="small muted" style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                {imp.preview.unchanged.map((f, i) => <li key={i}>{labelOf(f)} <span className="mono">{f}</span></li>)}
+              </ul>
+            </details>
           )}
+          {(imp.preview.skipped.length > 0 || imp.parsed.missing.length > 0) && (
+            <details style={{ marginTop: 6 }} open={imp.preview.skipped.length > 0}>
+              <summary className="small">
+                Not applied ({imp.preview.skipped.length + imp.parsed.missing.length}) — rejected by validation or not stated on the datasheet
+              </summary>
+              <ul className="small muted" style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                {[...imp.preview.skipped, ...imp.parsed.missing].map((f, i) => <li key={i}>{f}</li>)}
+              </ul>
+            </details>
+          )}
+          {imp.parsed.notes && <p className="small" style={{ marginTop: 6 }}>Model note: {imp.parsed.notes}</p>}
+          <details style={{ marginTop: 6 }}>
+            <summary className="small muted">Raw model response (exactly what was parsed into the table above)</summary>
+            <pre className="code" style={{ maxHeight: 280, overflow: 'auto' }}>{JSON.stringify(imp.parsed, null, 2)}</pre>
+          </details>
           <div className="row" style={{ marginTop: 8 }}>
             <button className="primary" onClick={applyImport} disabled={imp.preview.changes.length === 0}>
-              ✔ Apply {imp.preview.changes.length} change(s)
+              ✔ Enter {imp.preview.changes.length} value(s) into the tag
             </button>
             <button onClick={() => setImp(null)}>✕ Discard</button>
           </div>
@@ -336,9 +433,31 @@ export default function AiReview() {
       )}
 
       {imp?.applied && (
-        <div className="finding ok" style={{ marginBottom: 12 }}>
-          ✅ Applied {imp.preview.changes.length} change(s) to {equip!.tag}. Re-run the compliance review to refresh
-          the results.
+        <div className="card" style={{ marginBottom: 12, borderColor: 'var(--ok, #2e7d32)' }}>
+          <h3>✅ Data entered into {equip!.tag}</h3>
+          <table className="grid">
+            <thead><tr><th>Group</th><th>Field</th><th className="num">Was</th><th className="num">Now</th></tr></thead>
+            <tbody>
+              {imp.preview.changes.map((c, i) => (
+                <tr key={i}>
+                  <td className="small muted">{groupOf(c.field)}</td>
+                  <td className="small">{labelOf(c.field)} <span className="mono muted small">{c.field}</span></td>
+                  <td className="num small">{c.from}</td>
+                  <td className="num small calc"><strong>{c.to}</strong></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {impact?.after && (
+            <p className="small" style={{ marginTop: 8 }}>
+              Engine re-derived from the entered data: MAWP {fmt(impact.after.mawpBar, 2)} bar · dry weight{' '}
+              {fmt(impact.after.weightDryKg, 0)} kg · {impact.after.warnings.length} finding(s). Re-run the compliance
+              review to refresh the results.
+            </p>
+          )}
+          <div className="row" style={{ marginTop: 6 }}>
+            <button onClick={() => setImp(null)}>Dismiss</button>
+          </div>
         </div>
       )}
 
@@ -394,6 +513,83 @@ export default function AiReview() {
       </div>
     </div>
   );
+}
+
+/** Pretty request body with the base64 attachment elided (it can be 20 MB). */
+function displayBody(body: unknown): string {
+  return JSON.stringify(
+    body,
+    (k, v: unknown) => (k === 'data' && typeof v === 'string' ? `[base64, ${v.length} chars elided]` : v),
+    2
+  );
+}
+
+/** Field path → readable label, so the entry table reads like a datasheet. */
+const FIELD_LABELS: Record<string, string> = {
+  tag: 'Tag number', name: 'Equipment name', orientation: 'Orientation',
+  'designPressure (bar g)': 'Design pressure', 'designTemp (°C)': 'Design temperature',
+  'mdmt (°C)': 'MDMT', 'externalPressure (bar)': 'External pressure',
+  'corrosionAllowance (mm)': 'Corrosion allowance', materialKey: 'Material', rtCategory: 'RT category',
+  'tank.fluidName': 'Stored fluid', 'tank.specificGravity': 'Specific gravity',
+  'tank.roofType': 'Roof type', 'tank.maxDesignLiquidLevel (mm)': 'Max design liquid level',
+  'tank.bottomThk (mm)': 'Bottom plate thickness',
+};
+const SECTION_LABELS: Record<string, string> = {
+  dia: 'Inside diameter', ttLength: 'Tan-to-tan length', headTop: 'Top head form', headBottom: 'Bottom head form',
+  shellThk: 'Shell spec t', headThkTop: 'Top head spec t', headThkBot: 'Bottom head spec t',
+};
+const NOZZLE_LABELS: Record<string, string> = {
+  dn: 'Bore', flangeClass: 'Flange class', elevation: 'Elevation', azimuth: 'Azimuth',
+  service: 'Service', kind: 'Nozzle kind',
+};
+
+function labelOf(field: string): string {
+  if (FIELD_LABELS[field]) return FIELD_LABELS[field];
+  const s = field.match(/^sections\[(\d+)]\.(\w+)/);
+  if (s) return `Section ${Number(s[1]) + 1} · ${SECTION_LABELS[s[2]] ?? s[2]}`;
+  const n = field.match(/^nozzle (.+)\.(\w+)/);
+  if (n) return `${n[1]} · ${NOZZLE_LABELS[n[2]] ?? n[2]}`;
+  if (field.endsWith('(new)')) return `${field.replace(' (new)', '')} — new nozzle`;
+  return field;
+}
+
+function groupOf(field: string): string {
+  if (field.startsWith('sections[')) return 'Shell & heads';
+  if (field.startsWith('nozzle')) return 'Nozzles';
+  if (field.startsWith('tank.')) return 'Tank';
+  return 'Tag data';
+}
+
+/** "+6" / "−0.25" when both ends of a change are numeric, otherwise an em dash. */
+function deltaOf(from: string, to: string): string {
+  const a = Number(from);
+  const b = Number(to);
+  if (from.trim() === '' || to.trim() === '' || !Number.isFinite(a) || !Number.isFinite(b)) return '—';
+  const d = Math.round((b - a) * 1000) / 1000;
+  if (d === 0) return 'same';
+  return `${d > 0 ? '+' : ''}${d}`;
+}
+
+/** One row per input group actually included in the request payload. */
+function inputSummary(e: Equipment): [string, string][] {
+  const out: [string, string][] = [
+    ['Tag', `${e.tag} — ${e.name} · ${e.equipType}${e.orientation ? ` · ${e.orientation}` : ''}`],
+    ['Design pressure / temperature / MDMT', `${e.designPressure} bar g · ${e.designTemp} °C · MDMT ${e.mdmt} °C`],
+    ['Corrosion allowance / material / RT', `${e.corrosionAllowance} mm · ${e.materialKey} · RT ${e.rtCategory} · LI ${e.inspectionLevel}`],
+    [`Shell sections (${e.sections.length})`,
+      e.sections.map((x, i) => `S${i + 1} Ø${x.dia} × ${x.ttLength} mm, heads ${x.headTop}/${x.headBottom}, spec t ${x.shellThk || 'auto'}`).join(' · ') || '—'],
+    [`Nozzles (${e.nozzles.length})`,
+      e.nozzles.map((n) => `${n.tag} DN${n.dn} Cl${n.flangeClass} @ ${n.elevation} mm, ${n.kind}`).join(' · ') || '—'],
+    [`Internals (${e.internals.length})`, e.internals.map((i) => i.kind).join(', ') || '—'],
+  ];
+  if (e.clad && e.clad.mode !== 'none') out.push(['Cladding', `${e.clad.mode} ${e.clad.materialKey} ${e.clad.thicknessMm} mm`]);
+  if (e.ndtPlan) {
+    out.push(['NDT plan', e.ndtPlan.filter((n) => n.enabled).map((n) => `${n.method === 'putTofd' ? 'PaUT/TOFD' : n.method.toUpperCase()} ${n.extent} (${n.timing})`).join(' · ') || '—']);
+  }
+  if (e.tank) {
+    out.push(['Tank service', `${e.tank.fluidName} SG ${e.tank.specificGravity} · roof ${e.tank.roofType} · liquid level ${e.tank.maxDesignLiquidLevel} mm`]);
+  }
+  return out;
 }
 
 function fileToBase64(file: File): Promise<string> {

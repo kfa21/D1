@@ -139,6 +139,29 @@ describe('applyDatasheetImport', () => {
     expect(calc.warnings.every((w) => w.msg && w.code)).toBe(true);
   });
 
+  it('reports stated values that already match as verified, separately from real changes', () => {
+    const v = vessel();
+    const imp = parseDatasheetResponse(
+      JSON.stringify({
+        patch: {
+          designPressure: v.designPressure + 4, // a real change
+          designTemp: v.designTemp, // stated and already correct
+          corrosionAllowance: v.corrosionAllowance, // stated and already correct
+          sections: [{ dia: v.sections[0].dia, ttLength: v.sections[0].ttLength + 500 }],
+        },
+      })
+    );
+    const res = applyDatasheetImport(v, imp);
+
+    expect(res.changes.map((c) => c.field)).toEqual(['designPressure (bar g)', 'sections[0].ttLength (mm)']);
+    expect(res.unchanged).toContain('designTemp (°C)');
+    expect(res.unchanged).toContain('corrosionAllowance (mm)');
+    expect(res.unchanged).toContain('sections[0].dia (mm)');
+    // an unchanged value is never written: the record is untouched there
+    expect(res.equip.designTemp).toBe(v.designTemp);
+    expect(res.equip.corrosionAllowance).toBe(v.corrosionAllowance);
+  });
+
   it('ignores a tank patch on a non-tank tag', () => {
     const v = vessel();
     const res = applyDatasheetImport(v, { patch: { tank: { fluidName: 'X' } }, derived: [], missing: [] });

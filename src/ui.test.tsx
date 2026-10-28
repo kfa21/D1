@@ -103,6 +103,65 @@ describe('AI datasheet import guard rails', () => {
   });
 });
 
+describe('AI page — data-sent transparency', () => {
+  it('shows exactly which inputs, results and attachment go to Gemini', () => {
+    const eq = resetStore();
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: /Gemini Code Review/ }));
+
+    expect(screen.getByRole('heading', { name: 'Data being sent to Gemini' })).toBeTruthy();
+
+    const card = screen.getByRole('heading', { name: 'Data being sent to Gemini' }).closest('.card')!;
+    const text = card.textContent ?? '';
+    // model + endpoint + key location are stated plainly
+    expect(text).toContain('gemini-2.5-flash');
+    expect(text).toContain('generativelanguage.googleapis.com/v1beta');
+    expect(text).toContain('the API key stays in this browser');
+
+    // every input group of the first demo tag is enumerated with real values
+    const first = eq[0];
+    expect(text).toContain(`${first.designPressure} bar g · ${first.designTemp} °C`);
+    expect(text).toContain(`Nozzles (${first.nozzles.length})`);
+    expect(text).toContain(`Shell sections (${first.sections.length})`);
+    // the attachment slot is honest when nothing is attached
+    expect(text).toContain('none attached');
+
+    // engine results are named as locally re-derived, not model-provided
+    expect(text).toContain('never accepted from the model');
+  });
+});
+
+describe('Cloud backup setup (Settings)', () => {
+  it('parses a pasted firebaseConfig and shows the two console steps', () => {
+    resetStore();
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: /Settings/ }));
+
+    expect(screen.getByRole('heading', { name: 'Cloud backup (Firebase)' })).toBeTruthy();
+    const connect = screen.getByRole('button', { name: 'Connect' });
+    expect(connect.hasAttribute('disabled')).toBe(true); // nothing configured yet
+
+    fireEvent.change(screen.getByPlaceholderText(/firebaseConfig/), {
+      target: {
+        value:
+          'const firebaseConfig = { apiKey: "AIzaTest", authDomain: "demo.firebaseapp.com", projectId: "demo" };',
+      },
+    });
+    expect(getStore().settings.firebaseConfig).toEqual({
+      apiKey: 'AIzaTest',
+      authDomain: 'demo.firebaseapp.com',
+      projectId: 'demo',
+    });
+    expect(screen.getByRole('button', { name: 'Connect' }).hasAttribute('disabled')).toBe(false);
+
+    // the security rules are handed to the user verbatim — no setup step is hidden
+    expect(screen.getByText(/enable it \(the app signs in without a password\)/)).toBeTruthy();
+    expect(screen.getByText(/staticsuite_projects/, { selector: 'pre' })).toBeTruthy();
+
+    setSettings({ firebaseConfig: { apiKey: '', authDomain: '', projectId: '' } }); // leave no test config behind
+  });
+});
+
 describe('Register click-to-fix targets (C8)', () => {
   it('exposes the T650-07 fix field (Max liquid level) on the Tank data tab', () => {
     const eq = resetStore();

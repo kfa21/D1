@@ -49,6 +49,8 @@ export interface ApplyResult {
   changes: AppliedChange[];
   /** values rejected by validation (bad type / out of range / unknown enum) */
   skipped: string[];
+  /** fields the datasheet states that already MATCH the current value — evidence it was read, not a change */
+  unchanged: string[];
 }
 
 /** System instruction for the fill-from-datasheet call. */
@@ -155,11 +157,15 @@ export function applyDatasheetImport(equip: Equipment, imp: DatasheetImport): Ap
   const next: Equipment = JSON.parse(JSON.stringify(equip)) as Equipment;
   const changes: AppliedChange[] = [];
   const skipped: string[] = [];
+  const unchanged: string[] = [];
   const p = imp.patch ?? {};
 
   const put = (field: string, current: unknown, value: unknown, accept: boolean) => {
     if (!accept || value === undefined) return;
-    if (JSON.stringify(current) === JSON.stringify(value)) return;
+    if (JSON.stringify(current) === JSON.stringify(value)) {
+      unchanged.push(field);
+      return;
+    }
     changes.push({ field, from: fmtNum(current), to: fmtNum(value) });
   };
 
@@ -348,5 +354,5 @@ export function applyDatasheetImport(equip: Equipment, imp: DatasheetImport): Ap
     skipped.push('tank (tag is not a tank)');
   }
 
-  return { equip: next, changes, skipped };
+  return { equip: next, changes, skipped, unchanged };
 }
