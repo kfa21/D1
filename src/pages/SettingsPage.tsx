@@ -4,14 +4,9 @@ import { useMemo, useState } from 'react';
 import { useStore, setSettings, setState, money, defaultSettings, exportProjectJson, importProjectData } from '../store';
 import {
   CLOUD_RULES,
-  cloudDelete,
-  cloudList as fetchCloudList,
-  cloudLoad,
-  cloudSave,
   connectCloud,
   isConfigured,
   parseFirebaseConfig,
-  type CloudEntry,
 } from '../cloud';
 import { CURRENCIES, CurrencyCode } from '../engine/currency';
 import type { PlateSize } from '../engine/plates';
@@ -36,13 +31,11 @@ export default function SettingsPage() {
     [equipment, s.rates, s.plateStock, s.manhourOverrides]
   );
 
-  // ---- cloud backup (Firebase) ----
+  // ---- cloud backup (Firebase) — setup lives here, save/list/load lives on My Projects ----
   const [pasted, setPasted] = useState('');
   const [pastedOk, setPastedOk] = useState(false);
   const [cloudBusy, setCloudBusy] = useState(false);
   const [cloudMsg, setCloudMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
-  const [cloudUid, setCloudUid] = useState('');
-  const [cloudSaved, setCloudSaved] = useState<CloudEntry[]>([]);
   const cfg = s.firebaseConfig;
   const hasCfg = isConfigured(cfg);
 
@@ -61,42 +54,7 @@ export default function SettingsPage() {
   const connect = () =>
     cloudRun(async () => {
       const uid = await connectCloud(cfg);
-      setCloudUid(uid);
-      setCloudMsg({ kind: 'ok', text: `Connected (user ${uid.slice(0, 8)}…).` });
-      setCloudSaved(await fetchCloudList());
-    });
-
-  const saveToCloud = () =>
-    cloudRun(async () => {
-      await connectCloud(cfg);
-      const payload = exportProjectJson();
-      await cloudSave({ name: s.projectName || 'Untitled project', payload, tags: equipment.length });
-      setCloudSaved(await fetchCloudList());
-      setCloudMsg({ kind: 'ok', text: `Saved “${s.projectName}” (${(payload.length / 1024).toFixed(0)} KB) to the cloud.` });
-    });
-
-  const listCloud = () =>
-    cloudRun(async () => {
-      await connectCloud(cfg);
-      setCloudSaved(await fetchCloudList());
-      setCloudMsg({ kind: 'ok', text: 'List refreshed.' });
-    });
-
-  const loadFromCloud = (entry: CloudEntry) =>
-    cloudRun(async () => {
-      await connectCloud(cfg);
-      const payload = await cloudLoad(entry.id);
-      importProjectData(JSON.parse(payload));
-      setCloudMsg({ kind: 'ok', text: `Loaded “${entry.name}” — ${entry.tags} tag(s).` });
-    });
-
-  const removeFromCloud = (entry: CloudEntry) =>
-    cloudRun(async () => {
-      if (!confirm(`Delete the saved copy “${entry.name}” from the cloud?`)) return;
-      await connectCloud(cfg);
-      await cloudDelete(entry.id);
-      setCloudSaved(await fetchCloudList());
-      setCloudMsg({ kind: 'ok', text: `Deleted “${entry.name}”.` });
+      setCloudMsg({ kind: 'ok', text: `Connected (user ${uid.slice(0, 8)}…). Saving, listing and loading happens on the My Projects page.` });
     });
 
   const setPlate = (i: number, patch: Partial<PlateSize>) => {
@@ -322,31 +280,9 @@ export default function SettingsPage() {
           <button className="primary" disabled={cloudBusy || !hasCfg} onClick={connect}>
             {cloudBusy ? '…' : 'Connect'}
           </button>
-          <button disabled={cloudBusy || !hasCfg} onClick={saveToCloud}>☁ Save project</button>
-          <button disabled={cloudBusy || !hasCfg} onClick={listCloud}>↻ Refresh list</button>
+          <span className="small muted">Save, list and load your projects on <strong>My Projects</strong>.</span>
         </div>
-        {cloudUid && <p className="small muted">Signed in as {cloudUid} (anonymous — each browser gets its own account, scoped by the rules below).</p>}
         {cloudMsg && <div className={`finding ${cloudMsg.kind === 'ok' ? 'ok' : 'error'}`}>{cloudMsg.text}</div>}
-
-        {cloudSaved.length > 0 && (
-          <table className="grid" style={{ marginTop: 8 }}>
-            <thead><tr><th>Saved project</th><th className="num">Tags</th><th className="num">Size</th><th>Saved</th><th></th></tr></thead>
-            <tbody>
-              {cloudSaved.map((e) => (
-                <tr key={e.id}>
-                  <td className="small">{e.name}</td>
-                  <td className="num small">{e.tags}</td>
-                  <td className="num small">{(e.bytes / 1024).toFixed(0)} KB</td>
-                  <td className="small muted">{e.savedAtMs ? new Date(e.savedAtMs).toLocaleString() : '—'}</td>
-                  <td className="num">
-                    <button className="ghost" disabled={cloudBusy} onClick={() => loadFromCloud(e)}>Load</button>{' '}
-                    <button className="ghost danger" disabled={cloudBusy} onClick={() => removeFromCloud(e)}>Delete</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
 
         <details style={{ marginTop: 8 }}>
           <summary className="small muted">Setup: two one-time steps in the Firebase console</summary>

@@ -8,6 +8,7 @@ import Register from './pages/Register';
 // the initial bundle stays small
 const Viewer3D = lazy(() => import('./pages/Viewer3D'));
 import AiReview from './pages/AiReview';
+import MyProjects from './pages/MyProjects';
 import BomPage from './pages/BomPage';
 import Inspection from './pages/Inspection';
 import MaterialsPwht from './pages/MaterialsPwht';
@@ -16,9 +17,10 @@ import Reports from './pages/Reports';
 import SettingsPage from './pages/SettingsPage';
 
 export type PageKey =
-  | 'register' | 'viewer' | 'ai' | 'bom' | 'inspection' | 'materials' | 'estimate' | 'reports' | 'settings';
+  | 'register' | 'viewer' | 'ai' | 'bom' | 'inspection' | 'materials' | 'estimate' | 'reports' | 'projects' | 'settings';
 
 const NAV: { key?: PageKey; label?: string; icon?: string; group?: string }[] = [
+  { key: 'projects', label: 'My Projects', icon: '❏' },
   { key: 'register', label: 'Equipment Register', icon: '▦' },
   { key: 'viewer', label: '3D Viewer & Stress', icon: '◈' },
   { key: 'ai', label: 'Gemini Code Review', icon: '✦' },
@@ -146,6 +148,7 @@ export default function App() {
           {page === 'materials' && <MaterialsPwht />}
           {page === 'estimate' && <EstimatePage />}
           {page === 'reports' && <Reports />}
+          {page === 'projects' && <MyProjects />}
           {page === 'settings' && <SettingsPage />}
         </div>
       </div>
