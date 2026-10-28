@@ -23,6 +23,19 @@ import { fmt } from '../engine/units';
 import { exportOBJ } from '../cad';
 import { buildBodyLayout, locateNozzle, radialDirection, radiusAtY, saddleStations } from '../engine/layout3d';
 import { finFanModel, tankModel, viewerSummary, type FinFanModel, type TankModel } from '../engine/model3d';
+import {
+  ACCESS,
+  accessModel,
+  sectionsFor,
+  supportHeightMm,
+  type AccessBar,
+  type AccessFrame,
+  type AccessGuard,
+  type AccessLadder,
+  type AccessPlatform,
+  type AccessStair,
+  type AccessWalkway,
+} from '../engine/structure3d';
 
 type Mode = 'heatmap' | 'material' | 'wireframe';
 type ViewPreset = 'iso' | 'front' | 'side' | 'top';
@@ -628,52 +641,9 @@ function buildTank(g: THREE.Group, equip: Equipment, calc: EquipmentCalc, tm: Ta
     o.model.add(girder);
   });
 
-  // spiral stair up the shell with a handrail and a top landing
-  if (tm.stair) {
-    const st = tm.stair;
-    const stepCount = st.steps;
-    const stepGeo = new THREE.BoxGeometry(Math.min(900, R * 0.12 + 550), 10, 260);
-    const steps = new THREE.InstancedMesh(stepGeo, steelMat(o, 0x7f8ea3, 0.7), stepCount);
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const startAngle = -Math.PI / 2;
-    for (let i = 0; i < stepCount; i++) {
-      const ang = startAngle + (i * st.stepAngleDeg * Math.PI) / 180;
-      const y = tm.shellBaseY + i * st.riseMm;
-      q.setFromAxisAngle(UP_Y, -ang);
-      m.compose(
-        new THREE.Vector3(Math.cos(ang) * st.radiusMm, y, Math.sin(ang) * st.radiusMm),
-        q,
-        new THREE.Vector3(1, 1, 1)
-      );
-      steps.setMatrixAt(i, m);
-    }
-    steps.instanceMatrix.needsUpdate = true;
-    part(steps, 'Spiral stair', `${stepCount} treads · ${Math.round(st.riseMm)} mm rise · landing at the roof`);
-    o.model.add(steps);
-
-    const railPts: THREE.Vector3[] = [];
-    const railR = st.radiusMm + Math.min(430, R * 0.06 + 300);
-    for (let i = 0; i <= stepCount; i += 2) {
-      const ang = startAngle + (i * st.stepAngleDeg * Math.PI) / 180;
-      const y = tm.shellBaseY + i * st.riseMm + 1000;
-      railPts.push(new THREE.Vector3(Math.cos(ang) * railR, Math.min(y, st.topY), Math.sin(ang) * railR));
-    }
-    if (railPts.length > 1) {
-      const rail = new THREE.Line(new THREE.BufferGeometry().setFromPoints(railPts), new THREE.LineBasicMaterial({ color: 0x93a7bf }));
-      o.model.add(rail);
-    }
-
-    const landing = new THREE.Mesh(
-      new THREE.RingGeometry(R + 60, R + Math.max(900, st.radiusMm - R + 500), 64, 1, startAngle, Math.PI * 0.9),
-      steelMat(o, 0x6d7c90, 0.7)
-    );
-    landing.rotation.x = -Math.PI / 2;
-    landing.position.y = st.topY - 300;
-    part(landing, 'Top platform', 'Roof access landing');
-    o.model.add(landing);
-  }
-
+  // The spiral stair / roof landing used to be drawn here; access is now
+  // described by structure3d (treads, stringers, handrails, landings, roof
+  // walkway and perimeter rail) and drawn once by buildAccess().
   // product fill — a translucent surface at the design liquid level
   if (o.showLiquid && tm.liquidY !== null) {
     const fillH = Math.max(1, tm.liquidY - tm.shellBaseY);
@@ -882,6 +852,589 @@ function buildFinFan(g: THREE.Group, equip: Equipment, calc: EquipmentCalc, fm: 
 }
 
 // ---------------------------------------------------------------------------
+// Access & structural steelwork
+//
+// The descriptors come from the pure structure3d module (upright erection
+// frame: y = height above grade). Everything below is only drawing: ladders
+// with cages and guide rails, stair flights and spiral stairs, grating
+// platforms with top/mid rail and toe board, walkways, fan guards, bracing and
+// the skid/portal/pedestal the register can select. Keeping the rules in the
+// engine means the access you see is the access that was counted.
+// ---------------------------------------------------------------------------
+
+const DEG = Math.PI / 180;
+
+/** Quaternion for a flat (XY-plane) ring/torus, laid into plan and centred on an azimuth. */
+function planQuat(azimuthDeg: number, sweepDeg: number): THREE.Quaternion {
+  const q = new THREE.Quaternion().setFromAxisAngle(UP_Y, (azimuthDeg - 90 - sweepDeg / 2) * DEG);
+  q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2));
+  return q;
+}
+
+let gratingTex: THREE.CanvasTexture | null = null;
+function gratingTexture(): THREE.CanvasTexture {
+  if (gratingTex) return gratingTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  if (g) {
+    g.fillStyle = '#4d5c70';
+    g.fillRect(0, 0, 64, 64);
+    g.fillStyle = '#93a4b8';
+    for (let i = 0; i < 64; i += 8) g.fillRect(0, i, 64, 4); // bearing bars
+    for (let i = 0; i < 64; i += 32) g.fillRect(i, 0, 4, 64); // cross rods
+  }
+  gratingTex = new THREE.CanvasTexture(c);
+  gratingTex.wrapS = gratingTex.wrapT = THREE.RepeatWrapping;
+  gratingTex.colorSpace = THREE.SRGBColorSpace;
+  return gratingTex;
+}
+
+function deckMat(o: BuildOpts, repeatU: number, repeatV: number): THREE.Material {
+  if (o.mode === 'wireframe') return new THREE.MeshBasicMaterial({ color: 0x8fa2b8, wireframe: true, transparent: true, opacity: 0.35 });
+  const tex = gratingTexture().clone();
+  tex.needsUpdate = true;
+  tex.repeat.set(Math.max(1, repeatU), Math.max(1, repeatV));
+  return new THREE.MeshStandardMaterial({
+    map: tex,
+    color: o.mode === 'heatmap' ? 0xb9c6d6 : 0xffffff,
+    metalness: 0.45,
+    roughness: 0.75,
+    side: THREE.DoubleSide,
+    clippingPlanes: o.clip,
+  });
+}
+
+function railMat(o: BuildOpts): THREE.Material {
+  return steelMat(o, 0xbfccdb, 0.4);
+}
+
+/** Square-section member between two points (rails, bracing, stringers). */
+function barBetween(
+  o: BuildOpts,
+  a: THREE.Vector3,
+  b: THREE.Vector3,
+  sizeMm: number,
+  mat: THREE.Material,
+  label = '',
+  detail = ''
+) {
+  const d = b.clone().sub(a);
+  const len = d.length();
+  if (!(len > 1)) return;
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(sizeMm, len, sizeMm), mat);
+  mesh.quaternion.setFromUnitVectors(UP_Y, d.clone().normalize());
+  mesh.position.copy(a).addScaledVector(d, 0.5);
+  if (label) part(mesh, label, detail);
+  o.model.add(mesh);
+}
+
+function buildBar(o: BuildOpts, b: AccessBar) {
+  const a = new THREE.Vector3(b.a[0], b.a[1], b.a[2]);
+  const c = new THREE.Vector3(b.b[0], b.b[1], b.b[2]);
+  const d = c.clone().sub(a);
+  const len = d.length();
+  if (!(len > 1)) return;
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(b.diaMm, len, b.diaMm), steelMat(o, 0x6a7a92, 0.6));
+  mesh.quaternion.setFromUnitVectors(UP_Y, d.clone().normalize());
+  mesh.position.copy(a).addScaledVector(d, 0.5);
+  part(mesh, b.label, b.detail);
+  o.model.add(mesh);
+}
+
+/** Top rail + mid rail + toe board + posts along a circular arc. */
+function ringRail(
+  o: BuildOpts,
+  radius: number,
+  y: number,
+  azimuthDeg: number,
+  sweepDeg: number,
+  mat: THREE.Material,
+  withToe: boolean
+) {
+  const sw = Math.max(1, Math.min(360, Math.abs(sweepDeg)));
+  const seg = Math.max(16, Math.ceil(sw / 3));
+  const top = new THREE.Mesh(new THREE.TorusGeometry(radius, 17, 6, seg, sw * DEG), mat);
+  top.quaternion.copy(planQuat(azimuthDeg, sw));
+  top.position.y = y + ACCESS.railHeightMm;
+  o.model.add(top);
+  const mid = new THREE.Mesh(new THREE.TorusGeometry(radius, 14, 6, seg, sw * DEG), mat);
+  mid.quaternion.copy(planQuat(azimuthDeg, sw));
+  mid.position.y = y + ACCESS.midRailMm;
+  o.model.add(mid);
+
+  const posts = Math.max(2, Math.ceil((sw * DEG * radius) / ACCESS.postPitchMm));
+  for (let i = 0; i <= posts; i++) {
+    const a = (azimuthDeg - sw / 2 + (sw * i) / posts) * DEG;
+    const x = Math.sin(a) * radius;
+    const z = Math.cos(a) * radius;
+    barBetween(o, new THREE.Vector3(x, y, z), new THREE.Vector3(x, y + ACCESS.railHeightMm, z), 34, mat);
+  }
+  if (withToe) {
+    const toe = new THREE.Mesh(
+      new THREE.CylinderGeometry(radius, radius, ACCESS.toeBoardMm, Math.max(24, seg), 1, true, (azimuthDeg - sw / 2) * DEG, sw * DEG),
+      mat
+    );
+    toe.position.y = y + ACCESS.toeBoardMm / 2;
+    o.model.add(toe);
+  }
+}
+
+/** Handrail, mid rail, toe board and posts along the given rectangular edges. */
+function rectRails(
+  o: BuildOpts,
+  cx: number,
+  cz: number,
+  hx: number,
+  hz: number,
+  y: number,
+  sides: string[],
+  mat: THREE.Material
+) {
+  const edges: Record<string, [THREE.Vector3, THREE.Vector3]> = {
+    north: [new THREE.Vector3(cx - hx, y, cz + hz), new THREE.Vector3(cx + hx, y, cz + hz)],
+    south: [new THREE.Vector3(cx - hx, y, cz - hz), new THREE.Vector3(cx + hx, y, cz - hz)],
+    east: [new THREE.Vector3(cx + hx, y, cz - hz), new THREE.Vector3(cx + hx, y, cz + hz)],
+    west: [new THREE.Vector3(cx - hx, y, cz - hz), new THREE.Vector3(cx - hx, y, cz + hz)],
+  };
+  for (const side of sides) {
+    const edge = edges[side];
+    if (!edge) continue;
+    const [a, b] = edge;
+    barBetween(o, a.clone().setY(y + ACCESS.railHeightMm), b.clone().setY(y + ACCESS.railHeightMm), 34, mat);
+    barBetween(o, a.clone().setY(y + ACCESS.midRailMm), b.clone().setY(y + ACCESS.midRailMm), 28, mat);
+    const len = a.distanceTo(b);
+    const dir = b.clone().sub(a).normalize();
+    const toe = new THREE.Mesh(new THREE.BoxGeometry(len, ACCESS.toeBoardMm, 10), mat);
+    toe.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), dir);
+    toe.position.set((a.x + b.x) / 2, y + ACCESS.toeBoardMm / 2, (a.z + b.z) / 2);
+    o.model.add(toe);
+    const posts = Math.max(1, Math.ceil(len / ACCESS.postPitchMm));
+    for (let i = 0; i <= posts; i++) {
+      const p = a.clone().lerp(b, i / posts);
+      barBetween(o, p.clone(), p.clone().setY(y + ACCESS.railHeightMm), 34, mat);
+    }
+  }
+}
+
+function buildPlatform(o: BuildOpts, p: AccessPlatform) {
+  const rail = railMat(o);
+  if (p.kind === 'ring') {
+    const sw = Math.max(1, Math.min(360, Math.abs(p.sweepDeg)));
+    const geo = new THREE.RingGeometry(p.r0, p.r1, Math.max(24, Math.ceil(sw / 3)), 1, 0, sw * DEG);
+    const deck = new THREE.Mesh(geo, deckMat(o, (sw * DEG * p.r1) / 160, (p.r1 - p.r0) / 160));
+    deck.quaternion.copy(planQuat(p.azimuthDeg, sw));
+    deck.position.y = p.y;
+    part(deck, p.label, p.detail);
+    o.model.add(deck);
+    if (p.rails.includes('outer')) ringRail(o, p.r1, p.y, p.azimuthDeg, sw, rail, true);
+    if (p.rails.includes('inner')) ringRail(o, p.r0, p.y, p.azimuthDeg, sw, rail, false);
+  } else {
+    const deck = new THREE.Mesh(
+      new THREE.BoxGeometry(p.hx * 2, 40, p.hz * 2),
+      deckMat(o, (p.hx * 2) / 160, (p.hz * 2) / 160)
+    );
+    deck.position.set(p.cx, p.y, p.cz);
+    part(deck, p.label, p.detail);
+    o.model.add(deck);
+    rectRails(o, p.cx, p.cz, p.hx, p.hz, p.y + 20, p.rails, rail);
+  }
+}
+
+function buildWalkway(o: BuildOpts, w: AccessWalkway) {
+  const a = new THREE.Vector3(w.x0, w.y0, w.z0);
+  const b = new THREE.Vector3(w.x1, w.y1, w.z1);
+  const d = b.clone().sub(a);
+  const len = d.length();
+  if (!(len > 1)) return;
+  d.normalize();
+  const right = new THREE.Vector3().crossVectors(UP_Y, d).normalize();
+  if (right.lengthSq() < 0.5) right.set(1, 0, 0);
+  const normal = new THREE.Vector3().crossVectors(right, d).normalize();
+  const mid = a.clone().add(b).multiplyScalar(0.5);
+  const width = Math.max(1, w.widthMm);
+
+  if (w.widthMm > 0) {
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(width, len, 36), deckMat(o, width / 160, len / 160));
+    deck.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(right, d, normal));
+    deck.position.copy(mid);
+    part(deck, w.label, w.detail);
+    o.model.add(deck);
+  }
+
+  if (w.rails) {
+    const rail = railMat(o);
+    for (const sgn of [-1, 1]) {
+      const off = right.clone().multiplyScalar(sgn * Math.max(0, width / 2 - 40));
+      const p0 = a.clone().add(off);
+      const p1 = b.clone().add(off);
+      barBetween(o, p0.clone().setY(p0.y + ACCESS.railHeightMm), p1.clone().setY(p1.y + ACCESS.railHeightMm), 34, rail);
+      barBetween(o, p0.clone().setY(p0.y + ACCESS.midRailMm), p1.clone().setY(p1.y + ACCESS.midRailMm), 28, rail);
+      const posts = Math.max(1, Math.ceil(len / ACCESS.postPitchMm));
+      for (let i = 0; i <= posts; i++) {
+        const p = p0.clone().lerp(p1, i / posts);
+        barBetween(o, p.clone(), p.clone().setY(p.y + ACCESS.railHeightMm), 34, rail);
+      }
+    }
+  }
+}
+
+function buildGuard(o: BuildOpts, g: AccessGuard) {
+  const rail = railMat(o);
+  if (g.heightMm <= 200) {
+    // intake screen: a hoop with a mesh disc
+    const hoop = new THREE.Mesh(new THREE.TorusGeometry(g.radiusMm, 30, 8, 48), steelMat(o, 0x7c8b9f, 0.6));
+    hoop.quaternion.copy(planQuat(g.azimuthDeg, 360));
+    hoop.position.y = g.y;
+    part(hoop, g.label, g.detail);
+    o.model.add(hoop);
+    const screen = new THREE.Mesh(
+      new THREE.CircleGeometry(g.radiusMm, 40),
+      new THREE.MeshStandardMaterial({ color: 0x5d6d81, metalness: 0.5, roughness: 0.6, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
+    );
+    screen.rotation.x = -Math.PI / 2;
+    screen.position.y = g.y;
+    o.model.add(screen);
+    return;
+  }
+  ringRail(o, g.radiusMm, g.y - ACCESS.railHeightMm, g.azimuthDeg, g.sweepDeg, rail, true);
+}
+
+// ---------------------------------------------------------------------------
+// Ladders and stairs
+// ---------------------------------------------------------------------------
+
+function buildLadder(o: BuildOpts, l: AccessLadder) {
+  const mat = steelMat(o, 0xa9b8ca, 0.55);
+  const f = l.facingDeg * DEG;
+  const right = new THREE.Vector3(Math.cos(f), 0, -Math.sin(f));
+  const fwd = new THREE.Vector3(Math.sin(f), 0, Math.cos(f));
+  const h = l.y1 - l.y0;
+  if (!(h > 0)) return;
+
+  for (const sgn of [-1, 1]) {
+    const p = new THREE.Vector3(l.x, 0, l.z).addScaledVector(right, (sgn * l.widthMm) / 2);
+    const stile = new THREE.Mesh(new THREE.BoxGeometry(16, h, 70), mat);
+    stile.position.set(p.x, l.y0 + h / 2, p.z);
+    stile.rotation.y = f;
+    part(stile, l.label, l.detail);
+    o.model.add(stile);
+  }
+
+  const n = Math.max(1, Math.floor(h / Math.max(150, l.rungPitchMm)));
+  const rungs = new THREE.InstancedMesh(new THREE.BoxGeometry(l.widthMm, 22, 22), mat, n);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion().setFromAxisAngle(UP_Y, f);
+  for (let i = 0; i < n; i++) {
+    m.compose(new THREE.Vector3(l.x, l.y0 + l.rungPitchMm * (i + 0.5), l.z), q, new THREE.Vector3(1, 1, 1));
+    rungs.setMatrixAt(i, m);
+  }
+  rungs.instanceMatrix.needsUpdate = true;
+  o.model.add(rungs);
+
+  // safety cage: hoops every 900 mm plus straps down the back
+  if (l.cageFromY > 0 && l.y1 > l.cageFromY) {
+    const cageR = l.widthMm / 2 + 360;
+    for (let y = l.cageFromY; y < l.y1 - 150; y += 900) {
+      const hoop = new THREE.Mesh(new THREE.TorusGeometry(cageR, 9, 6, 28, 200 * DEG), mat);
+      hoop.quaternion.copy(planQuat(l.facingDeg, 200));
+      hoop.position.set(l.x, y, l.z);
+      o.model.add(hoop);
+    }
+    for (const off of [-70, 0, 70]) {
+      const a = (l.facingDeg + off) * DEG;
+      const px = l.x + Math.sin(a) * cageR;
+      const pz = l.z + Math.cos(a) * cageR;
+      barBetween(o, new THREE.Vector3(px, l.cageFromY, pz), new THREE.Vector3(px, l.y1, pz), 12, mat);
+    }
+  }
+
+  // standoff guide rails with brackets — a long unbraced ladder needs them
+  if (l.guideRails) {
+    for (const sgn of [-1, 1]) {
+      const base = new THREE.Vector3(l.x, 0, l.z)
+        .addScaledVector(right, sgn * (l.widthMm / 2 + 60))
+        .addScaledVector(fwd, 300);
+      barBetween(o, new THREE.Vector3(base.x, l.y0 + 900, base.z), new THREE.Vector3(base.x, l.y1, base.z), 70, mat);
+      const stileX = l.x + right.x * sgn * (l.widthMm / 2);
+      const stileZ = l.z + right.z * sgn * (l.widthMm / 2);
+      for (let y = l.y0 + 1200; y < l.y1; y += 1500) {
+        barBetween(o, new THREE.Vector3(base.x, y, base.z), new THREE.Vector3(stileX, y, stileZ), 60, mat);
+      }
+    }
+  }
+
+  if (o.showLabels) {
+    addLabel(o, `Ladder · ${Math.round(l.y1 - 1100)} mm`, new THREE.Vector3(l.x, l.y1 + 200, l.z), 'plain');
+  }
+}
+
+/** Switchback stair: alternating flights with a landing at every turn. */
+function buildStraightStair(o: BuildOpts, s: AccessStair) {
+  const mat = steelMat(o, 0x8b9bb0, 0.55);
+  const rail = railMat(o);
+  const flights = Math.max(1, s.flights);
+  const perFlight = (s.y1 - s.y0) / flights;
+  const nSteps = Math.max(2, Math.round(perFlight / 175));
+  const rise = perFlight / nSteps;
+  const going = 250;
+  const width = Math.max(700, s.widthMm);
+
+  let px = s.x;
+  let pz = s.z;
+  let py = s.y0;
+  let heading = s.headingDeg * DEG;
+
+  for (let k = 0; k < flights; k++) {
+    const dir = new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading));
+    const right = new THREE.Vector3(Math.cos(heading), 0, -Math.sin(heading));
+
+    const treads = new THREE.InstancedMesh(new THREE.BoxGeometry(width, 36, going - 20), mat, nSteps);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion().setFromAxisAngle(UP_Y, heading);
+    for (let i = 0; i < nSteps; i++) {
+      m.compose(
+        new THREE.Vector3(px + dir.x * going * (i + 0.5), py + rise * (i + 1), pz + dir.z * going * (i + 0.5)),
+        q,
+        new THREE.Vector3(1, 1, 1)
+      );
+      treads.setMatrixAt(i, m);
+    }
+    treads.instanceMatrix.needsUpdate = true;
+    part(treads, s.label, s.detail);
+    o.model.add(treads);
+
+    const endX = px + dir.x * going * nSteps;
+    const endZ = pz + dir.z * going * nSteps;
+    for (const sgn of [-1, 1]) {
+      const off = right.clone().multiplyScalar(sgn * (width / 2 - 60));
+      const a0 = new THREE.Vector3(px + off.x, py, pz + off.z);
+      const b0 = new THREE.Vector3(endX + off.x, py + perFlight, endZ + off.z);
+      barBetween(o, a0, b0, 70, mat);
+      barBetween(o, a0.clone().setY(a0.y + ACCESS.railHeightMm), b0.clone().setY(b0.y + ACCESS.railHeightMm), 34, rail);
+      barBetween(o, a0.clone().setY(a0.y + ACCESS.midRailMm), b0.clone().setY(b0.y + ACCESS.midRailMm), 28, rail);
+    }
+
+    // landing where this flight ends (drawn here, weighed in the engine)
+    buildPlatform(o, {
+      label: `Stair landing ${k + 1}`,
+      detail: `Landing at ${Math.round(py + perFlight)} mm between flights`,
+      kind: 'rect',
+      y: py + perFlight,
+      r0: 0,
+      r1: 0,
+      azimuthDeg: 0,
+      sweepDeg: 0,
+      cx: endX + dir.x * 300,
+      cz: endZ + dir.z * 300,
+      hx: 650,
+      hz: 650,
+      railHeightMm: ACCESS.railHeightMm,
+      rails: ['north', 'south', 'east', 'west'],
+      kg: 0,
+    });
+
+    px = endX;
+    pz = endZ;
+    py += perFlight;
+    // switch back, stepping sideways so the next flight clears the one below
+    heading += Math.PI;
+    px += right.x * (width + 300);
+    pz += right.z * (width + 300);
+  }
+}
+
+/** Spiral stair: instanced treads, helical stringers/handrails and posts. */
+function buildSpiralStair(o: BuildOpts, s: AccessStair) {
+  const n = Math.max(1, s.steps);
+  const mat = steelMat(o, 0x7f8fa4, 0.7);
+  const rail = railMat(o);
+  const treads = new THREE.InstancedMesh(new THREE.BoxGeometry(s.widthMm, 36, 240), mat, n);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  for (let i = 0; i < n; i++) {
+    const a = (s.startDeg + i * s.stepAngleDeg) * DEG;
+    q.setFromAxisAngle(UP_Y, a - Math.PI / 2);
+    m.compose(
+      new THREE.Vector3(Math.sin(a) * s.radiusMm, s.y0 + i * s.riseMm, Math.cos(a) * s.radiusMm),
+      q,
+      new THREE.Vector3(1, 1, 1)
+    );
+    treads.setMatrixAt(i, m);
+  }
+  treads.instanceMatrix.needsUpdate = true;
+  part(treads, s.label, s.detail);
+  o.model.add(treads);
+
+  const rIn = Math.max(200, s.radiusMm - s.widthMm / 2);
+  const rOut = s.radiusMm + s.widthMm / 2;
+  for (const r of [rIn, rOut]) {
+    const treadPts: THREE.Vector3[] = [];
+    const railPts: THREE.Vector3[] = [];
+    for (let i = 0; i <= n; i += 2) {
+      const a = (s.startDeg + i * s.stepAngleDeg) * DEG;
+      const y = s.y0 + i * s.riseMm;
+      treadPts.push(new THREE.Vector3(Math.sin(a) * r, y - 60, Math.cos(a) * r));
+      railPts.push(new THREE.Vector3(Math.sin(a) * r, y + ACCESS.railHeightMm, Math.cos(a) * r));
+    }
+    if (treadPts.length > 1) {
+      const stringer = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(treadPts), Math.max(12, treadPts.length * 2), 26, 5, false), mat);
+      o.model.add(stringer);
+      const topRail = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(railPts), Math.max(12, railPts.length * 2), 17, 5, false), rail);
+      o.model.add(topRail);
+    }
+  }
+  // posts every third tread
+  for (let i = 0; i < n; i += 3) {
+    const a = (s.startDeg + i * s.stepAngleDeg) * DEG;
+    const y = s.y0 + i * s.riseMm;
+    for (const r of [rIn, rOut]) {
+      barBetween(
+        o,
+        new THREE.Vector3(Math.sin(a) * r, y, Math.cos(a) * r),
+        new THREE.Vector3(Math.sin(a) * r, y + ACCESS.railHeightMm, Math.cos(a) * r),
+        34,
+        rail
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Frames
+// ---------------------------------------------------------------------------
+
+function buildFrame(o: BuildOpts, f: AccessFrame) {
+  const mat = steelMat(o, 0x4e5d74, 0.72);
+  const { hx, hz, heightMm: h } = f;
+  if (f.kind === 'skid') {
+    for (const sgn of [-1, 1]) {
+      const runner = new THREE.Mesh(new THREE.BoxGeometry(260, 280, hz * 2), mat);
+      runner.position.set(sgn * hx, 140, 0);
+      part(runner, f.label, f.detail);
+      o.model.add(runner);
+    }
+    for (let i = -1; i <= 1; i++) {
+      const cross = new THREE.Mesh(new THREE.BoxGeometry(hx * 2, 200, 200), mat);
+      cross.position.set(0, 120, i * hz * 0.8);
+      o.model.add(cross);
+    }
+  } else if (f.kind === 'portal') {
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const col = new THREE.Mesh(new THREE.BoxGeometry(220, h, 220), mat);
+        col.position.set(sx * hx, h / 2, sz * hz);
+        part(col, f.label, f.detail);
+        o.model.add(col);
+        const base = new THREE.Mesh(new THREE.BoxGeometry(520, 40, 520), steelMat(o, 0x46526b, 0.8));
+        base.position.set(sx * hx, 20, sz * hz);
+        o.model.add(base);
+      }
+    }
+    for (const sz of [-1, 1]) {
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(hx * 2 + 260, 260, 200), mat);
+      beam.position.set(0, h - 130, sz * hz);
+      o.model.add(beam);
+    }
+    for (const sx of [-1, 1]) {
+      barBetween(
+        o,
+        new THREE.Vector3(sx * (hx - 900), h - 1600, hz),
+        new THREE.Vector3(sx * hx, h - 900, hz),
+        90,
+        mat
+      );
+    }
+  } else if (f.kind === 'pedestal') {
+    const ped = new THREE.Mesh(new THREE.BoxGeometry(hx * 2, h, hz * 2), steelMat(o, 0x59687f, 0.85));
+    ped.position.y = h / 2;
+    part(ped, f.label, f.detail);
+    o.model.add(ped);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(hx * 2 + 200, 60, hz * 2 + 200), steelMat(o, 0x4a576b, 0.8));
+    cap.position.y = h + 30;
+    o.model.add(cap);
+  } else {
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const col = new THREE.Mesh(new THREE.BoxGeometry(200, h, 200), mat);
+        col.position.set(sx * (hx - 200), h / 2, sz * (hz - 200));
+        part(col, f.label, f.detail);
+        o.model.add(col);
+      }
+    }
+    buildPlatform(o, {
+      label: f.label,
+      detail: f.detail,
+      kind: 'rect',
+      y: h,
+      r0: 0,
+      r1: 0,
+      azimuthDeg: 0,
+      sweepDeg: 0,
+      cx: 0,
+      cz: 0,
+      hx,
+      hz,
+      railHeightMm: ACCESS.railHeightMm,
+      rails: ['north', 'south', 'east', 'west'],
+      kg: 0,
+    });
+  }
+}
+
+/**
+ * Draw all access/structure steelwork for the tag. The descriptors are in the
+ * upright erection frame (y = height above grade); this only has to place that
+ * frame on the particular model family.
+ */
+function buildAccess(equip: Equipment, calc: EquipmentCalc, o: BuildOpts) {
+  const am = accessModel(equip, calc);
+  const hasAny =
+    am.ladders.length || am.stairs.length || am.platforms.length || am.walkways.length || am.guards.length || am.bars.length || am.frame;
+  if (!hasAny) return;
+
+  const acc = new THREE.Group();
+  if (equip.equipType === 'tank' || equip.equipType === 'finfan') {
+    // these models already put grade at y = 0
+  } else if (equip.orientation === 'horizontal') {
+    // lay the erection frame on its side: descriptor z becomes the vessel axis
+    const layout = buildBodyLayout(sectionsFor(equip, calc));
+    const R = Math.max(...layout.segments.map((sg) => Math.max(sg.r0, sg.r1)), 100);
+    acc.position.set(0, 0, R * 1.01 + 40);
+    acc.rotation.x = -Math.PI / 2;
+  } else {
+    const layout = buildBodyLayout(sectionsFor(equip, calc));
+    acc.position.y = layout.bottomDepth - supportHeightMm(equip);
+  }
+
+  // draw into the access group, then hand it back to the model
+  const target = o.model;
+  o.model = acc;
+  for (const l of am.ladders) buildLadder(o, l);
+  for (const st of am.stairs) {
+    if (st.kind === 'spiral') buildSpiralStair(o, st);
+    else buildStraightStair(o, st);
+  }
+  for (const p of am.platforms) buildPlatform(o, p);
+  for (const w of am.walkways) buildWalkway(o, w);
+  for (const g of am.guards) buildGuard(o, g);
+  for (const b of am.bars) buildBar(o, b);
+  if (am.frame) buildFrame(o, am.frame);
+  o.model = target;
+  target.add(acc);
+
+  if (o.showLabels && am.platforms.length) {
+    const top = [...am.platforms].sort((a, b) => b.y - a.y)[0];
+    const at =
+      top.kind === 'ring'
+        ? new THREE.Vector3(Math.sin(top.azimuthDeg * DEG) * top.r1, top.y + 1500, Math.cos(top.azimuthDeg * DEG) * top.r1)
+        : new THREE.Vector3(top.cx + top.hx, top.y + 1500, top.cz + top.hz);
+    addLabel(o, `Access · ${am.platforms.length} platform${am.platforms.length === 1 ? '' : 's'}`, at, 'accent');
+  }
+}
+
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -896,6 +1449,7 @@ export default function Viewer3D() {
   const [cutaway, setCutaway] = useState(false);
   const [showInternals, setShowInternals] = useState(true);
   const [showLiquid, setShowLiquid] = useState(true);
+  const [showAccess, setShowAccess] = useState(true);
   const [hover, setHover] = useState<{ x: number; y: number; text: string } | null>(null);
   const [view, setView] = useState<ViewPreset>('iso');
 
@@ -918,6 +1472,7 @@ export default function Viewer3D() {
   );
   const calc = useMemo(() => (equip ? computeEquipment(equip) : null), [equip]);
   const summary = useMemo(() => (equip && calc ? viewerSummary(equip, calc) : null), [equip, calc]);
+  const access = useMemo(() => (equip && calc ? accessModel(equip, calc) : null), [equip, calc]);
 
   // ---------- three.js lifecycle ----------
   useEffect(() => {
@@ -1074,6 +1629,9 @@ export default function Viewer3D() {
     else if (equip.equipType === 'finfan' && fm) buildFinFan(g, equip, calc, fm, o);
     else buildVessel(g, equip, calc, o);
 
+    // ladders, stairs, platforms, rails and any selected structure frame
+    if (showAccess) buildAccess(equip, calc, o);
+
     // userData.partLabel is only used for picking — no state involved
     ctx.scene.add(g);
 
@@ -1151,7 +1709,7 @@ export default function Viewer3D() {
       dom.removeEventListener('pointermove', onMove);
       dom.removeEventListener('pointerleave', onLeave);
     };
-  }, [equip, calc, mode, showNozzles, showLabels, showDims, cutaway, showInternals, showLiquid]);
+  }, [equip, calc, mode, showNozzles, showLabels, showDims, cutaway, showInternals, showLiquid, showAccess]);
 
   // camera presets drive the existing camera; they must not rebuild the model
   useEffect(() => {
@@ -1229,6 +1787,7 @@ export default function Viewer3D() {
         <label className="small muted"><input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} /> Tags</label>
         <label className="small muted"><input type="checkbox" checked={showDims} onChange={(e) => setShowDims(e.target.checked)} /> Dimensions</label>
         <label className="small muted"><input type="checkbox" checked={showInternals} onChange={(e) => setShowInternals(e.target.checked)} /> Internals</label>
+        <label className="small muted"><input type="checkbox" checked={showAccess} onChange={(e) => setShowAccess(e.target.checked)} /> Access &amp; steelwork</label>
         <label className="small muted"><input type="checkbox" checked={cutaway} onChange={(e) => setCutaway(e.target.checked)} /> Cutaway</label>
         {(equip.equipType === 'tank' || equip.equipType === 'vessel' || equip.equipType === 'column') && (
           <label className="small muted"><input type="checkbox" checked={showLiquid} onChange={(e) => setShowLiquid(e.target.checked)} /> Liquid</label>
@@ -1244,6 +1803,9 @@ export default function Viewer3D() {
               {equip.equipType === 'finfan' ? `Thermal margin ${calc.finfan?.thermalMarginPct.toFixed(0) ?? 0}%` : `Membrane util ${(calc.membraneUtil * 100).toFixed(0)}%`}
             </span>
             {cutaway && <span className="badge warn">Cutaway — half the shell is clipped</span>}
+            {showAccess && access && access.weightKg > 0 && (
+              <span className="badge info">{Math.round(access.weightKg)} kg access steel</span>
+            )}
           </div>
           <div className="legend">
             <strong>Utilization</strong>
@@ -1273,6 +1835,24 @@ export default function Viewer3D() {
               </div>
             ))}
           </div>
+          {showAccess && access && access.rows.length > 0 && (
+            <>
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline', marginTop: 12 }}>
+                <h4 style={{ margin: 0 }}>Access &amp; steelwork</h4>
+                <span className="badge info">{Math.round(access.weightKg)} kg</span>
+              </div>
+              <div className="viewer-parts">
+                {access.rows.map((r, i) => (
+                  <div className="vp-row" key={`acc-${r.label}-${i}`}>
+                    <div className="vp-label">{r.label}</div>
+                    <div className={`vp-value ${r.tone ?? ''}`}>{r.value}</div>
+                    {r.note && <div className="vp-note">{r.note}</div>}
+                  </div>
+                ))}
+              </div>
+              <p className="small muted" style={{ marginTop: 0 }}>{access.basis}</p>
+            </>
+          )}
           <p className="small muted" style={{ marginBottom: 0 }}>
             Model is built from the design results — course heights, plate thicknesses, roof slope and fan size all come
             from the engine, so what you see is what was calculated. OBJ export and the drawing views under

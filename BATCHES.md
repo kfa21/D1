@@ -102,6 +102,52 @@ This file is the single source of truth for incremental work on this project.
 - [x] **G8** API settings in the cloud — `259ae06` — Settings → Cloud gains **Save/Load API settings**: one Firestore document per uid (`staticsuite_prefs`) holding the Gemini key + Firebase config, so a new device is set up by pasting the (public) config → Connect → Load. Kept separate from project saves and JSON exports, which stay key-free. `CLOUD_RULES` gains a prefs block scoped by `request.auth.uid == docId` (the doc id IS the uid) — users who pasted the old rules must re-paste; `buildApiSettingsDoc`/`readApiSettingsDoc` are pure and tested (4 new tests in `cloud.test.ts`).
 - [x] **G9** 3D visualization rebuilt — the viewer drew every tag from `calc.sections` (the ASME pressure boundary), so an API 650 tank came out as a bare cylinder with no roof or floor and an API 661 cooler as a 1.2 m shell. New pure module `src/engine/model3d.ts` describes the real parts and is unit-tested (14 tests): tank floor + annular ring, every shell course at its calculated thickness stacked from the bottom plate, cone roof at the entered 1:N slope or a shallow dome, floating deck, wind girders, spiral stair, design liquid level; air-cooler bays with finned rows, headers, plenum, legs and the engine-sized fan. `Viewer3D` now has per-family builders, a cutaway clipping plane, tray/packing and exchanger-bundle internals, part tags, engineering dimensions, iso/front/side/top presets, hover part identification, animated fans, PNG snapshot, and a live part list quoting the calculated numbers. Cutaway, internals, liquid, tag and dimension toggles.
 
+- [x] **G10** Access & structural steelwork in 3D — one pure descriptor module describes the site furniture of every family in an upright erection frame (`y` = height above grade) and the viewer draws it once: ladders, safety cages, standoff guide rails, stair flights/towers, spiral stairs, grating platforms with top rail + mid rail + toe board, walkways, roof handrails, fan guards, leg bracing and the register's skid/portal/pedestal/platform frame, with an indicative steel mass and a Show toggle. 13 tests in `structure3d.test.ts`.
+
+## Phase H — Access & structural steelwork (per equipment type)
+
+Access is now **data, not drawing code**: `src/engine/structure3d.ts` turns the engine results into ladders / stairs / platforms / walkways / guards / bracing plus the optional structure frame, and `Viewer3D` only renders those descriptors. Rules follow OSHA 1910.23/1910.28 (460 mm ladder, 300 mm rungs, cage from 2.2 m, 1070 mm top rail, 550 mm mid rail, 100 mm toe board), API 650 §5.10 and API 661 §7. Quantities are stated in the viewer (badge + panel) but are **indicative section masses**, not a priced substitute.
+
+### H1 Vertical vessels & columns
+- [x] Caged ladder from grade to the highest platform, cage from 2.2 m with 900 mm hoops and three straps
+- [x] Standoff **guide rails** + brackets every 1.5 m once the ladder passes 6 m
+- [x] **Stair tower** (switchback flights, 175 mm rise / 250 mm going, landing at every turn) once the climb exceeds 12 m (OSHA 9.1 m between rests)
+- [x] Ring platform at **every manway elevation** (deck clear of the shell at that elevation, swept 130° on the manway azimuth) — replaces the single hard-coded landing
+- [x] Platform per 6 m of tray stack on columns, plus a top-of-shell landing on shells over 8 m
+- [x] Diagonal **leg bracing** between adjacent legs
+- [x] Skid / portal / pedestal / free-standing platform frame when the register selects a structure (drawn from the same recommendation that is costed)
+- [ ] Ladder safety gates at platform entries
+- [ ] Platform support brackets drawn from the support calc (currently implied by the deck)
+
+### H2 Horizontal vessels & exchangers
+- [x] Crown **walkway** over the manways running the full shell, handrailed both sides (900 mm clear)
+- [x] End **caged ladder** with a top landing onto the walkway
+- [x] Manway approach step in front of the highest manway
+- [ ] Stair from grade to the crown walkway at the saddle end
+- [ ] Channel/head bolting platform at the exchanger end
+
+### H3 Storage tanks (API 650 §5.10)
+- [x] **Spiral stair** for shells ≥ 4 m: instanced treads, helical inner/outer stringers, handrails both sides, posts every third tread, top landing at the rim
+- [x] **Caged ladder** with guide rails for shorter shells, **rolling ladder** to a floating deck on open-top tanks (no cage — it tracks instead)
+- [x] **Roof perimeter handrail** with mid rail and toe board, **roof walkway** to the centre following the 1:N slope, and a railed centre deck for the gauge hatch/vent
+- [ ] Stair-to-rim transition platform where the top wind girder interferes
+- [ ] Gauge hatch / roof nozzle detail
+
+### H4 Air coolers (API 661 §7)
+- [x] **Header platform** at each end of the tubes (900 mm wide, railed on all sides) at the bundle's lower edge
+- [x] **Four caged ladders**, one per platform corner, with guide rails on tall units
+- [x] **Inter-bay walkway** across the fan deck (multi-bay units)
+- [x] **Fan guard rail** rings on induced-draft units and **inlet screens** on forced-draft units, plus fan-deck handrail
+- [ ] Bundle removal rails / monorail beam over the fan deck
+- [ ] Motor access step for forced-draft fans mounted low
+
+### H5 Cross-cutting
+- [x] Access steel mass shown in the viewer panel and as an overlay badge, per part (ladder / stair / platform / walkway / guard / bracing)
+- [x] One descriptor source for all five families, unit-tested (finite geometry, positive mass, stair-vs-ladder thresholds, tank/cooler/vessel placements)
+- [x] **Show Access & steelwork** toggle, hover identification and part labels on the access hardware
+- [x] Honest basis line in the panel (which code/practice drove the arrangement)
+- [ ] Feed the access mass into the BOM/Structure line rather than quoting it separately
+
 **Suggested order:** E1 → E2 → F1 → F2 → E3 → E4 → E5 → F3 → E6 → E7; F4 only on request. E1/E2 and F1/F3 change calculated results — land their golden tests before UI polish.
 
 ---
