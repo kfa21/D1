@@ -4,6 +4,8 @@ import { useMemo, useState } from 'react';
 import { useStore, setSettings, setState, money, defaultSettings, exportProjectJson, importProjectData } from '../store';
 import {
   CLOUD_RULES,
+  cloudLoadApiSettings,
+  cloudSaveApiSettings,
   connectCloud,
   isConfigured,
   parseFirebaseConfig,
@@ -55,6 +57,37 @@ export default function SettingsPage() {
     cloudRun(async () => {
       const uid = await connectCloud(cfg);
       setCloudMsg({ kind: 'ok', text: `Connected (user ${uid.slice(0, 8)}…). Saving, listing and loading happens on the My Projects page.` });
+    });
+
+  // API settings (Gemini key + Firebase config) live in one cloud document per
+  // user — deliberately separate from project saves, which stay key-free.
+  const saveApi = () =>
+    cloudRun(async () => {
+      await connectCloud(cfg);
+      await cloudSaveApiSettings({ geminiKey: s.geminiKey, firebaseConfig: cfg });
+      setCloudMsg({ kind: 'ok', text: 'API settings saved to the cloud — load them on any device after connecting.' });
+    });
+
+  const loadApi = () =>
+    cloudRun(async () => {
+      await connectCloud(cfg);
+      const api = await cloudLoadApiSettings();
+      if (!api || (!api.geminiKey && !api.firebaseConfig)) {
+        setCloudMsg({
+          kind: 'err',
+          text: 'No API settings are saved in the cloud yet — press “Save API settings” on a device that has them.',
+        });
+        return;
+      }
+      setSettings({
+        ...(api.geminiKey ? { geminiKey: api.geminiKey } : {}),
+        ...(api.firebaseConfig ? { firebaseConfig: api.firebaseConfig } : {}),
+      });
+      const what = [
+        api.geminiKey ? 'Gemini key' : '',
+        api.firebaseConfig ? 'Firebase config' : '',
+      ].filter(Boolean).join(' and ');
+      setCloudMsg({ kind: 'ok', text: `Loaded the ${what} from the cloud — it is now stored in this browser.` });
     });
 
   const setPlate = (i: number, patch: Partial<PlateSize>) => {
@@ -284,6 +317,22 @@ export default function SettingsPage() {
         </div>
         {cloudMsg && <div className={`finding ${cloudMsg.kind === 'ok' ? 'ok' : 'error'}`}>{cloudMsg.text}</div>}
 
+        <hr className="sep" />
+        <h3>API settings in the cloud</h3>
+        <p className="small muted" style={{ marginTop: 0 }}>
+          Stores your Gemini API key and this Firebase config in one document under your account, so a new device
+          can be set up with one press. They are <strong>never</strong> written into a project save or a JSON export
+          — those stay key-free.
+        </p>
+        <div className="row">
+          <button disabled={cloudBusy || !hasCfg} onClick={saveApi}>☁ Save API settings</button>
+          <button disabled={cloudBusy || !hasCfg} onClick={loadApi}>☁ Load API settings</button>
+        </div>
+        <p className="small muted" style={{ marginTop: 6 }}>
+          New device: paste the Firebase config (it is public) → <strong>Connect</strong> → <strong>Load API
+          settings</strong>, and the Gemini key comes with it.
+        </p>
+
         <details style={{ marginTop: 8 }}>
           <summary className="small muted">Setup: two one-time steps in the Firebase console</summary>
           <ol className="small muted" style={{ paddingLeft: 18, marginTop: 6 }}>
@@ -292,6 +341,9 @@ export default function SettingsPage() {
               <pre className="code" style={{ marginTop: 6 }}>{CLOUD_RULES}</pre>
             </li>
           </ol>
+          <p className="small muted">
+            Already pasted these rules earlier? Re-paste them — they now also cover the API-settings document.
+          </p>
           <p className="small muted">
             The config above is public (it ships in every Firebase web bundle); the rules are what keep the data private.
             Free tier: 1 GiB storage, 50k reads / 20k writes a day — far above what saves this project needs.

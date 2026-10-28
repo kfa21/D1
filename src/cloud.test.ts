@@ -6,10 +6,13 @@ import { describe, expect, it } from 'vitest';
 import {
   CLOUD_RULES,
   MAX_PAYLOAD_BYTES,
+  buildApiSettingsDoc,
+  cloudLoadApiSettings,
   cloudSave,
   describeCloudError,
   isConfigured,
   parseFirebaseConfig,
+  readApiSettingsDoc,
 } from './cloud';
 
 describe('parseFirebaseConfig', () => {
@@ -82,10 +85,61 @@ describe('CLOUD_RULES', () => {
     expect(CLOUD_RULES).toContain('request.resource.data.userId == request.auth.uid');
     expect(CLOUD_RULES).not.toMatch(/allow (read|write|delete): if true/);
   });
+
+  it('covers the API-settings document, keyed by the uid itself', () => {
+    expect(CLOUD_RULES).toContain('staticsuite_prefs/{docId}');
+    expect(CLOUD_RULES).toContain('request.auth.uid == docId');
+    // every operation on prefs must stay inside the auth check
+    const block = CLOUD_RULES.slice(CLOUD_RULES.indexOf('staticsuite_prefs'));
+    expect(block).not.toMatch(/if true/);
+  });
+});
+
+describe('API settings document', () => {
+  it('writes only the values that are set, stamped with the owning uid', () => {
+    const doc = buildApiSettingsDoc(
+      { geminiKey: 'AIzaKey', firebaseConfig: { apiKey: 'k', authDomain: 'd.firebaseapp.com', projectId: 'p' } },
+      'user-1'
+    );
+    expect(doc).toMatchObject({
+      userId: 'user-1',
+      geminiKey: 'AIzaKey',
+      apiKey: 'k',
+      authDomain: 'd.firebaseapp.com',
+      projectId: 'p',
+    });
+    expect(doc.updatedAtMs).toBeTypeOf('number');
+
+    // no gemini key and a partial config must not put junk in Firestore
+    const empty = buildApiSettingsDoc({ firebaseConfig: { apiKey: '', authDomain: '', projectId: '' } }, 'user-1');
+    expect(empty.geminiKey).toBeUndefined();
+    expect(empty.apiKey).toBeUndefined();
+  });
+
+  it('round-trips and ignores malformed fields', () => {
+    const doc = buildApiSettingsDoc(
+      { geminiKey: 'AIzaKey', firebaseConfig: { apiKey: 'k', authDomain: 'd', projectId: 'p' } },
+      'user-1'
+    );
+    expect(readApiSettingsDoc(doc)).toEqual({
+      geminiKey: 'AIzaKey',
+      firebaseConfig: { apiKey: 'k', authDomain: 'd', projectId: 'p' },
+    });
+
+    expect(readApiSettingsDoc({ geminiKey: 123, apiKey: 'only' })).toEqual({});
+    expect(readApiSettingsDoc({ geminiKey: '', authDomain: '', apiKey: '', projectId: '' })).toEqual({});
+    expect(readApiSettingsDoc(null)).toEqual({});
+  });
 });
 
 describe('cloudSave', () => {
   it('refuses to run before connect, with a message that says what to do', async () => {
     await expect(cloudSave({ name: 'p', payload: '{}', tags: 0 })).rejects.toThrow(/press Connect/);
+  });
+});
+
+describe('cloudLoadApiSettings', () => {
+  it('refuses to run before connect, with a message that says what to do', async () => {
+    await expect(cloudLoadApiSettings()).rejects.toThrow(/press Connect/);
   });
 });

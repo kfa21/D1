@@ -39,10 +39,13 @@ export const MAX_PAYLOAD_BYTES = 900_000;
 
 const COL = 'staticsuite_projects';
 
+/** One document per signed-in uid holding the API settings a device needs. */
+const PREFS_COL = 'staticsuite_prefs';
+
 /**
- * Firestore rules for the `staticsuite_projects` collection: a user may only
- * ever read, write and delete their own documents. Paste into
- * Firebase console → Firestore Database → Rules.
+ * Firestore rules for both collections: a user may only ever read, write and
+ * delete their own documents. Paste into Firebase console → Firestore
+ * Database → Rules.
  */
 export const CLOUD_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -56,8 +59,47 @@ service cloud.firestore {
                     && resource.data.userId == request.auth.uid
                     && request.resource.data.userId == request.auth.uid;
     }
+    // API settings (Gemini key + Firebase config) — one document per user,
+    // its id IS the uid, so ownership needs no field check.
+    match /${PREFS_COL}/{docId} {
+      allow read, create, update, delete: if request.auth != null
+                                          && request.auth.uid == docId;
+    }
   }
 }`;
+
+/** The credentials a device needs: the Gemini key and the Firebase config. */
+export interface ApiSettings {
+  geminiKey?: string;
+  firebaseConfig?: FirebaseConfig;
+}
+
+/** settings → Firestore document; only non-empty strings are written. */
+export function buildApiSettingsDoc(api: ApiSettings, userId: string): Record<string, unknown> {
+  const cfg = api.firebaseConfig;
+  return {
+    userId,
+    updatedAtMs: Date.now(),
+    ...(api.geminiKey ? { geminiKey: api.geminiKey } : {}),
+    ...(cfg?.apiKey ? { apiKey: cfg.apiKey } : {}),
+    ...(cfg?.authDomain ? { authDomain: cfg.authDomain } : {}),
+    ...(cfg?.projectId ? { projectId: cfg.projectId } : {}),
+  };
+}
+
+/** document → settings, ignoring anything malformed or empty. */
+export function readApiSettingsDoc(data: unknown): ApiSettings {
+  const o = (data ?? {}) as Record<string, unknown>;
+  const s = (k: string): string | undefined => (typeof o[k] === 'string' && o[k] ? (o[k] as string) : undefined);
+  const out: ApiSettings = {};
+  const geminiKey = s('geminiKey');
+  if (geminiKey) out.geminiKey = geminiKey;
+  const apiKey = s('apiKey');
+  const authDomain = s('authDomain');
+  const projectId = s('projectId');
+  if (apiKey && authDomain && projectId) out.firebaseConfig = { apiKey, authDomain, projectId };
+  return out;
+}
 
 /**
  * Extract a Firebase web config from whatever the user pastes — the
@@ -247,6 +289,32 @@ export async function cloudDelete(id: string): Promise<void> {
   try {
     const { doc, deleteDoc } = await import('firebase/firestore');
     await deleteDoc(doc(db, COL, id));
+  } catch (e) {
+    throw wrap(e);
+  }
+}
+
+/** Save the API settings under the signed-in uid (overwrites the previous copy). */
+export async function cloudSaveApiSettings(api: ApiSettings): Promise<void> {
+  const { db, auth } = requireCtx();
+  try {
+    const { doc, setDoc } = await import('firebase/firestore');
+    const uid = auth.currentUser?.uid ?? '';
+    await setDoc(doc(db, PREFS_COL, uid), buildApiSettingsDoc(api, uid));
+  } catch (e) {
+    throw wrap(e);
+  }
+}
+
+/** Read this user's saved API settings — null when none were saved yet. */
+export async function cloudLoadApiSettings(): Promise<ApiSettings | null> {
+  const { db, auth } = requireCtx();
+  try {
+    const { doc, getDoc } = await import('firebase/firestore');
+    const uid = auth.currentUser?.uid ?? '';
+    const snap = await getDoc(doc(db, PREFS_COL, uid));
+    if (!snap.exists()) return null;
+    return readApiSettingsDoc(snap.data());
   } catch (e) {
     throw wrap(e);
   }
