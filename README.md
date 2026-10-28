@@ -25,7 +25,8 @@ Beyond sizing, every tag flows through a full **fabrication & cost model**:
 - **NDT planning** (MT/PT, UT, RT, PaUT/TOFD) derived from RT category, thickness and clad, plus ITP stage scheduling where ticking a phase box adds that stage's hours and unticking removes them
 - **PWHT / preheat advisories** per UCS-56 with consumable selection
 - **B16.5 flange rating checks** (Class 150/300/600 group tables) at design temperature
-- **3D viewer** (single geometry source shared with the CAD exports: multi-diameter courses joined by their cones, nozzles by elevation/azimuth, supports attached where they really sit), **printable reports**, **project settings** (currency, rates, plate stock, units)
+- **3D viewer** built from the design results, one geometry source shared with the OBJ/DXF exports. Every equipment family has its own model: **vessels/columns** (multi-diameter courses joined by their cones, heads, skirts/legs/saddles/rings, nozzle by elevation & azimuth, trays/packing), **API 650 tanks** (floor + annular ring, each shell course at its calculated plate thickness, cone or dome roof at the entered 1:N slope, internal/external floating deck, wind girders, spiral stair, shell nozzles) and **API 661 air coolers** (bays of finned tube rows, headers, plenum, legs, spinning fans). Stress-utilization heatmap, material and wireframe modes, **cutaway** through the pressure boundary to reveal internals and product fill, part tags and engineering dimensions, iso/front/side/top presets, hover-to-identify on every part, PNG snapshot, and a live part list that quotes the same numbers the engine calculated
+- **printable reports**, **project settings** (currency, rates, plate stock, units)
 - **Gemini AI design review** (bring your own API key) against the engine's own warning catalog
 - **Clickable errors & warnings** — click a finding anywhere (Register, Reports, Inspection) to jump straight to the field that needs correcting, with the correction hint shown below that field
 - Everything persisted in the browser (localStorage), with **project export/import**
@@ -54,8 +55,9 @@ src/
 │   ├── bom.ts / plates.ts / optimize.ts   # BOM, plate nesting, procurement
 │   ├── estimate.ts / estimateSummary.ts   # cost & man-hour engine + roll-ups
 │   ├── pwht.ts / ndt.ts / itp.ts / supports.ts / layout3d.ts
+│   ├── model3d.ts     # 3D descriptors for tanks & air coolers + the part list
 │   ├── warnings.ts    # warning-code catalog (registry-validated)
-│   └── *.test.ts      # 177 tests incl. hand-calculated golden values
+│   └── *.test.ts      # 283 tests incl. hand-calculated golden values
 ├── pages/             # Register, BomPage, EstimatePage, Inspection, Reports, Viewer3D, Settings, AiReview
 ├── store.ts           # tiny external store + localStorage persistence
 └── App.tsx            # shell & navigation
