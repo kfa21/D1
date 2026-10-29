@@ -27,6 +27,22 @@ export const MARKET_THICKNESS_MM = [
   6, 8, 10, 12, 14, 16, 18, 20, 22, 25, 28, 30, 32, 35, 38, 40, 45, 50, 55, 60, 65, 70, 75, 80, 90, 100,
 ];
 
+/**
+ * Plate thickness series a shell course is ordered in — ASTM A6/A20 rolled
+ * plate. The customary inch sizes (3/16" … 4") converted to millimetres are
+ * interleaved with the metric sizes ASME material is routinely stocked in, so
+ * a code-required thickness always lands on a plate a mill actually rolls.
+ * Above 120 mm the series stops: that is a special mill order, not stock.
+ */
+export const ASTM_PLATE_THICKNESS_MM = [
+  4.5, 5, 6, 8, 10, 11, 12, 13, 14, 16, 18, 19, 20, 22, 25, 28, 30, 32, 36, 38, 40, 45, 50, 55, 60, 65, 70,
+  75, 80, 90, 100, 110, 120,
+];
+
+/** Largest plate thickness the standard series covers (mm) — beyond it a
+ *  course is a mill order and must not be silently rounded down. */
+export const ASTM_PLATE_MAX_MM = ASTM_PLATE_THICKNESS_MM[ASTM_PLATE_THICKNESS_MM.length - 1];
+
 export interface ThicknessChoice {
   requested: number;
   chosen: number;
@@ -47,6 +63,16 @@ export function stockThickness(t: number, stock: number[] = MARKET_THICKNESS_MM)
     addedMm: chosen - t,
     nextUp: chosen,
   };
+}
+
+/** Round a required plate thickness UP to the ASTM A6/A20 series. Never rounds
+ *  down: a requirement beyond the series (mill order) is returned unchanged. */
+export function astmPlateThickness(t: number): ThicknessChoice {
+  const ch = stockThickness(t, ASTM_PLATE_THICKNESS_MM);
+  if (ch.chosen < t - 1e-9) {
+    return { ...ch, chosen: t, isStandard: false, addedMm: 0, nextUp: t };
+  }
+  return ch;
 }
 
 export interface PlateChoice {

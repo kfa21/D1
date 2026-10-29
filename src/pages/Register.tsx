@@ -1417,12 +1417,17 @@ function TankEqEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
           </h4>
           <div className="tablewrap">
             <table className="grid">
-              <thead><tr><th>Course (from top)</th><th className="num">Height (mm)</th><th className="num">t nominal (mm)</th><th>Plate grade</th></tr></thead>
+              <thead><tr><th>Course (from bottom)</th><th className="num">Height (mm)</th><th className="num">t required (mm)</th><th className="num" title="ordered plate — required rounded up to the ASTM A6/A20 series">plate t (mm)</th><th>Plate grade</th></tr></thead>
               <tbody>
+                {/** render bottom-up: shellCourses[i] AND courseGrades[i] are both indexed
+                 *  from the BOTTOM course, so the row you pick a grade on is the course
+                 *  that grade sizes (they were labelled from the top before, and the
+                 *  selection landed on the opposite course) */}
                 {calc.tank.shellCourses.map((c, i) => (
                   <tr key={c.courseNo}>
-                    <td className="num">{c.courseNo}</td>
+                    <td className="num">{i + 1}{i === 0 ? ' (bottom)' : ''}</td>
                     <td className="num">{fmt(c.heightMm, 0)}</td>
+                    <td className="num calc">{fmt(c.tRequired ?? c.tNominal, 2)}</td>
                     <td className="num calc">{fmt(c.tNominal, 1)}</td>
                     <td>
                       <select

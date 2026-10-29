@@ -775,6 +775,9 @@ export interface TankCalc {
     tDesign: number;
     tTest: number;
     tMinCode: number;
+    /** governing code thickness before ordering = max(min code, tDesign, tTest) */
+    tRequired?: number;
+    /** plate ordered — the required thickness rounded UP to the ASTM A6/A20 series */
     tNominal: number;
     material: string;
   }[];

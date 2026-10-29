@@ -14,6 +14,7 @@ import { computeHX } from './tema';
 import { computeFinFan } from './api661';
 import { flangeRatingBar } from './flange';
 import { allowableAt } from './materials';
+import { ASTM_PLATE_THICKNESS_MM } from './plates';
 import { checkWarningCodes, WARNING_CATALOG } from './warnings';
 import type { Equipment, EquipmentCalc } from './types';
 import { demoProject, newEquipment } from '../defaults';
@@ -125,7 +126,11 @@ describe('independent recalculation', () => {
         (4.9 * Dm * Math.max(0, headM - 0.3) * 0.9) / st.Sd + ca,
         (4.9 * Dm * Math.max(0, headM - 0.3) * 1.0) / st.St,
       );
-      expect(c.tNominal, `course ${i} thickness`).toBeCloseTo(expected, 4);
+      // tRequired is the code thickness; tNominal is the plate ordered — the
+      // required value rounded UP to the ASTM A6/A20 rolled-plate series
+      expect(c.tRequired ?? c.tNominal, `course ${i} required`).toBeCloseTo(expected, 4);
+      expect(c.tNominal, `course ${i} plate`).toBeGreaterThanOrEqual(expected - 1e-9);
+      expect(ASTM_PLATE_THICKNESS_MM, `course ${i} is a stock plate`).toContain(c.tNominal);
     });
     // design thickness must decrease going up — regression guard for the
     // inverted-head bug (previously the TOP course carried the full head)

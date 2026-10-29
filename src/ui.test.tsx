@@ -12,6 +12,7 @@ import EstimatePage from './pages/EstimatePage';
 import { getStore, setSettings, setState } from './store';
 import { demoProject } from './defaults';
 import { computeEquipment } from './engine/compute';
+import { ASTM_PLATE_THICKNESS_MM } from './engine/plates';
 
 const resetStore = () => {
   const eq = demoProject();
@@ -193,6 +194,21 @@ describe('Register click-to-fix targets (C8)', () => {
     }
     // default state: every course inherits the tag material
     expect(tank.tank!.courseGrades ?? []).toEqual([]);
+
+    // the rows are numbered from the BOTTOM, so the picker index IS the course
+    // the grade sizes (they were labelled from the top, and the selection landed
+    // on the opposite course)
+    const sel0 = document.getElementById(`f-${tank.id}-tankCourseGrade0`) as HTMLSelectElement;
+    const row0 = sel0.closest('tr')!;
+    expect(row0.cells[0].textContent).toContain('1 (bottom)');
+    // required and ordered plate thickness are both shown, and the plate is a
+    // stocked ASTM size at or above the requirement
+    expect(Number(row0.cells[2].textContent)).toBeGreaterThan(0);
+    expect(ASTM_PLATE_THICKNESS_MM).toContain(Number(row0.cells[3].textContent));
+
+    fireEvent.change(sel0, { target: { value: 'SA-285-C' } });
+    const saved = getStore().equipment.find((e) => e.id === tank.id)!;
+    expect(saved.tank!.courseGrades![0]).toBe('SA-285-C'); // bottom course, not the top
   });
 
   it('renders the correct-value suggestion beside an erroring field (fixValues)', () => {

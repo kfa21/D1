@@ -25,6 +25,7 @@ import { bellJB, bellJC, bellJL, esduNusselt, kernFriction, tubeVibration } from
 import { combinedRingSection, effectiveShellWidth, requiredRingInertia, stiffenerRingCheck } from './rings';
 import { computeEquipment } from './compute';
 import { tankItems } from './bom';
+import { ASTM_PLATE_THICKNESS_MM } from './plates';
 import { siteAirDensity } from './api661';
 import { demoProject, newEquipment } from '../defaults';
 import { checkWarningCodes } from './warnings';
@@ -1293,5 +1294,87 @@ describe('F3 — tank roof/bottom data-entry fields', () => {
     expect(c.warnings.some((w) => w.code === 'T650-13' && w.level === 'info')).toBe(true);
     expect(c.warnings.some((w) => w.code === 'T650-02')).toBe(false); // no duplicate "recommended" advisory
     expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F4b — course plate thickness ordered from the ASTM A6/A20 rolled-plate series
+// ---------------------------------------------------------------------------
+
+describe('F4b — shell course plate thickness on the ASTM stock series', () => {
+  /** D = 60 m, H = 12 m in 6 × 2000 mm courses, G = 1, CA = 6, one-foot.
+   *  The top course requires 8.889 mm → 10 mm plate, the bottom 29.5+ → 32 mm. */
+  const mk = () => {
+    const tk = newEquipment('tank', 30);
+    tk.sections[0] = { ...tk.sections[0], dia: 60000, ttLength: 12000 };
+    tk.tank!.maxDesignLiquidLevel = 12000;
+    tk.tank!.specificGravity = 1;
+    tk.tank!.annularBottom = false;
+    tk.tank!.bottomThk = 12;
+    tk.corrosionAllowance = 6;
+    tk.externalPressure = 0;
+    tk.materialKey = 'SA-516-70';
+    return { tk, c: computeTank(tk) };
+  };
+
+  it('orders a stocked plate above the code thickness, never below it', () => {
+    const courses = mk().c.tank!.shellCourses;
+    expect(courses).toHaveLength(6);
+    for (const c of courses) {
+      expect(c.tRequired, 'tRequired reported').toBeDefined();
+      expect(c.tNominal).toBeGreaterThanOrEqual(c.tRequired! - 1e-9);
+      expect(ASTM_PLATE_THICKNESS_MM).toContain(c.tNominal);
+    }
+    // golden: top course head = 2 m → one-foot at 1.7 m → 8.889 mm required
+    const top = courses[courses.length - 1];
+    expect(top.tRequired).toBeCloseTo(8.889, 2);
+    expect(top.tNominal).toBe(10);
+    // bottom course 12 m head → 25.88 mm required → 28 mm plate
+    expect(courses[0].tRequired).toBeCloseTo(25.88, 2);
+    expect(courses[0].tNominal).toBe(28);
+  });
+
+  it('reports the round-up and drives the shell weight from the ordered plate', () => {
+    const { c } = mk();
+    const info = c.warnings.find((w) => w.code === 'T650-16');
+    expect(info, 'T650-16 should list the rounded courses').toBeDefined();
+    expect(info!.msg).toContain('ASTM A6/A20');
+    expect(info!.msg).toContain('10 mm');
+    // weight uses the plate bought, not the fractional code thickness
+    const Dm = 60;
+    const expected = c.tank!.shellCourses.reduce(
+      (kg, s) => kg + Math.PI * Dm * 2 * (s.tNominal / 1000) * 7850,
+      0
+    );
+    expect(c.tank!.shellWeightKg).toBeCloseTo(expected, 3);
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+  });
+
+  it('never rounds a requirement beyond the series DOWN', () => {
+    // a very tall large tank needs more than the 120 mm stock maximum
+    const tk = newEquipment('tank', 31);
+    tk.sections[0] = { ...tk.sections[0], dia: 60000, ttLength: 52000 };
+    tk.tank!.maxDesignLiquidLevel = 52000;
+    tk.tank!.specificGravity = 1.6;
+    tk.corrosionAllowance = 3;
+    tk.externalPressure = 0;
+    const c = computeTank(tk);
+    const big = c.tank!.shellCourses[0];
+    expect(big.tRequired!).toBeGreaterThan(ASTM_PLATE_THICKNESS_MM[ASTM_PLATE_THICKNESS_MM.length - 1]);
+    expect(big.tNominal).toBeGreaterThanOrEqual(big.tRequired! - 1e-9);
+    expect(c.warnings.some((w) => w.code === 'T650-17')).toBe(true);
+    expect(checkWarningCodes(c.warnings).problems).toEqual([]);
+  });
+
+  it('grades and plate sizes are paired bottom-up (course i ↔ grade i)', () => {
+    const { tk, c } = mk();
+    // the BOTTOM two courses in the weaker grade → both get thicker plates
+    tk.tank!.courseGrades = ['SA-285-C', 'SA-285-C'];
+    const mixed = computeTank(tk);
+    expect(mixed.tank!.shellCourses[0].material).toBe('SA-285-C');
+    expect(mixed.tank!.shellCourses[1].material).toBe('SA-285-C');
+    expect(mixed.tank!.shellCourses[2].material).toBe('SA-516-70');
+    // same grade at the bottom, but a weaker one needs more thickness
+    expect(mixed.tank!.shellCourses[0].tRequired!).toBeGreaterThan(c.tank!.shellCourses[0].tRequired!);
   });
 });

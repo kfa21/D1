@@ -7,6 +7,7 @@
 import type { Equipment, EquipmentCalc, TankCalc, TankSpec, Warning } from './types';
 import { allowableAt, getMat } from './materials';
 import { computeVessel, sizeAnchorBolts } from './asme';
+import { ASTM_PLATE_MAX_MM, astmPlateThickness } from './plates';
 
 export interface Api650Stress {
   Sd: number; // MPa design
@@ -268,6 +269,10 @@ export function computeTank(equip: Equipment): EquipmentCalc {
   // back to the tag material and are reported (T650-15).
   const courseGrades = tank.courseGrades ?? [];
   const unknownGrades = new Set<string>();
+  /** courses whose code thickness fell between two stocked plate sizes */
+  const roundedCourses: string[] = [];
+  /** courses thicker than the stocked ASTM series — special mill order */
+  const millOrderCourses: string[] = [];
   let SdBot = Sd; // bottom-course stresses feed Table 5-1a (annular ring)
   let StBot = St;
   for (let i = 0; i < nCourses; i++) {
@@ -315,7 +320,9 @@ export function computeTank(equip: Equipment): EquipmentCalc {
           ca,
           RmMm: Dmm / 2,
           trial0,
-          tLMm: Math.max(0.5, courses[i - 1].tNominal - ca),
+          // the design point is a DESIGN quantity: use the course's required
+          // thickness, not the over-thick plate bought above it
+          tLMm: Math.max(0.5, (courses[i - 1].tRequired ?? courses[i - 1].tNominal) - ca),
           minShell,
         });
         tDesign = it.tDesign;
@@ -329,8 +336,15 @@ export function computeTank(equip: Equipment): EquipmentCalc {
       tTest = (4.9 * Dm * Math.max(0, hPoint)) / cSt;
       designPointMm = 300;
     }
-    const tMin = Math.max(minShell, tDesign, tTest);
-    tGov = Math.max(tGov, tMin);
+    const tReq = Math.max(minShell, tDesign, tTest);
+    tGov = Math.max(tGov, tReq);
+    // order the course in a plate thickness a mill actually rolls (ASTM A6/A20):
+    // the code thickness is a minimum, the BOM/weight must use the plate bought.
+    const plate = astmPlateThickness(tReq);
+    if (plate.addedMm > 0.5) roundedCourses.push(`${nCourses - i}: ${tReq.toFixed(2)} → ${plate.chosen} mm`);
+    if (plate.chosen > ASTM_PLATE_MAX_MM + 1e-9) {
+      millOrderCourses.push(`${nCourses - i}: ${tReq.toFixed(1)} mm`);
+    }
     courses.push({
       courseNo: nCourses - i, // top course = 1
       heightMm: courseH,
@@ -339,10 +353,25 @@ export function computeTank(equip: Equipment): EquipmentCalc {
       tDesign,
       tTest,
       tMinCode: minShell,
-      tNominal: tMin,
+      tRequired: tReq,
+      tNominal: plate.chosen,
       material: effGrade,
     });
-    shellKg += Math.PI * Dm * (courseH / 1000) * (tMin / 1000) * 7850;
+    shellKg += Math.PI * Dm * (courseH / 1000) * (plate.chosen / 1000) * 7850;
+  }
+  if (roundedCourses.length > 0) {
+    warnings.push({
+      level: 'info',
+      code: 'T650-16',
+      msg: `Course plate thickness taken from the ASTM A6/A20 rolled-plate series (course no. from top, required → ordered): ${roundedCourses.join(', ')}`,
+    });
+  }
+  if (millOrderCourses.length > 0) {
+    warnings.push({
+      level: 'warning',
+      code: 'T650-17',
+      msg: `Course(s) ${millOrderCourses.join(', ')} need more than the ${ASTM_PLATE_MAX_MM} mm stocked plate series — a special mill order is required; the BOM carries the code thickness`,
+    });
   }
   if (unknownGrades.size > 0) {
     warnings.push({
@@ -363,7 +392,7 @@ export function computeTank(equip: Equipment): EquipmentCalc {
   // §5.6.4 applicability (D2): above L/H = 1000/6 the standard routes the shell
   // to elastic analysis, not the variable design point method.
   if (useVdp) {
-    const lh = vdpApplicabilityLH(Dm, courses[0].tNominal, Hm);
+    const lh = vdpApplicabilityLH(Dm, courses[0].tRequired ?? courses[0].tNominal, Hm);
     if (!lh.ok) {
       warnings.push({
         level: 'warning',
@@ -395,13 +424,16 @@ export function computeTank(equip: Equipment): EquipmentCalc {
   const annularRingW = annularRingWidthMm / 1000; // m
   if (tank.annularBottom && courses.length > 0) {
     const c1 = courses[0]; // bottom course
-    const t1Corr = Math.max(0.1, c1.tNominal - ca);
+    // Table 5-1a is a DESIGN table: key it on the course's required thickness so
+    // buying a thicker plate (the ASTM round-up) cannot shrink the annular ring
+    const t1Design = c1.tRequired ?? c1.tNominal;
+    const t1Corr = Math.max(0.1, t1Design - ca);
     const sProd = (Math.max(0, c1.tDesign - ca) / t1Corr) * SdBot;
-    const sHyd = (c1.tTest / Math.max(0.1, c1.tNominal)) * StBot;
+    const sHyd = (c1.tTest / Math.max(0.1, t1Design)) * StBot;
     const tbTable = Math.max(
       6,
       annularThicknessFromTable(t1Corr, sProd),
-      annularThicknessFromTable(c1.tNominal, sHyd)
+      annularThicknessFromTable(t1Design, sHyd)
     );
     const tb = tbTable + ca;
     if (bottomThkSel < tb - 1e-9) {
