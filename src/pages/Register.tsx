@@ -13,6 +13,7 @@ import { suggestNdtMethod } from '../engine/ndt';
 import { siteAirDensity } from '../engine/api661';
 import { API650_STRESSES } from '../engine/api650';
 import { recommendStructure } from '../engine/supports';
+import { equipmentDims } from '../engine/dims';
 import type { CladSpec } from '../engine/types';
 import { useStore, setState, getStore } from '../store';
 import { requestFixFor, subscribeFix, getFix, useFix, FixNote, focusField } from '../fixNav';
@@ -172,6 +173,7 @@ export default function Register() {
               <th className="num">#Dia</th>
               <th className="num">Dia (mm)</th>
               <th className="num">T-T total (mm)</th>
+              <th className="num" title="Tip-to-tip overall length including cones and dished ends">Overall (mm)</th>
               <th>Dish End (T/B)</th>
               <th className="num">CA (mm)</th>
               <th>Material</th>
@@ -213,6 +215,9 @@ export default function Register() {
                     ) : (
                       <input type="number" className="num" value={e.sections[0]?.ttLength ?? 0} onChange={(ev) => updateSection(e.id, e.sections[0].id, { ttLength: +ev.target.value })} onClick={(ev) => ev.stopPropagation()} />
                     )}
+                  </td>
+                  <td className="num calc" title="Tip-to-tip: sections + cones + dished ends">
+                    {fmt(equipmentDims(e, calc).overallMm, 0)}
                   </td>
                   <td>
                     <select
@@ -266,6 +271,8 @@ export default function Register() {
 /* =============== detail editor =============== */
 
 function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<typeof computeEquipment> }) {
+  // overall dimensions: T-T total, per-section cone length and tip-to-tip length
+  const dims = equipmentDims(equip, calc);
   const [tab, setTab] = useState<'general' | 'sections' | 'nozzles' | 'internals' | 'type'>('general');
   const [openCode, setOpenCode] = useState<string | null>(null);
   const fix = useFix();
@@ -474,8 +481,11 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
         {tab === 'sections' && (
           <div>
             <p className="muted small">
-              <b>Total T-T length {fmt(totalTTMm(equip), 0)} mm</b> — the sum of the section lengths below (heads and
-              cones are additional). Nozzle elevations are measured from the bottom tangent of this total.
+              <b>Total T-T length {fmt(dims.ttMm, 0)} mm</b> — the sum of the section lengths below. Cones add{' '}
+              <b>{fmt(dims.coneMm, 0)} mm</b> and the dished ends <b>{fmt(dims.bottomHeadMm + dims.topHeadMm, 0)} mm</b>,
+              so the <b>overall {equip.orientation === 'horizontal' ? 'length' : 'height'} is {fmt(dims.overallMm, 0)} mm</b>
+              {dims.heightMm !== dims.overallMm ? ` (${fmt(dims.heightMm, 0)} mm on its support above grade)` : ''}. Nozzle
+              elevations are measured from the bottom tangent of this total.
             </p>
             <p className="muted small">Multi-dia shells: add sections bottom→top. The cone angle at each section transition is the included angle of the reducing cone.</p>
             <div className="tablewrap">
@@ -484,7 +494,7 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
                   <tr>
                     <th>#</th><th className="num">ID (mm)</th><th className="num">Section L (mm)</th>
                     <th>Top head</th><th>Bottom head</th><th className="num">Spec t shell</th>
-                    <th className="num">Cone angle°</th><th className="num">Spec t cone</th>
+                    <th className="num">Cone angle°</th><th className="num grp">Cone L (mm)</th><th className="num">Spec t cone</th>
                     <th className="num grp">Req t (mm)</th><th className="num grp">Nominal</th>
                     <th className="num grp">Util %</th><th className="num grp">Wt (kg)</th><th></th>
                   </tr>
@@ -503,6 +513,9 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
                           {Object.entries(HEAD_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></td>
                         <td><input id={fid(`sec${i}-shellThk`)} type="number" className="num" value={s.shellThk} placeholder="0=auto" onChange={(e) => updateSection(equip.id, s.id, { shellThk: +e.target.value })} /><FixNote equipId={equip.id} field={`sec${i}-shellThk`} /></td>
                         <td><input id={fid(`sec${i}-coneAngleDeg`)} type="number" className="num" value={s.coneAngleDeg} disabled={i === 0} onChange={(e) => updateSection(equip.id, s.id, { coneAngleDeg: +e.target.value })} /><FixNote equipId={equip.id} field={`sec${i}-coneAngleDeg`} /></td>
+                        <td className="num calc" title="Axial length of the cone joining this section to the one below (from the included angle)">
+                          {dims.coneLengthsMm[i] > 0 ? fmt(dims.coneLengthsMm[i], 0) : '—'}
+                        </td>
                         <td><input id={fid(`sec${i}-coneThk`)} type="number" className="num" value={s.coneThk} onChange={(e) => updateSection(equip.id, s.id, { coneThk: +e.target.value })} /><FixNote equipId={equip.id} field={`sec${i}-coneThk`} /></td>
                         <td className="num calc">{fmt(cc?.tReq, 2)}</td>
                         <td className="num calc">{fmt(cc?.tNominal, 1)}</td>

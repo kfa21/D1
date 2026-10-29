@@ -266,3 +266,9 @@ type and subtype; and errors must show the suggested value at the field.
 **Batch I-E — error guidance**
 - [~] **I10** Show the suggested value beside/below the field that has the error
   (not only in the warning list), derived from the same `fixValues` basis.
+- [x] **I11** Multi-section dimensions: `equipmentDims()` reports the T-T total, the
+  axial length of every cone transition (from its included angle), both dish depths
+  and the tip-to-tip overall length — plus the erected height on its support. The
+  register list gains an **Overall (mm)** column, and the Sections tab shows a
+  **Cone L (mm)** column per section with the cone/head/overall breakdown above it.
+  Tanks (floor-to-apex) and air coolers (bundle length, deck height) use the same API.
