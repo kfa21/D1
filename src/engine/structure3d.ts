@@ -232,8 +232,9 @@ export function supportHeightMm(equip: Equipment): number {
   if (equip.orientation === 'horizontal') return 0;
   const s = equip.support;
   if (!s) return 0;
-  if (s.type === 'legs') return s.skirtH > 0 ? s.skirtH : 800;
-  if (s.type === 'skirt') return s.skirtH > 0 ? s.skirtH : 1500;
+  if (s.type === 'legs' || s.type === 'legsAngle' || s.type === 'legsBeam') return s.skirtH > 0 ? s.skirtH : 800;
+  if (s.type === 'skirt' || s.type === 'skirtCone') return s.skirtH > 0 ? s.skirtH : 1500;
+  if (s.type === 'angleSkirt' || s.type === 'bodyAngleSkirt') return s.skirtH > 0 ? s.skirtH : s.type === 'bodyAngleSkirt' ? 400 : 600;
   return 0;
 }
 
@@ -673,7 +674,7 @@ export function vesselAccess(equip: Equipment, calc: EquipmentCalc, layout: Body
 
   // ---- support steelwork: bracing between legs
   const s = equip.support;
-  if (s.type === 'legs' && (s.legCount || 4) >= 3) {
+  if ((s.type === 'legs' || s.type === 'legsAngle' || s.type === 'legsBeam') && (s.legCount || 4) >= 3) {
     const n = Math.max(3, s.legCount || 4);
     const legR = R0 + Math.max(8, s.legPlateThk || 16) / 2;
     const h = Math.max(400, supH);

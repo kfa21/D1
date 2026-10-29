@@ -207,10 +207,13 @@ describe('Register click-to-fix targets (C8)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Tank data' }));
     const note = document.querySelector('.fix-note');
     expect(note, 'a persistent fix note must render under the field').toBeTruthy();
-    expect(note!.textContent).toContain('T650-10');
-    expect(note!.textContent).toContain('Correct value');
+    // the box under the field carries ONLY the value to enter
+    expect(note!.querySelector('.fix-value')).toBeTruthy();
     expect(note!.textContent).toContain('≥ 9 mm');
-    expect(note!.textContent).toContain('Observed:');
+    expect(note!.textContent).not.toContain('Correct value');
+    expect(note!.textContent).not.toContain('Observed:');
+    // the code and its derivation stay available in the tooltip / warning list
+    expect(note!.getAttribute('title')).toContain('T650-10');
   });
 
   it('keeps the store snapshot consistent after a render (no leaked selection)', () => {

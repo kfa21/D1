@@ -42,7 +42,7 @@ describe('warning → clickable fix registry', () => {
         expect(fx.field, code).toMatch(/^sec\d+-(dia|ttLength|headTop|shellThk|coneAngleDeg|coneThk)$/);
       }
       if (fx.field.startsWith('nz')) {
-        expect(fx.field, code).toMatch(/^nz\d+-(dn|attach|flangeClass|padThk|elevation)$/);
+        expect(fx.field, code).toMatch(/^nz\d+-(dn|attach|flangeClass|padDia|elevation)$/);
       }
       if (fx.field.startsWith('shellFlow-')) {
         expect(fx.field, code).toMatch(/^shellFlow-[A-Za-z]+$/);

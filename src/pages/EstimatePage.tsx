@@ -22,7 +22,10 @@ const SPLIT_COLORS = ['#1F5FBF', '#12855C', '#A66A00', '#6B4C9A'];
 
 const LABOR_LABELS: Record<string, string> = {
   fitter: 'Fitter',
-  welder: 'Welder',
+  welder: 'Welder (general)',
+  gtaw: 'GTAW / TIG welder',
+  smaw: 'SMAW / stick welder',
+  grinder: 'Grinder / dresser',
   helper: 'Helper',
   qc: 'QC / inspection',
   engineer: 'Design engineer',
@@ -34,6 +37,7 @@ const GROUP_LABELS: Record<string, string> = {
   Material: 'Material',
   Welding: 'Welding',
   'Shop labor': 'Shop labor (fit-up, rolling, assembly, mech.)',
+  Machine: 'Machine hours (plasma · SAW · bevel · rolls · crane)',
   Consumables: 'Consumables',
   NDT: 'NDT',
   PWHT: 'PWHT',
@@ -273,7 +277,7 @@ export default function EstimatePage() {
         <button onClick={exportXlsx}>⤓ Export estimate (.xlsx)</button>
         <div className="spacer" style={{ flex: 1 }} />
         <div className="kpi"><span className="v">{money(t.materialUSD, settings)}</span><span className="l">Material</span></div>
-        <div className="kpi"><span className="v">{money(t.laborUSD, settings)}</span><span className="l">Shop labor & welding</span></div>
+        <div className="kpi"><span className="v">{money(t.laborUSD, settings)}</span><span className="l">Shop labor, welding &amp; machine hours</span></div>
         <div className="kpi"><span className="v">{money(t.consumableUSD, settings)}</span><span className="l">Consumables</span></div>
         <div className="kpi"><span className="v">{money(t.serviceUSD, settings)}</span><span className="l">NDT · PWHT · Hydro · Paint · Outside</span></div>
         <div className="kpi"><span className="v">{fmt(t.shopHours, 0)} h</span><span className="l">Shop hours</span></div>
@@ -438,6 +442,14 @@ export default function EstimatePage() {
             <tbody>
               {Object.entries(settings.rates.labor).map(([k, v]) => (
                 <tr key={k}><td>{LABOR_LABELS[k] ?? k}</td><td className="num calc">{fmt(v, 2)}</td></tr>
+              ))}
+            </tbody>
+          </table>
+          <table className="grid">
+            <thead><tr><th colSpan={2}>Machine rates ({settings.rateBase}/h)</th></tr></thead>
+            <tbody>
+              {Object.entries(settings.rates.machine).map(([k, v]) => (
+                <tr key={k}><td>⚙ {k}</td><td className="num calc">{fmt(v, 2)}</td></tr>
               ))}
             </tbody>
           </table>

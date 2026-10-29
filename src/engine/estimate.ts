@@ -32,9 +32,30 @@ export interface RateCard {
   putTofdDayUSD: number;
   /** Conventional RT crew + film day rate (BHD/day) */
   rtDayUSD: number;
+  /**
+   * Machine (equipment) hourly rates. Machine time is booked separately from
+   * manual labour: a plasma table, a SAW set or a bevelling machine is charged
+   * per machine hour (power, consumables, depreciation, operator on the panel),
+   * not at the welder/fitter rate.
+   */
+  machine: {
+    saw: number;
+    plasma: number;
+    bevel: number;
+    roll: number;
+    drill: number;
+    crane: number;
+  };
   labor: {
+    /** general fabrication welder (fit-up tacks, supports, misc.) */
     fitter: number;
     welder: number;
+    /** GTAW/TIG welder — root passes, nozzles, overlay (higher skill rate) */
+    gtaw: number;
+    /** SMAW/stick welder — manual fill & cap where SAW is not used */
+    smaw: number;
+    /** grinding / dressing hand */
+    grinder: number;
     helper: number;
     qc: number;
     engineer: number;
@@ -67,7 +88,26 @@ export const DEFAULT_RATES: RateCard = {
   formingRate: 32,
   putTofdDayUSD: 338,
   rtDayUSD: 169,
-  labor: { fitter: 9, welder: 10.2, helper: 6, qc: 11.3, engineer: 16.9, pwht: 10.5, painter: 7.9 },
+  machine: {
+    saw: 8.6, // submerged-arc set with flux recovery, per machine hour
+    plasma: 6.2, // CNC plasma cutting table incl. gases & consumables
+    bevel: 4.8, // plate bevelling machine
+    roll: 5.4, // plate rolling machine
+    drill: 3.6, // radial/magnetic drill
+    crane: 7.5, // overhead crane / yard handling
+  },
+  labor: {
+    fitter: 9,
+    welder: 10.2,
+    gtaw: 11.6,
+    smaw: 10.4,
+    grinder: 7.4,
+    helper: 6,
+    qc: 11.3,
+    engineer: 16.9,
+    pwht: 10.5,
+    painter: 7.9,
+  },
   overheadPct: 22,
   profitPct: 10,
   contingencyPct: 5,
@@ -84,6 +124,14 @@ export interface ManhourBasis {
   group?: ManhourGroup;
   /** labor trade charged (\'outsourced\' = billed as an outside service, not shop hours) */
   trade: LaborTrade | 'outsourced';
+  /**
+   * Who does the work: a MANUAL trade (paid at the labor rate above) or a MACHINE
+   * (paid at the machine rate, booked as its own line). Machine hours are never
+   * charged at a manual rate and vice versa.
+   */
+  resource?: 'manual' | 'machine';
+  /** machine key when resource = 'machine' */
+  machine?: keyof RateCard['machine'];
   /** how the automatic hours are derived — shown verbatim in Settings */
   basis: string;
 }
@@ -129,16 +177,21 @@ export const MANHOUR_GROUP_ORDER: ManhourGroup[] = [
 ];
 
 export const MANHOUR_BASIS: ManhourBasis[] = [
-  { key: 'weld.ls', label: 'Shell longitudinal seam welding', trade: 'welder', basis: 'h/m welding norm by governing thickness (SAW root+fill deposition model where SAW-eligible), × joint position factor' },
-  { key: 'weld.cs', label: 'Shell circumferential seam welding', trade: 'welder', basis: 'h/m welding norm by governing thickness; course count from 2 m plate lengths' },
-  { key: 'weld.head', label: 'Head-to-shell seam welding', trade: 'welder', basis: 'h/m welding norm per head-to-shell circumferential seam (one per head)' },
-  { key: 'weld.blank', label: 'Head blank seam welding (multi-plate blanks)', trade: 'welder', basis: 'blank-chord seam length × h/m norm at head thickness × 1.1 fit/position factor' },
-  { key: 'weld.cone', label: 'Cone transition seam welding', trade: 'welder', basis: 'h/m norm × (2 long + 2 circumferential equivalent) per cone transition' },
-  { key: 'weld.nozzle', label: 'Nozzle attachment welds', trade: 'welder', basis: 'h/m norm × 0.7 over Σ nozzle neck circumference — always manual welds (no SAW)' },
-  { key: 'cut', label: 'Plate cutting & edge prep', trade: 'helper', basis: '2.2 × total weld length (m) × cutting h/m norm by thickness' },
-  { key: 'edge', label: 'Edge planning / milling', trade: 'fitter', basis: '2.2 × total weld length (m) × milling h/m norm by thickness' },
+  // ---- welding: the seam hours are split by process. The GTAW root is always
+  // manual (gtaw trade); the fill/cap is either the SAW machine or a manual SMAW
+  // welder, each booked at its own rate under the same man-hour item.
+  { key: 'weld.ls', label: 'Shell longitudinal seam welding (GTAW root + fill)', trade: 'smaw', basis: 'GTAW root: h/m root norm × joint position factor; fill/cap: SAW deposition model when SAW-eligible, otherwise SMAW h/m norm' } as never,
+  { key: 'weld.cs', label: 'Shell circumferential seam welding (GTAW root + fill)', trade: 'smaw', basis: 'GTAW root h/m + fill/cap (SAW machine or SMAW by thickness); course count from 2 m plate lengths' },
+  { key: 'weld.head', label: 'Head-to-shell seam welding (GTAW root + fill)', trade: 'smaw', basis: 'GTAW root + fill/cap h/m norm per head-to-shell circumferential seam (one per head)' },
+  { key: 'weld.blank', label: 'Head blank seam welding (multi-plate blanks)', trade: 'smaw', basis: 'blank-chord seam length × h/m norm at head thickness × 1.1 fit/position factor, GTAW root + fill/cap' },
+  { key: 'weld.cone', label: 'Cone transition seam welding (GTAW root + fill)', trade: 'smaw', basis: 'h/m norm × (2 long + 2 circumferential equivalent) per cone transition' },
+  { key: 'weld.nozzle', label: 'Nozzle attachment welds (manual only)', trade: 'smaw', basis: 'h/m norm × 0.7 over Σ nozzle neck circumference — always manual GTAW root + SMAW fill (no SAW on nozzles)' },
+  { key: 'cut', label: 'Plate cutting — CNC plasma table (machine)', trade: 'helper', resource: 'machine', machine: 'plasma', basis: '2.2 × total weld length (m) × plasma cutting h/m norm by thickness (0.035–0.15 h/m) — machine hours at the plasma table rate' },
+  { key: 'cut.grind', label: 'Cut-edge grinding & dressing (manual)', trade: 'grinder', basis: '2.2 × total weld length (m) × 0.06–0.22 h/m hand grinding of the cut edge and weld prep' },
+  { key: 'edge', label: 'Plate bevelling machine (machine)', trade: 'fitter', resource: 'machine', machine: 'bevel', basis: '2.2 × total weld length (m) × bevelling h/m norm by thickness (0.12–0.35 h/m)' },
+  { key: 'grind.weld', label: 'Weld dressing & grinding (manual)', trade: 'grinder', basis: '0.08 h per m of weld laid, ×1.6 on stainless/duplex (no slag, but harder) + 0.4 h per nozzle' },
   { key: 'fitup', label: 'Fit-up & assembly', trade: 'fitter', basis: '0.55 × total seam welding hours' },
-  { key: 'rolling', label: 'Shell rolling / forming', trade: 'fitter', basis: 'per shell course: 0.35 × t (mm) + 2 h' },
+  { key: 'rolling', label: 'Shell rolling (machine)', trade: 'fitter', resource: 'machine', machine: 'roll', basis: 'per shell course: 0.35 × t (mm) + 2 h on the plate rolls' },
   { key: 'forming', label: 'Head forming & trimming (outsourced)', trade: 'outsourced', basis: 'per dish end: 0.6 × head thickness (mm) × blank diameter (m), at the Settings outside-service rate — hours, not shop labor' },
   { key: 'nzfit', label: 'Nozzle fit & attachment', trade: 'fitter', basis: '1.2 + 0.5 × DN/25.4 h per nozzle' },
   { key: 'internals', label: 'Internals installation (trays, demisters…)', trade: 'fitter', basis: 'per item: count × (2 h + 0.4 × internal area m²)' },
@@ -158,20 +211,26 @@ export const MANHOUR_BASIS: ManhourBasis[] = [
   { key: 'weld.ring', label: 'Stiffening ring welding (vacuum rings)', trade: 'welder', basis: 'ring circumference × number of rings, both sides, at shell thickness × 0.8 position factor — only when a ring is specified' },
   { key: 'weld.intRing', label: 'Internal support ring welding (tray / packing supports)', trade: 'welder', basis: 'one support ring per three internals levels, π·D each side at shell thickness × 0.6 — only when internals are fitted' },
   { key: 'weld.clip', label: 'Insulation, refractory & platform clip welding', trade: 'welder', basis: '4 clips per access platform + 4 per m² when cladding/refractory is specified, 0.24 m of weld per clip (60 mm fillets, both sides)' },
-  { key: 'handle', label: 'Handling, turning & crane', trade: 'fitter', basis: '0.6 h per tonne dry weight for lifts, rotation and yard moves' },
+  { key: 'handle', label: 'Handling, turning & rigging (manual)', trade: 'fitter', basis: '0.35 h per tonne dry weight of rigging, slewing and yard moves' },
+  { key: 'handle.crane', label: 'Crane time (machine)', trade: 'fitter', resource: 'machine', machine: 'crane', basis: '0.25 h per tonne dry weight of crane occupancy for the same lifts' },
+  // ---- weld overlay: 309L buffer run + corrosion-resistant finish layer ----
+  { key: 'weld.overlay.base', label: 'Weld overlay — 309L base (buffer) run', trade: 'gtaw', basis: 'overlay area (m²) × base-run thickness × 7.9 kg/m³·10⁻³ ÷ 1.1 kg/h deposition incl. cleaning between passes and preheat hold' },
+  { key: 'weld.overlay.finish', label: 'Weld overlay — finish (corrosion-resistant) layer', trade: 'gtaw', basis: 'overlay area (m²) × finish thickness × alloy density ÷ 1.0 kg/h deposition (single-pass, higher skill) — counted only for weld-overlay cladding' },
+  { key: 'overlay.furnace', label: 'Furnace heat treatment of overlay / PWHT cycle attendance', trade: 'pwht', basis: '8 h furnace attendance per overlay heat-treatment cycle when furnace heating is selected (furnace fuel billed as the outside-service cycle)' },
 ];
 
 /** Activity TYPE for a man-hour key (used for the Settings matrix headings). */
 export function manhourGroup(key: string): ManhourGroup {
   if (key.startsWith('weld.')) return 'Welding';
-  if (key === 'cut' || key === 'edge') return 'Cutting & edge prep';
+  if (key === 'cut' || key === 'cut.grind' || key === 'edge') return 'Cutting & edge prep';
   if (key === 'fitup' || key === 'rolling' || key === 'forming') return 'Forming & fitting';
   if (key === 'nzfit' || key === 'internals' || key === 'mech' || key === 'supports' || key === 'struct') return 'Assembly & supports';
+  if (key === 'grind.weld') return 'Machining & finishing';
   if (key.startsWith('ndt.')) return 'Non-destructive testing';
-  if (key === 'pwht') return 'Heat treatment';
+  if (key === 'pwht' || key === 'overlay.furnace') return 'Heat treatment';
   if (key === 'hydro') return 'Testing';
   if (key === 'paint') return 'Painting & insulation';
-  if (key === 'handle') return 'Handling & erection';
+  if (key === 'handle' || key === 'handle.crane') return 'Handling & erection';
   return 'Engineering & QA';
 }
 
@@ -186,7 +245,7 @@ export function manhourMatrix(): { group: ManhourGroup; items: ManhourBasis[] }[
 export interface EstimateLine {
   equipId: string;
   tag: string;
-  group: 'Material' | 'Welding' | 'Shop labor' | 'Consumables' | 'NDT' | 'PWHT' | 'Hydro & test' | 'Painting' | 'Outside services' | 'Engineering/QA';
+  group: 'Material' | 'Welding' | 'Shop labor' | 'Machine' | 'Consumables' | 'NDT' | 'PWHT' | 'Hydro & test' | 'Painting' | 'Outside services' | 'Engineering/QA';
   activity: string;
   qty: number;
   unit: string;
@@ -224,7 +283,10 @@ export interface TagEstimate {
   laborUSD: number;
   consumableUSD: number;
   serviceUSD: number;
+  /** manual shop hours + machine hours */
   shopHours: number;
+  /** machine (equipment) hours included in shopHours */
+  machineHours: number;
   totalUSD: number;
   hoursByActivity: { activity: string; hours: number; trade: LaborTrade }[];
   /** auto vs applied man-hours for this tag (Settings shows the project roll-up) */
@@ -257,11 +319,18 @@ function hPerM_ls(t: number): number {
 function hPerM_cs(t: number): number {
   return t < 15 ? 4.3 : t < 30 ? 9.6 : t < 75 ? 16 : 38.1;
 }
+// --- machine norms: a plasma table and a bevelling machine are an order of
+// magnitude faster than the hand processes they replace, which is exactly why
+// machine hours cannot be booked at a manual rate.
 function hPerM_cut(t: number): number {
-  return t < 20 ? 0.07 : t < 30 ? 0.18 : t < 75 ? 0.37 : 0.69;
+  return t < 20 ? 0.035 : t < 30 ? 0.06 : t < 75 ? 0.1 : 0.15;
+}
+/** hand grinding of the cut edge (deburring, oxide removal, weld prep) */
+function hPerM_cutGrind(t: number): number {
+  return t < 20 ? 0.06 : t < 30 ? 0.1 : t < 75 ? 0.16 : 0.22;
 }
 function hPerM_edge(t: number): number {
-  return t < 20 ? 0.38 : t < 30 ? 0.5 : t < 75 ? 1.15 : 2.3;
+  return t < 20 ? 0.12 : t < 30 ? 0.18 : t < 75 ? 0.26 : 0.35;
 }
 
 // --- SAW (submerged arc) fill-pass model: deposition-driven timing & man-hours ---
@@ -406,6 +475,8 @@ export function estimateEquipment(
     const root = Math.min(total * 0.35, len * 0.6); // display split: manual GTAW root portion
     return { root, fill: total - root, total, saw: false };
   };
+  /** One weld area, with its manual root and its fill/cap (machine SAW or manual SMAW) kept apart. */
+  type WeldSplit = { root: number; fill: number; total: number; saw: boolean };
   const addWeld = (
     area: string,
     len: number,
@@ -414,8 +485,8 @@ export function estimateEquipment(
     factor = 1,
     allowSaw = true,
     depositKgPerM: (t: number) => number = depositPerMeter
-  ): number => {
-    if (len <= 1e-6) return 0;
+  ): WeldSplit => {
+    if (len <= 1e-6) return { root: 0, fill: 0, total: 0, saw: false };
     const h = seamHours(len, thk, smawRate, factor, allowSaw);
     welds.push({
       area,
@@ -430,7 +501,7 @@ export function estimateEquipment(
       hours: h.total,
       depositKg: len * depositKgPerM(thk),
     });
-    return h.total;
+    return { ...h, saw: h.saw };
   };
 
   let ls = 0, cs = 0, nz = 0, headWeldM = 0, coneWeldM = 0, headBlankSeamM = 0;
@@ -459,43 +530,94 @@ export function estimateEquipment(
   }
   for (const n of calc.nozzles) nz += (2 * Math.PI * n.dn) / 1000;
 
-  const lsH = addWeld('Shell longitudinal seams', ls, tGov, hPerM_ls(tGov));
-  const csH = addWeld('Shell circumferential seams (course-to-course)', cs, tGov, hPerM_cs(tGov));
-  const headSeamH = addWeld('Head-to-shell seams', headWeldM, tGov, hPerM_cs(tGov));
+  const lsW = addWeld('Shell longitudinal seams', ls, tGov, hPerM_ls(tGov));
+  const csW = addWeld('Shell circumferential seams (course-to-course)', cs, tGov, hPerM_cs(tGov));
+  const headSeamW = addWeld('Head-to-shell seams', headWeldM, tGov, hPerM_cs(tGov));
   // head blank seams: flat bench position before forming — fit/position factor 1.1, welded at
   // head thickness; deposit per metre from blankSeamDepositKgPerM (X-groove, half-thickness/side)
-  let blankSeamH = 0;
+  const blankSeamW: WeldSplit = { root: 0, fill: 0, total: 0, saw: false };
   for (const b of blankSeams) {
-    blankSeamH += addWeld('Head blank seams (multi-plate blanks)', b.m, b.thk, hPerM_cs(b.thk), 1.1, true, blankSeamDepositKgPerM);
+    const w = addWeld('Head blank seams (multi-plate blanks)', b.m, b.thk, hPerM_cs(b.thk), 1.1, true, blankSeamDepositKgPerM);
+    blankSeamW.root += w.root;
+    blankSeamW.fill += w.fill;
+    blankSeamW.total += w.total;
+    blankSeamW.saw = blankSeamW.saw || w.saw;
   }
-  const coneH = addWeld('Cone transition seams', coneWeldM, tGov, hPerM_cs(tGov));
+  const coneW = addWeld('Cone transition seams', coneWeldM, tGov, hPerM_cs(tGov));
   const nzThk = Math.min(tGov, 20);
-  const nzH = addWeld('Nozzle attachment welds', nz, nzThk, hPerM_ls(nzThk) * 0.7, 1, false);
-  const seamTotalH = lsH + csH + headSeamH + blankSeamH + coneH + nzH;
+  const nzW = addWeld('Nozzle attachment welds', nz, nzThk, hPerM_ls(nzThk) * 0.7, 1, false);
+  const seamTotalH = lsW.total + csW.total + headSeamW.total + blankSeamW.total + coneW.total + nzW.total;
   const weldM = ls + cs + headWeldM + headBlankSeamM + coneWeldM + nz;
 
-  // ---- SHOP LABOR ----
+  // ---- SHOP LABOR (manual trades) and MACHINE HOURS (equipment rates) ----
   const hoursByActivity: { activity: string; hours: number; trade: LaborTrade }[] = [];
   /** automatic hours accumulated per man-hour basis key (pre-override) */
   const autoByKey: Record<string, number> = {};
+  /** blended cost/hour actually booked per key — used by a manual override line so
+   *  a mixed key (GTAW root + SAW machine) is corrected at its own average rate */
+  const keyRate: Record<string, { cost: number; hours: number }> = {};
+  let machineHours = 0;
+  const WELD_TRADES = new Set<LaborTrade>(['welder', 'gtaw', 'smaw']);
+  const track = (key: string | undefined, hours: number, cost: number) => {
+    if (!key) return;
+    autoByKey[key] = (autoByKey[key] ?? 0) + hours;
+    const r = (keyRate[key] ??= { cost: 0, hours: 0 });
+    r.cost += cost;
+    r.hours += hours;
+  };
   const labor = (activity: string, hours: number, trade: LaborTrade, key?: string) => {
-    if (key) autoByKey[key] = (autoByKey[key] ?? 0) + hours;
     if (hours <= 0) return;
     const rate = rates.labor[trade];
-    push({ group: trade === 'welder' ? 'Welding' : 'Shop labor', activity, qty: hours, unit: 'h', rateUSD: rate, amountUSD: hours * rate, trade, key });
+    track(key, hours, hours * rate);
+    push({
+      group: WELD_TRADES.has(trade) ? 'Welding' : 'Shop labor',
+      activity,
+      qty: hours,
+      unit: 'h',
+      rateUSD: rate,
+      amountUSD: hours * rate,
+      trade,
+      key,
+    });
     hoursByActivity.push({ activity, hours, trade });
   };
+  /** Machine time: booked as its own line at the machine rate, never at a labor rate. */
+  const machineWork = (activity: string, hours: number, mkey: keyof RateCard['machine'], key?: string) => {
+    if (hours <= 0) return;
+    const rate = rates.machine[mkey];
+    track(key, hours, hours * rate);
+    push({ group: 'Machine', activity, qty: hours, unit: 'h', rateUSD: rate, amountUSD: hours * rate, key });
+    machineHours += hours;
+  };
 
-  labor(`Longitudinal seam welding — shell (${ls.toFixed(1)} m @ ${(lsH / Math.max(ls, 1e-6)).toFixed(1)} h/m${useSAW ? ', SAW fill/cap' : ', SMAW'})`, lsH, 'welder', 'weld.ls');
-  labor(`Shell circumferential seam welding (${cs.toFixed(1)} m @ ${(csH / Math.max(cs, 1e-6)).toFixed(1)} h/m)`, csH, 'welder', 'weld.cs');
-  labor(`Head-to-shell seam welding (${headWeldM.toFixed(1)} m)`, headSeamH, 'welder', 'weld.head');
-  labor(`Head blank seam welding — multi-plate, ${headBlankSeamM.toFixed(1)} m at head thickness`, blankSeamH, 'welder', 'weld.blank');
-  labor(`Cone transition seam welding (${coneWeldM.toFixed(1)} m)`, coneH, 'welder', 'weld.cone');
-  labor(`Nozzle welds (${nz.toFixed(1)} m)`, nzH, 'welder', 'weld.nozzle');
+  /** Book one weld area: manual GTAW root, then SAW machine fill or manual SMAW fill. */
+  const bookWeld = (label: string, key: string, w: WeldSplit, lenM: number, note = '') => {
+    if (w.total <= 0) return;
+    const m = lenM > 0 ? `${lenM.toFixed(1)} m` : '';
+    labor(`${label} — GTAW root (manual${m ? ', ' + m : ''})${note}`, w.root, 'gtaw', key);
+    if (w.saw) machineWork(`${label} — SAW fill/cap (machine${m ? ', ' + m : ''})`, w.fill, 'saw', key);
+    else labor(`${label} — SMAW fill/cap (manual${m ? ', ' + m : ''})`, w.fill, 'smaw', key);
+  };
+
+  bookWeld(`Longitudinal seam welding — shell (${ls.toFixed(1)} m)`, 'weld.ls', lsW, ls);
+  bookWeld(`Shell circumferential seam welding (${cs.toFixed(1)} m)`, 'weld.cs', csW, cs);
+  bookWeld(`Head-to-shell seam welding (${headWeldM.toFixed(1)} m)`, 'weld.head', headSeamW, headWeldM);
+  bookWeld(`Head blank seam welding — multi-plate (${headBlankSeamM.toFixed(1)} m)`, 'weld.blank', blankSeamW, headBlankSeamM);
+  bookWeld(`Cone transition seam welding (${coneWeldM.toFixed(1)} m)`, 'weld.cone', coneW, coneWeldM);
+  bookWeld(`Nozzle welds (${nz.toFixed(1)} m)`, 'weld.nozzle', nzW, nz);
 
   const cutLen = 2.2 * Math.max(weldM, 1);
-  labor(`Plate cutting & edge prep (${cutLen.toFixed(0)} m)`, cutLen * hPerM_cut(tGov), 'helper', 'cut');
-  labor(`Edge planning/milling (${cutLen.toFixed(0)} m)`, cutLen * hPerM_edge(tGov), 'fitter', 'edge');
+  machineWork(`Plate cutting — CNC plasma table (${cutLen.toFixed(0)} m @ ${hPerM_cut(tGov).toFixed(2)} h/m)`, cutLen * hPerM_cut(tGov), 'plasma', 'cut');
+  labor(`Cut-edge grinding & dressing (${cutLen.toFixed(0)} m)`, cutLen * hPerM_cutGrind(tGov), 'grinder', 'cut.grind');
+  machineWork(`Plate bevelling machine (${cutLen.toFixed(0)} m @ ${hPerM_edge(tGov).toFixed(2)} h/m)`, cutLen * hPerM_edge(tGov), 'bevel', 'edge');
+
+  const stainless = equip.materialKey.startsWith('SA-240') || equip.materialKey.startsWith('SB-');
+  labor(
+    `Weld dressing & grinding (${weldM.toFixed(1)} m${stainless ? ', stainless ×1.6' : ''})`,
+    weldM * 0.08 * (stainless ? 1.6 : 1) + calc.nozzles.length * 0.4,
+    'grinder',
+    'grind.weld'
+  );
 
   const fitH = 0.55 * seamTotalH;
   labor('Fit-up & assembly', fitH, 'fitter', 'fitup');
@@ -505,7 +627,7 @@ export function estimateEquipment(
     const nCourses = Math.max(1, Math.ceil(s.spec.ttLength / 2000));
     rollH += nCourses * (0.35 * s.tNominal + 2);
   }
-  labor('Shell rolling / forming', rollH, 'fitter', 'rolling');
+  machineWork('Shell rolling on the plate rolls', rollH, 'roll', 'rolling');
 
   // ---- Head forming — OUTSOURCED service (outside cost, not in-house shop hours) ----
   // Auto hours = Σ 0.6 × head thickness (mm) × blank diameter (m) per dish end; priced at the
@@ -554,8 +676,8 @@ export function estimateEquipment(
     const ringDia = (calc.sections[0]?.spec.dia ?? 1000) + 2 * (calc.sections[0]?.tNominal ?? 0) + 2 * (ringSpec.webDepthMm || 0);
     ringWeldM = (rings * Math.PI * ringDia) / 1000;
   }
-  const ringWeldH = addWeld('Stiffening ring welds (both sides)', ringWeldM, tGov, hPerM_ls(tGov) * 0.8, 1, false);
-  labor(`Stiffening ring welding (${ringWeldM.toFixed(1)} m)`, ringWeldH, 'welder', 'weld.ring');
+  const ringWeld = addWeld('Stiffening ring welds (both sides)', ringWeldM, tGov, hPerM_ls(tGov) * 0.8, 1, false);
+  labor(`Stiffening ring welding (${ringWeldM.toFixed(1)} m)`, ringWeld.total, 'welder', 'weld.ring');
 
   // internal support rings: one per three internals levels
   let intRingWeldM = 0;
@@ -564,35 +686,78 @@ export function estimateEquipment(
     const rings = Math.max(1, Math.ceil((it.count || 1) / 3));
     intRingWeldM += rings * Math.PI * shellDiaM;
   }
-  const intRingH = addWeld('Internal support ring welds', intRingWeldM, Math.min(tGov, 16), hPerM_ls(Math.min(tGov, 16)) * 0.6, 1, false);
-  labor(`Internal support ring welding (${intRingWeldM.toFixed(1)} m)`, intRingH, 'welder', 'weld.intRing');
+  const intRingW = addWeld('Internal support ring welds', intRingWeldM, Math.min(tGov, 16), hPerM_ls(Math.min(tGov, 16)) * 0.6, 1, false);
+  labor(`Internal support ring welding (${intRingWeldM.toFixed(1)} m)`, intRingW.total, 'welder', 'weld.intRing');
 
   // clips: access platforms and insulation/refractory fixings
   const platformCount = calc.access?.platforms ?? 0;
   const cladOn = equip.clad != null && equip.clad.mode !== 'none';
   const clipCount = platformCount * 4 + (cladOn ? Math.ceil(calc.paintAreaM2 * 4) : 0);
   const clipWeldM = clipCount * 0.24; // 60 mm fillets, both sides
-  const clipH = addWeld('Insulation / platform clip welds', clipWeldM, 8, hPerM_ls(8), 1.4, false);
+  const clipW = addWeld('Insulation / platform clip welds', clipWeldM, 8, hPerM_ls(8), 1.4, false);
   labor(
     `Insulation, refractory & platform clip welding (${clipCount} clips${cladOn ? ', cladding included' : ''})`,
-    clipH,
+    clipW.total,
     'welder',
     'weld.clip'
   );
   // every weld above (including the ring/clip welds) is subject to the NDT plan
   const weldMAll = weldM + ringWeldM + intRingWeldM + clipWeldM;
 
+  // ---- WELD OVERLAY: base (buffer) run + finish layer, priced separately ----
+  // The base run is the over-alloyed 309L layer that absorbs dilution from the
+  // ferritic shell; the finish layer is the specified corrosion-resistant grade.
+  // Deposition rates differ (a buffer run is faster than a single-pass finish),
+  // so each layer is its own man-hour item.
+  const cladOv = calc.clad?.overlay;
+  let overlayWireKg = 0;
+  if (cladOv && calc.clad) {
+    const areaM2 = calc.clad.areaM2;
+    const baseDepositKg = areaM2 * (cladOv.baseThkMm / 1000) * getMat(cladOv.baseMatKey).density;
+    const finishDepositKg = calc.clad.weightKg - cladOv.baseWeightKg;
+    overlayWireKg = (baseDepositKg + finishDepositKg) * 1.15;
+    labor(
+      `Weld overlay — ${cladOv.baseMatName} base run (${areaM2.toFixed(1)} m² × ${cladOv.baseThkMm} mm) — GTAW/SMAW manual`,
+      baseDepositKg / 1.1 + areaM2 * 0.15,
+      'gtaw',
+      'weld.overlay.base'
+    );
+    labor(
+      `Weld overlay — finish layer ${calc.clad.materialName} (${areaM2.toFixed(1)} m² × ${cladOv.finishThkMm} mm) — GTAW manual`,
+      finishDepositKg / 1.0 + areaM2 * 0.2,
+      'gtaw',
+      'weld.overlay.finish'
+    );
+    if (equip.clad?.overlay?.furnaceHeating) {
+      labor('Furnace heat treatment attendance (overlay cycle)', 8, 'pwht', 'overlay.furnace');
+      push({
+        group: 'Outside services',
+        activity: `Furnace heating cycle — overlay heat treatment (${cladOv.totalThkMm.toFixed(1)} mm build-up)`,
+        qty: 1,
+        unit: 'cycle',
+        rateUSD: rates.pwhtCycleUSD,
+        amountUSD: rates.pwhtCycleUSD,
+      });
+    }
+  }
+
   let intH = 0;
   const area = (Math.PI / 4) * Math.pow(((equip.sections[0]?.dia ?? 1000) - 150) / 1000, 2);
-  for (const it of equip.internals) intH += it.count * (2 + area * 0.4);
+  for (const it of equip.internals) {
+    // support-ring-only scope: the rings are welded in (booked under weld.intRing),
+    // but no tray / deck / packing is installed or bought
+    if (it.supplied === false) continue;
+    intH += it.count * (2 + area * 0.4);
+  }
   labor('Internals installation', intH, 'fitter', 'internals');
 
   const mechH = calc.weightDryKg / 1000 * 6; // mechanical completion
   labor('Mechanical completion, bolting & trim', mechH, 'fitter', 'mech');
 
-  // handling, turning and yard lifts — distinct from fabrication hours
-  const handleH = (calc.weightDryKg / 1000) * 0.6;
-  labor(`Handling, turning & crane (${(calc.weightDryKg / 1000).toFixed(1)} t dry)`, handleH, 'fitter', 'handle');
+  // handling, turning and yard lifts: manual rigging crew and the crane itself
+  const handleH = (calc.weightDryKg / 1000) * 0.35;
+  labor(`Handling, turning & rigging (${(calc.weightDryKg / 1000).toFixed(1)} t dry)`, handleH, 'fitter', 'handle');
+  machineWork(`Crane time (${(calc.weightDryKg / 1000).toFixed(1)} t dry)`, (calc.weightDryKg / 1000) * 0.25, 'crane', 'handle.crane');
 
   // ---- SUPPORTS — each support kind fabricated & costed separately (steel via BOM Structural) ----
   const sup = calc.supports;
@@ -675,7 +840,10 @@ export function estimateEquipment(
     const delta = ov - auto;
     if (Math.abs(delta) < 1e-9) continue;
     const trade = b.trade as LaborTrade;
-    const rate = rates.labor[trade];
+    // a key can mix a manual root and a machine fill — correct it at the rate it
+    // was actually booked at, not at an unrelated trade rate
+    const booked = keyRate[b.key];
+    const rate = booked && booked.hours > 1e-9 ? booked.cost / booked.hours : rates.labor[trade];
     const activity = `Manual manhour adjustment — ${b.label} (auto ${auto.toFixed(1)} h → manual ${ov.toFixed(1)} h)`;
     push({ group: trade === 'welder' ? 'Welding' : 'Shop labor', activity, qty: delta, unit: 'h', rateUSD: rate, amountUSD: delta * rate, trade, key: b.key });
     hoursByActivity.push({ activity, hours: delta, trade });
@@ -684,6 +852,32 @@ export function estimateEquipment(
   // ---- Consumables ----
   // Deposit is taken from the per-segment weld breakdown so SAW seams consume wire + flux and
   // only manual (non-SAW) segments consume SMAW electrodes; GTAW roots are wire everywhere.
+  if (overlayWireKg > 0) {
+    push({
+      group: 'Consumables',
+      activity: `Weld overlay wire — 309L buffer + finish layer (${overlayWireKg.toFixed(0)} kg incl. 15 % stub/run-off)`,
+      qty: overlayWireKg,
+      unit: 'kg',
+      rateUSD: rates.wirePrice,
+      amountUSD: overlayWireKg * rates.wirePrice,
+    });
+  }
+  // transportation saddles: priced only when the tag asks for it
+  const ts = equip.support?.transportSaddle;
+  if (ts?.enabled && ts.includeInPrice) {
+    const tItem = calc.supports?.items.find((i) => i.kind === 'transport');
+    if (tItem && tItem.weightKg > 0) {
+      const wood = tItem.label.includes('timber');
+      push({
+        group: 'Material',
+        activity: `${tItem.label}${wood ? ' — timber & fixings' : ' — shipping saddle steel'}`,
+        qty: tItem.count,
+        unit: 'ea',
+        rateUSD: wood ? 120 : tItem.weightKg * rates.structuralPrice,
+        amountUSD: wood ? tItem.count * 120 : tItem.weightKg * rates.structuralPrice,
+      });
+    }
+  }
   const totalDeposit = welds.reduce((s, w) => s + w.depositKg, 0);
   const sawFillDeposit = welds.filter((w) => w.process === 'saw').reduce((s, w) => s + w.depositKg * 0.85, 0);
   const manualDeposit = welds.filter((w) => w.process === 'manual').reduce((s, w) => s + w.depositKg, 0);
@@ -704,12 +898,14 @@ export function estimateEquipment(
   push({ group: 'Consumables', activity: 'Grinding discs, backing, gas & rigging consumables', qty: 1, unit: 'lot', rateUSD: discs * rates.discPrice + cyls * rates.gasCylPrice, amountUSD: discs * rates.discPrice + cyls * rates.gasCylPrice });
 
   const materialUSD = lines.filter((l) => l.group === 'Material').reduce((s, l) => s + l.amountUSD, 0);
-  const laborUSD = lines.filter((l) => l.group === 'Welding' || l.group === 'Shop labor').reduce((s, l) => s + l.amountUSD, 0);
+  const laborUSD = lines
+    .filter((l) => l.group === 'Welding' || l.group === 'Shop labor' || l.group === 'Machine')
+    .reduce((s, l) => s + l.amountUSD, 0);
   const consumableUSD = lines.filter((l) => l.group === 'Consumables').reduce((s, l) => s + l.amountUSD, 0);
   const serviceUSD = lines
     .filter((l) => l.group === 'NDT' || l.group === 'PWHT' || l.group === 'Hydro & test' || l.group === 'Painting' || l.group === 'Outside services')
     .reduce((s, l) => s + l.amountUSD, 0);
-  const shopHours = hoursByActivity.reduce((s, h) => s + h.hours, 0);
+  const shopHours = hoursByActivity.reduce((s, h) => s + h.hours, 0) + machineHours;
 
   return {
     lines,
@@ -722,6 +918,7 @@ export function estimateEquipment(
       consumableUSD,
       serviceUSD,
       shopHours,
+      machineHours,
       totalUSD: materialUSD + laborUSD + consumableUSD + serviceUSD,
       hoursByActivity,
       welds,

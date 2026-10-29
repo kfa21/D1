@@ -432,6 +432,10 @@ tr.bucket td { font-size: 12px; }
 .finding.clickable:hover { filter: brightness(1.06); transform: translateX(2px); }
 .fix-inline { margin-top: 5px; padding-top: 5px; border-top: 1px dashed var(--line); white-space: normal; font-size: 11.5px; }
 .fix-note { margin-top: 4px; white-space: normal; font-size: 11.5px; }
+/* value-only correction chip shown under an erroring field */
+.fix-note .fix-value { font-size: 12.5px; line-height: 1.3; }
+.fix-note .fix-value strong { font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+.fix-note .fix-value span[aria-hidden] { color: var(--ok, #3b9a5b); font-weight: 700; margin-right: 2px; }
 .field-focus { outline: 2px solid var(--accent); outline-offset: 2px; animation: fieldPulse 1s ease-in-out 2; }
 @keyframes fieldPulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }

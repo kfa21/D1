@@ -44,6 +44,7 @@ export const WARNING_CATALOG: Record<string, WarningSpec> = {
   'CL-02': { level: 'error', note: 'Partial cladding selected with zero coverage length' },
   'CL-03': { level: 'info', note: 'Mechanical liner non-pressure-retaining' },
   'CL-04': { level: 'warning', note: 'Clad finished thickness below typical 2 mm barrier minimum' },
+  'CL-05': { level: 'warning', note: 'Weld-overlay build-up indicated for furnace heat treatment — not selected' },
   'MW-01': { level: 'error', note: 'MAWP below design pressure — increase thickness' },
   'PW-01': { level: 'warning', note: 'PWHT required by UCS-56 but overridden off' },
   'GE-01': { level: 'warning', note: 'Vertical L/D > 15 — review wind/seismic analysis' },

@@ -101,7 +101,7 @@ export function summarizeEstimate(
   // ---- direct-cost split (the four headline buckets) ----
   const splitParts: { key: SplitShare['key']; label: string; amountUSD: number }[] = [
     { key: 'material', label: 'Material', amountUSD: t.materialUSD },
-    { key: 'labor', label: 'Shop labor & welding', amountUSD: t.laborUSD },
+    { key: 'labor', label: 'Shop labor, welding & machine hours', amountUSD: t.laborUSD },
     { key: 'consumables', label: 'Consumables', amountUSD: t.consumableUSD },
     { key: 'services', label: 'Services — NDT · PWHT · hydro · paint · outside', amountUSD: t.serviceUSD },
   ];

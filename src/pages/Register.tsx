@@ -36,7 +36,24 @@ export const NOZZLE_KIND_LABELS: Record<string, string> = {
 };
 
 function defaultClad(): CladSpec {
-  return { mode: 'none', kind: 'weldOverlay', materialKey: 'SA-240-316L', thicknessMm: 3, partialLengthMm: 0, note: '' };
+  return {
+    mode: 'none',
+    kind: 'weldOverlay',
+    materialKey: 'SA-240-316L',
+    thicknessMm: 3,
+    partialLengthMm: 0,
+    note: '',
+    // two-layer overlay: 309L buffer run + corrosion-resistant finish layer
+    overlay: { baseMatKey: 'SA-240-309L', baseThkMm: 1.5, finishThkMm: 1.5, furnaceHeating: false },
+  };
+}
+
+/** Cladding defaults for an existing spec that predates the overlay layers. */
+function cladWithOverlay(c: CladSpec): CladSpec {
+  return {
+    ...c,
+    overlay: c.overlay ?? { baseMatKey: 'SA-240-309L', baseThkMm: 1.5, finishThkMm: 1.5, furnaceHeating: false },
+  };
 }
 
 const TYPES: { key: EquipType; label: string }[] = [
@@ -443,10 +460,86 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
                   {MATERIALS.filter((m) => m.form === 'plate').map((m) => <option key={m.key} value={m.key}>{m.name}</option>)}
                 </select>
               </label>
-              <label className="f"><span>Thickness (mm)</span>
-                <input id={fid('cladThk')} type="number" step="0.5" value={equip.clad?.thicknessMm ?? 3} disabled={(equip.clad?.mode ?? 'none') === 'none'} onChange={(e) => update(equip.id, { clad: { ...(equip.clad ?? defaultClad()), thicknessMm: +e.target.value } })} />
-                <FixNote equipId={equip.id} field="cladThk" />
-              </label>
+              {equip.clad?.kind === 'weldOverlay' ? (
+                <>
+                  {/* An overlay is a two-layer build-up: a 309L buffer run so the
+                      ferritic base cannot dilute the finish layer, then the
+                      corrosion-resistant finish of the specified grade. */}
+                  <label className="f"><span>Base (buffer) run grade</span>
+                    <select
+                      value={equip.clad?.overlay?.baseMatKey ?? 'SA-240-309L'}
+                      disabled={(equip.clad?.mode ?? 'none') === 'none'}
+                      onChange={(e) =>
+                        update(equip.id, {
+                          clad: { ...cladWithOverlay(equip.clad ?? defaultClad()), overlay: { ...cladWithOverlay(equip.clad ?? defaultClad()).overlay!, baseMatKey: e.target.value } },
+                        })
+                      }
+                    >
+                      {MATERIALS.filter((m) => m.form === 'plate').map((m) => <option key={m.key} value={m.key}>{m.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="f"><span>Base-run thickness (mm, min 1.5)</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min={1.5}
+                      value={equip.clad?.overlay?.baseThkMm ?? 1.5}
+                      disabled={(equip.clad?.mode ?? 'none') === 'none'}
+                      onChange={(e) => {
+                        const c = cladWithOverlay(equip.clad ?? defaultClad());
+                        update(equip.id, { clad: { ...c, overlay: { ...c.overlay!, baseThkMm: +e.target.value } } });
+                      }}
+                    />
+                  </label>
+                  <label className="f"><span>Finish-layer thickness (mm, min 1.5)</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min={1.5}
+                      value={equip.clad?.overlay?.finishThkMm ?? 1.5}
+                      disabled={(equip.clad?.mode ?? 'none') === 'none'}
+                      onChange={(e) => {
+                        const c = cladWithOverlay(equip.clad ?? defaultClad());
+                        update(equip.id, { clad: { ...c, overlay: { ...c.overlay!, finishThkMm: +e.target.value } } });
+                      }}
+                    />
+                    <FixNote equipId={equip.id} field="cladThk" />
+                  </label>
+                  <label className="f"><span>Furnace heating after overlay</span>
+                    <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        id={fid('cladFurnace')}
+                        type="checkbox"
+                        checked={!!equip.clad?.overlay?.furnaceHeating}
+                        disabled={(equip.clad?.mode ?? 'none') === 'none'}
+                        onChange={(e) => {
+                          const c = cladWithOverlay(equip.clad ?? defaultClad());
+                          update(equip.id, { clad: { ...c, overlay: { ...c.overlay!, furnaceHeating: e.target.checked } } });
+                        }}
+                      />
+                      <span className="small muted">
+                        {calc.clad?.overlay
+                          ? calc.clad.overlay.furnaceSuggested
+                            ? `Suggested — ${calc.clad.overlay.basis}`
+                            : 'Not indicated by thickness or base metal'
+                          : '—'}
+                      </span>
+                    </span>
+                    <FixNote equipId={equip.id} field="cladFurnace" />
+                  </label>
+                  <div className="small muted" style={{ gridColumn: 'span 2' }}>
+                    Overlay thickness = <strong>{((equip.clad?.overlay?.baseThkMm ?? 1.5) + (equip.clad?.overlay?.finishThkMm ?? 1.5)).toFixed(1)} mm</strong>{' '}
+                    (base {(equip.clad?.overlay?.baseThkMm ?? 1.5)} mm + finish {(equip.clad?.overlay?.finishThkMm ?? 1.5)} mm).
+                    The base run is deposited on the shell first; the finish layer is the corrosion barrier and takes its
+                    grade from “Lining grade” above.
+                  </div>
+                </>
+              ) : (
+                <label className="f"><span>Thickness (mm)</span>
+                  <input id={fid('cladThk')} type="number" step="0.5" value={equip.clad?.thicknessMm ?? 3} disabled={(equip.clad?.mode ?? 'none') === 'none'} onChange={(e) => update(equip.id, { clad: { ...(equip.clad ?? defaultClad()), thicknessMm: +e.target.value } })} />
+                  <FixNote equipId={equip.id} field="cladThk" />
+                </label>
+              )}
               {(equip.clad?.mode ?? 'none') === 'partial' && (
                 <label className="f"><span>Covered length from bottom (mm)</span>
                   <input id={fid('cladLength')} type="number" value={equip.clad?.partialLengthMm ?? 0} onChange={(e) => update(equip.id, { clad: { ...(equip.clad ?? defaultClad()), partialLengthMm: +e.target.value } })} />
@@ -456,7 +549,12 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
               {equip.clad && equip.clad.mode !== 'none' && calc.clad && (
                 <div className="kpi" style={{ gridColumn: 'span 2' }}>
                   <span className="v">{fmt(calc.clad.weightKg, 0)} kg · {fmt(calc.clad.areaM2, 1)} m²</span>
-                  <span className="l">{calc.clad.materialName} {equip.clad.thicknessMm} mm — priced at lining grade $/kg in estimate</span>
+                  <span className="l">
+                    {calc.clad.overlay
+                      ? `${calc.clad.overlay.baseMatName} base ${calc.clad.overlay.baseThkMm} mm (${fmt(calc.clad.overlay.baseWeightKg, 0)} kg) + ${calc.clad.materialName} finish ${calc.clad.overlay.finishThkMm} mm (${fmt(calc.clad.overlay.finishWeightKg, 0)} kg)${equip.clad.overlay?.furnaceHeating ? ' · furnace cycle costed' : ''}`
+                      : `${calc.clad.materialName} ${equip.clad.thicknessMm} mm`}
+                    {' '}— priced at lining grade $/kg in the estimate
+                  </span>
                 </div>
               )}
             </div>
@@ -540,14 +638,20 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
 
         {tab === 'nozzles' && (
           <div>
-            <p className="muted small">Nozzle neck, reinforcement (UG-32/UG-37) and B16.5 flange rating are verified at design temperature automatically.</p>
+            <p className="muted small">
+              Nozzle neck, reinforcement (UG-32/UG-37) and B16.5 flange rating are verified at design temperature
+              automatically. <strong>Attach</strong> places a nozzle on the shell or on <em>either</em> dished end — on a
+              head the elevation is measured inward from that head's tangent line and the azimuth around it, and UG-37
+              is checked against the head thickness. <strong>RF pad Ø</strong> is the only pad input: the ring thickness
+              is derived from the bore, the neck schedule and the shell/head thickness.
+            </p>
             <div className="tablewrap">
               <table className="grid">
                 <thead>
                   <tr>
                     <th>Tag</th><th>Service</th><th>Kind</th><th>Attach</th><th className="num">Bore (NPS)</th><th>Sch</th>
                     <th className="num">Elev (mm)</th><th className="num" title="Shell course the nozzle sits on — resolved from its elevation">Course</th><th className="num">Azim°</th><th>Flange</th><th>Flange mat</th>
-                    <th className="num">Pad Ø</th><th className="num">Pad t</th>
+                    <th className="num">RF pad Ø</th><th className="num" title="Derived from the bore, neck wall and shell thickness for the pad Ø entered">Pad t (auto)</th>
                     <th className="num grp">Neck t (mm)</th><th className="num grp">A req</th><th className="num grp">A prov</th>
                     <th className="num grp">Rating (bar)</th><th className="grp">Status</th><th></th>
                   </tr>
@@ -598,8 +702,24 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
                         <td><select value={n.flangeMatKey} onChange={(e) => upNz(n.id, { flangeMatKey: e.target.value })}>
                           {MATERIALS.filter((m) => m.form === 'forging' || m.key === 'SA-105').map((m) => <option key={m.key} value={m.key}>{m.name}</option>)}
                         </select></td>
-                        <td><input type="number" className="num" value={n.padDia} onChange={(e) => upNz(n.id, { padDia: +e.target.value })} /></td>
-                        <td><input id={fid(`nz${i}-padThk`)} type="number" className="num" value={n.padThk} onChange={(e) => upNz(n.id, { padThk: +e.target.value })} /><FixNote equipId={equip.id} field={`nz${i}-padThk`} /></td>
+                        {/* RF pad: the ring THICKNESS is derived from the nozzle bore, its
+                            schedule and the shell/head thickness — only the pad OD is an input
+                            (setting it rewrites padThk to 0 = auto). */}
+                        <td>
+                          <input
+                            id={fid(`nz${i}-padDia`)}
+                            type="number"
+                            className="num"
+                            value={n.padDia}
+                            step={10}
+                            title={`Suggested ${nc?.padDiaSuggested ?? '—'} mm (≈ twice the bore)`}
+                            onChange={(e) => upNz(n.id, { padDia: +e.target.value, padThk: 0 })}
+                          />
+                          <FixNote equipId={equip.id} field={`nz${i}-padDia`} />
+                        </td>
+                        <td className="num calc" title="Pad thickness derived by UG-37 for this pad OD — no entry needed">
+                          {nc ? (nc.padDiaUsed > 0 ? fmt(nc.padThkUsed, 1) : '—') : '—'}
+                        </td>
                         <td className="num calc">{nc ? fmt(nc.wall, 2) : '—'}</td>
                         <td className="num calc">{nc ? nc.Areq.toFixed(0) : '—'}</td>
                         <td className="num calc">{nc ? nc.Aprov.toFixed(0) : '—'}</td>
@@ -675,7 +795,7 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
             <div className="tablewrap">
               <table className="grid">
                 <thead>
-                  <tr><th>Type</th><th className="num">Count</th><th className="num">Spacing (mm)</th><th className="num">Bottom elev (mm)</th><th>Material</th><th className="num">kg/m²</th><th className="num grp">Weight (kg)</th><th>Note</th><th></th></tr>
+                  <tr><th>Type</th><th>Scope</th><th className="num">Count</th><th className="num">Spacing (mm)</th><th className="num">Bottom elev (mm)</th><th>Material</th><th className="num">kg/m²</th><th className="num grp">Weight (kg)</th><th>Note</th><th></th></tr>
                 </thead>
                 <tbody>
                   {equip.internals.map((it, i) => (
@@ -683,12 +803,35 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
                       <td><select value={it.kind} onChange={(e) => upIn(it.id, { kind: e.target.value as never })}>
                         {['sieveTray', 'valveTray', 'bubbleCapTray', 'randomPacking', 'structuredPacking', 'demister', 'distributor', 'collector', 'chimneyTray', 'supportRing'].map((k) => <option key={k} value={k}>{internalsLabelLocal(k)}</option>)}
                       </select></td>
+                      <td>
+                        <select
+                          value={it.supplied === false ? 'ring' : 'full'}
+                          title="Support-ring only: the tray/bed rings are welded in, but no trays, decks or packing are supplied"
+                          onChange={(e) => upIn(it.id, { supplied: e.target.value === 'full' ? undefined : false })}
+                        >
+                          <option value="full">Supply &amp; install</option>
+                          <option value="ring">Support ring only (TSR)</option>
+                        </select>
+                      </td>
                       <td><input type="number" className="num" value={it.count} onChange={(e) => upIn(it.id, { count: +e.target.value })} /></td>
                       <td><input type="number" className="num" value={it.spacing} onChange={(e) => upIn(it.id, { spacing: +e.target.value })} /></td>
                       <td><input type="number" className="num" value={it.bottomElevation} onChange={(e) => upIn(it.id, { bottomElevation: +e.target.value })} /></td>
-                      <td><select value={it.materialKey} onChange={(e) => upIn(it.id, { materialKey: e.target.value })}>
-                        {MATERIALS.map((m) => <option key={m.key} value={m.key}>{m.name}</option>)}
-                      </select></td>
+                      <td className="small">
+                        {it.kind === 'supportRing' && equip.clad && equip.clad.mode !== 'none' ? (
+                          <>
+                            <select value={it.ringMaterialKey ?? equip.clad.materialKey} onChange={(e) => upIn(it.id, { ringMaterialKey: e.target.value })}>
+                              {MATERIALS.filter((m) => m.form === 'plate').map((m) => <option key={m.key} value={m.key}>{m.name}</option>)}
+                            </select>
+                            <div className="small muted" title="A support ring inside the clad zone is welded with the clad final-layer grade">
+                              clad final layer
+                            </div>
+                          </>
+                        ) : (
+                          <select value={it.materialKey} onChange={(e) => upIn(it.id, { materialKey: e.target.value })}>
+                            {MATERIALS.map((m) => <option key={m.key} value={m.key}>{m.name}</option>)}
+                          </select>
+                        )}
+                      </td>
                       <td><input type="number" className="num" value={it.kgPerM2} onChange={(e) => upIn(it.id, { kgPerM2: +e.target.value })} /></td>
                       <td className="num calc">{fmt(internalsWeightLocal(equip, i), 0)}</td>
                       <td><input value={it.note} onChange={(e) => upIn(it.id, { note: e.target.value })} style={{ width: 140 }} /></td>
@@ -742,11 +885,13 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
 function c0label(c: number) { return c; }
 
 function internalsLabelLocal(k: string): string {
+  if (k === 'supportRing') return 'Tray / bed support ring (TSR)';
   return k.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase());
 }
 
 function internalsWeightLocal(equip: Equipment, idx: number): number {
   const it = equip.internals[idx];
+  if (it.supplied === false) return 0; // support-ring-only scope: nothing supplied
   const D = equip.sections[0]?.dia ?? 1000;
   const area = (Math.PI / 4) * Math.pow((D - 150) / 1000, 2);
   return it.count * area * it.kgPerM2;
@@ -767,28 +912,132 @@ function SupportEditor({ equip }: { equip: Equipment }) {
       <div className="grid2">
         <label className="f"><span>Primary support type</span>
           <select id={fid('supType')} value={s.type} onChange={(e) => p({ type: e.target.value as never })}>
-            <option value="legs">Legs (vertical vessels)</option>
-            <option value="saddle">Saddles (horizontal vessels / HX)</option>
-            <option value="skirt">Skirt (columns, vertical vessels)</option>
-            <option value="ring">Base ring</option>
-            <option value="none">None</option>
+            <optgroup label="Legs (vertical vessels)">
+              <option value="legs">Legs — plate post</option>
+              <option value="legsAngle">Legs — angle section</option>
+              <option value="legsBeam">Legs — rolled beam</option>
+            </optgroup>
+            <optgroup label="Saddles (horizontal vessels / HX)">
+              <option value="saddle">Saddles</option>
+            </optgroup>
+            <optgroup label="Skirts (columns / vertical vessels)">
+              <option value="skirt">Skirt — cylindrical</option>
+              <option value="skirtCone">Skirt — conical</option>
+              <option value="angleSkirt">Angle skirt (rolled angle ring)</option>
+              <option value="bodyAngleSkirt">Body angle skirt (angle on the shell)</option>
+            </optgroup>
+            <optgroup label="Base">
+              <option value="ring">Base ring</option>
+              <option value="none">None</option>
+            </optgroup>
           </select>
           <FixNote equipId={equip.id} field="supType" />
         </label>
-        <label className="f"><span>Legs / saddle count</span><input type="number" value={s.legCount} onChange={(e) => p({ legCount: +e.target.value })} /></label>
-        <label className="f"><span>Saddle span (mm)</span><input id={fid('supSaddleSpan')} type="number" value={s.saddleSpan} onChange={(e) => p({ saddleSpan: +e.target.value })} /><FixNote equipId={equip.id} field="supSaddleSpan" /></label>
-        <label className="f"><span>Saddle angle (°)</span><input id={fid('supSaddleAngle')} type="number" value={s.saddleAngle} onChange={(e) => p({ saddleAngle: +e.target.value })} /><FixNote equipId={equip.id} field="supSaddleAngle" /></label>
-        <label className="f"><span>Skirt / leg height (mm)</span><input type="number" value={s.skirtH} onChange={(e) => p({ skirtH: +e.target.value })} /></label>
-        <label className="f"><span>Leg plate t (mm)</span><input type="number" value={s.legPlateThk} onChange={(e) => p({ legPlateThk: +e.target.value })} /></label>
+        <label className="f"><span>{(s.type === 'legs' || s.type === 'legsAngle' || s.type === 'legsBeam') ? 'Leg count' : s.type === 'saddle' ? 'Saddle count' : 'Count'}</span>
+          <input type="number" value={s.legCount} onChange={(e) => p({ legCount: +e.target.value })} />
+        </label>
+        {/* only the fields that belong to the selected support are shown */}
+        {(s.type === 'legs' || s.type === 'legsAngle' || s.type === 'legsBeam') && (
+          <>
+            <label className="f"><span>Leg height (mm)</span><input type="number" value={s.skirtH} onChange={(e) => p({ skirtH: +e.target.value })} /></label>
+            <label className="f"><span>Leg plate t (mm)</span><input type="number" value={s.legPlateThk} onChange={(e) => p({ legPlateThk: +e.target.value })} /></label>
+          </>
+        )}
+        {s.type === 'saddle' && (
+          <>
+            <label className="f"><span>Saddle span (mm)</span><input id={fid('supSaddleSpan')} type="number" value={s.saddleSpan} onChange={(e) => p({ saddleSpan: +e.target.value })} /><FixNote equipId={equip.id} field="supSaddleSpan" /></label>
+            <label className="f"><span>Saddle angle (°)</span><input id={fid('supSaddleAngle')} type="number" value={s.saddleAngle} onChange={(e) => p({ saddleAngle: +e.target.value })} /><FixNote equipId={equip.id} field="supSaddleAngle" /></label>
+          </>
+        )}
+        {(s.type === 'skirt' || s.type === 'skirtCone' || s.type === 'angleSkirt' || s.type === 'bodyAngleSkirt') && (
+          <label className="f"><span>Skirt height (mm, 0 = typical)</span><input type="number" value={s.skirtH} onChange={(e) => p({ skirtH: +e.target.value })} /></label>
+        )}
         <label className="f"><span>Auxiliary (each costed separately)</span>
           <span style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <label className="small"><input id={fid('supBaseRing')} type="checkbox" checked={!!s.baseRing} onChange={(e) => p({ baseRing: e.target.checked })} /> Base ring + anchors</label>
-            <label className="small"><input type="checkbox" checked={!!s.padeyes} onChange={(e) => p({ padeyes: e.target.checked })} /> Lifting lugs / padeyes</label>
             <label className="small"><input type="checkbox" checked={!!s.guyLines} onChange={(e) => p({ guyLines: e.target.checked })} /> Guy-wire derrick</label>
           </span>
           <FixNote equipId={equip.id} field="supBaseRing" />
         </label>
       </div>
+
+      {/* ---- Lifting arrangement: sized, not just a checkbox ------------------- */}
+      <h3 style={{ marginTop: 16 }}>Lifting arrangement</h3>
+      <div className="grid2">
+        <label className="f"><span>Include lifting gear</span>
+          <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              checked={s.lifting?.enabled ?? !!s.padeyes}
+              onChange={(e) => p({ lifting: { enabled: e.target.checked, kind: s.lifting?.kind ?? 'lugs', count: s.lifting?.count ?? 0, plateThkMm: s.lifting?.plateThkMm ?? 0, liftFactor: s.lifting?.liftFactor ?? 1, trunnionBoreMm: s.lifting?.trunnionBoreMm ?? 0 } })}
+            />
+            <span className="small muted">adds lugs/trunnions to the BOM, welds and hours</span>
+          </span>
+        </label>
+        {(s.lifting?.enabled ?? !!s.padeyes) && (
+          <>
+            <label className="f"><span>Lifting type</span>
+              <select value={s.lifting?.kind ?? 'lugs'} onChange={(e) => p({ lifting: { enabled: true, kind: e.target.value as never, count: s.lifting?.count ?? 0, plateThkMm: s.lifting?.plateThkMm ?? 0, liftFactor: s.lifting?.liftFactor ?? 1, trunnionBoreMm: s.lifting?.trunnionBoreMm ?? 0 } })}>
+                <option value="lugs">Lifting lugs (vertical lift)</option>
+                <option value="trunnion">Trunnions (radial, one per side)</option>
+                <option value="trunnionPair">Trunnion pair (horizontal vessel roll)</option>
+                <option value="tailLug">Tailing lug (erection tail end)</option>
+              </select>
+            </label>
+            <label className="f"><span>Number (0 = auto)</span>
+              <input type="number" value={s.lifting?.count ?? 0} onChange={(e) => p({ lifting: { enabled: true, kind: s.lifting?.kind ?? 'lugs', count: +e.target.value, plateThkMm: s.lifting?.plateThkMm ?? 0, liftFactor: s.lifting?.liftFactor ?? 1, trunnionBoreMm: s.lifting?.trunnionBoreMm ?? 0 } })} />
+            </label>
+            <label className="f"><span>Lug plate t (mm, 0 = auto)</span>
+              <input type="number" value={s.lifting?.plateThkMm ?? 0} onChange={(e) => p({ lifting: { enabled: true, kind: s.lifting?.kind ?? 'lugs', count: s.lifting?.count ?? 0, plateThkMm: +e.target.value, liftFactor: s.lifting?.liftFactor ?? 1, trunnionBoreMm: s.lifting?.trunnionBoreMm ?? 0 } })} />
+            </label>
+            <label className="f"><span>Lift factor (1.0 dead · 1.5 dynamic)</span>
+              <input type="number" step="0.05" value={s.lifting?.liftFactor ?? 1} onChange={(e) => p({ lifting: { enabled: true, kind: s.lifting?.kind ?? 'lugs', count: s.lifting?.count ?? 0, plateThkMm: s.lifting?.plateThkMm ?? 0, liftFactor: +e.target.value, trunnionBoreMm: s.lifting?.trunnionBoreMm ?? 0 } })} />
+            </label>
+            {(s.lifting?.kind === 'trunnion' || s.lifting?.kind === 'trunnionPair') && (
+              <label className="f"><span>Trunnion bore (mm, 0 = auto)</span>
+                <input type="number" value={s.lifting?.trunnionBoreMm ?? 0} onChange={(e) => p({ lifting: { enabled: true, kind: s.lifting?.kind ?? 'trunnion', count: s.lifting?.count ?? 0, plateThkMm: s.lifting?.plateThkMm ?? 0, liftFactor: s.lifting?.liftFactor ?? 1, trunnionBoreMm: +e.target.value } })} />
+              </label>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ---- Transportation saddles (horizontal equipment only) ----------------- */}
+      {equip.orientation === 'horizontal' && (
+        <>
+          <h3 style={{ marginTop: 16 }}>Transportation saddles</h3>
+          <p className="small muted" style={{ marginTop: 0 }}>
+            Shipping saddles are separate from the design saddles: they carry the vessel on the transporter and are
+            normally timber cribbing on light drums and a fabricated steel frame on heavy ones.
+          </p>
+          <div className="grid2">
+            <label className="f"><span>Provide transportation saddles</span>
+              <input
+                type="checkbox"
+                checked={!!s.transportSaddle?.enabled}
+                onChange={(e) => p({ transportSaddle: { enabled: e.target.checked, kind: s.transportSaddle?.kind ?? 'auto', count: s.transportSaddle?.count ?? 0, includeInPrice: s.transportSaddle?.includeInPrice ?? true } })}
+              />
+            </label>
+            {s.transportSaddle?.enabled && (
+              <>
+                <label className="f"><span>Type</span>
+                  <select value={s.transportSaddle.kind} onChange={(e) => p({ transportSaddle: { ...s.transportSaddle!, kind: e.target.value as never } })}>
+                    <option value="auto">Auto — wood under 8 t, steel above</option>
+                    <option value="wood">Wooden (hardwood crib + chocks)</option>
+                    <option value="metal">Metal (fabricated shipping saddle)</option>
+                  </select>
+                </label>
+                <label className="f"><span>Count (0 = auto)</span>
+                  <input type="number" value={s.transportSaddle.count} onChange={(e) => p({ transportSaddle: { ...s.transportSaddle!, count: +e.target.value } })} />
+                </label>
+                <label className="f"><span>Include in the price</span>
+                  <input type="checkbox" checked={s.transportSaddle.includeInPrice} onChange={(e) => p({ transportSaddle: { ...s.transportSaddle!, includeInPrice: e.target.checked } })} />
+                </label>
+              </>
+            )}
+          </div>
+        </>
+      )}
       {sup && sup.items.length > 0 ? (
         <div className="tablewrap" style={{ marginTop: 8 }}>
           <table className="grid">

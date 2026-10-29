@@ -15,6 +15,7 @@ import type {
   NozzleCalc,
   SectionCalc,
   SectionSpec,
+  SupportType,
   Warning,
 } from './types';
 import type { StiffenerRingResult } from './rings';
@@ -35,6 +36,19 @@ export const JOINT_EFFICIENCY: Record<'full' | 'spot' | 'none', number> = {
 };
 
 const UG16_MIN = 1.5; // mm, UG-16(b) minimum exclusive of CA (non-corrosive)
+
+/**
+ * Default weld-overlay buffer (base-run) grade. 309L is the standard base run on
+ * a carbon / low-alloy shell: it is over-alloyed enough to absorb dilution from
+ * the ferritic base before the corrosion-resistant finish layer goes on.
+ */
+export function defaultOverlayBase(_baseMatKey: string): string {
+  return 'SA-240-309L';
+}
+
+/** Support types that stand the vessel on legs / on a skirt (used by the anchor-bolt group). */
+export const LEG_TYPES: SupportType[] = ['legs', 'legsAngle', 'legsBeam'];
+export const SKIRT_TYPES: SupportType[] = ['skirt', 'skirtCone', 'angleSkirt', 'bodyAngleSkirt'];
 
 /** Head geometry & forming data by type */
 export function headGeometry(type: HeadType, D: number) {
@@ -474,20 +488,36 @@ function calcNozzle(
   const Areq = d * tr * F + 2 * tr * (1 - fr1) * Math.min(tn, d) * F;
 
   const A1 = Math.max(0, d * (E * ta - tr));
-  // UG-40 limits of reinforcement: shell side 2.5·t (+pad), nozzle side 2.5·t_n.
-  const hOut = Math.min(nozzle.projOutside + nozzle.padThk, 2.5 * ta + nozzle.padThk);
-  const hIn = Math.min(50, ta, 2.5 * tn); // inside projection (set-through assumption), UG-40 nozzle cap
-  // A2 = 2·(h_out + h_in)·(t_n − F·t_r) per UG-37.1 — only the F·t_r term (pressure
-  // thickness the shell needs at the opening) is deducted from the nozzle wall; the
-  // previous form also subtracted t_rn a second time, under-providing A2.
-  const A2 = 2 * (hOut + hIn) * Math.max(0, tn - F * tr);
-  const padDia = nozzle.padDia > nozzle.dn + 2 * wall ? nozzle.padDia : 0;
-  const A3 = padDia > 0 ? Math.max(0, (padDia - d - 2 * wall) * nozzle.padThk) : 0;
   const w = 6; // assumed fillet leg mm
   const Aweld = w * w;
+  // UG-37.1 only deducts the F·t_r term (pressure thickness the shell needs at
+  // the opening) from the neck wall; subtracting t_rn as well under-provides A2.
+  //
+  // The PAD THICKNESS IS DERIVED, not entered: once the nozzle bore, schedule and
+  // shell thickness fix A_req and the neck/shell supply, the only unknown that
+  // closes the shortfall is the pad thickness at the chosen pad OD — so the ring
+  // is sized from the same numbers the check runs on, and only the diameter is a
+  // user choice. (A manual padThk still overrides it.)
+  const padDia = nozzle.padDia > nozzle.dn + 2 * wall ? nozzle.padDia : 0;
+  const padAnnulus = padDia > 0 ? Math.max(0, padDia - d - 2 * wall) : 0; // mm² of pad per mm of thickness
+  const hOutBase = Math.min(nozzle.projOutside, 2.5 * ta);
+  const hIn = Math.min(50, ta, 2.5 * tn); // inside projection (set-through assumption), UG-40 nozzle cap
+  const A2base = 2 * (hOutBase + hIn) * Math.max(0, tn - F * tr);
+  const padThkAuto = padAnnulus > 0 ? Math.max(0, (Areq - A1 - A2base - Aweld) / padAnnulus) : 0;
+  // always derived: the ring thickness follows from the bore, the neck schedule and
+  // the shell/head thickness — the pad OUTSIDE DIAMETER is the only user choice
+  // (a legacy saved padThk is deliberately ignored and reported as padThkUsed)
+  const padThkUsed = padDia > 0 ? Math.ceil(padThkAuto * 2) / 2 : 0;
+  // UG-40 limits of reinforcement: shell side 2.5·t (+pad), nozzle side 2.5·t_n.
+  const hOut = Math.min(nozzle.projOutside + padThkUsed, 2.5 * ta + padThkUsed);
+  const A2 = 2 * (hOut + hIn) * Math.max(0, tn - F * tr);
+  const A3 = padAnnulus * padThkUsed;
   const Aprov = A1 + A2 + A3 + Aweld;
   const shortfall = Areq - Aprov;
   const reinforceOK = shortfall <= 1e-6;
+  // Suggested pad OD = twice the opening (the usual reinforcement ring), and never
+  // less than the opening plus 100 mm of annular width.
+  const padDiaSuggested = Math.ceil(Math.max(2 * nozzle.dn, nozzle.dn + 2 * wall + 100) / 10) * 10;
 
   if (!neckOK) {
     warnings.push({
@@ -500,7 +530,10 @@ function calcNozzle(
     warnings.push({
       level: 'error',
       code: 'NZ-02',
-      msg: `Nozzle ${nozzle.tag}: reinforcement shortfall ${shortfall.toFixed(0)} mm² — increase pad or wall (UG-37)`,
+      msg:
+        padDia > 0
+          ? `Nozzle ${nozzle.tag}: reinforcement shortfall ${shortfall.toFixed(0)} mm² — pad Ø${padDia} × ${padThkUsed.toFixed(1)} mm is not enough; the same Ø needs ≥ ${padThkAuto.toFixed(1)} mm, or a larger pad / heavier neck (UG-37)`
+          : `Nozzle ${nozzle.tag}: reinforcement shortfall ${shortfall.toFixed(0)} mm² — add a reinforcing pad (Ø ≈ ${padDiaSuggested} mm, thickness follows automatically) or a heavier neck (UG-37)`,
     });
   }
 
@@ -563,6 +596,11 @@ function calcNozzle(
     Aprov,
     shortfall,
     reinforceOK,
+    padThkAuto,
+    padThkUsed,
+    padDiaUsed: padDia,
+    padArea: A3,
+    padDiaSuggested,
     flangeRating: fl.ratingBar,
     flangeClassOK: fl.ok,
     load: loadCalc ?? undefined,
@@ -862,11 +900,14 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
     paint += Math.PI * (nc.spec.dn / 1000) * 0.25;
   }
   // internal/external attachments
-  weightDry += equip.support.legCount * 90 + (equip.support.type === 'skirt' ? 600 : 0);
+  weightDry += equip.support.legCount * 90 + (SKIRT_TYPES.includes(equip.support.type) ? 600 : 0);
 
-  // Internal mass (column internals etc.)
+  // Internal mass (column internals etc.) — only what this shop actually supplies.
+  // A "support-ring only" item is welded in (hours booked) but no tray, deck or
+  // packing is bought, so it must not appear as internal mass.
   let internalsMass = 0;
   for (const it of equip.internals) {
+    if (it.supplied === false) continue;
     const area = (Math.PI / 4) * Math.pow((sections[0].spec.dia - 100) / 1000, 2);
     internalsMass += it.count * it.kgPerM2 * area;
   }
@@ -876,7 +917,11 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
   let clad: EquipmentCalc['clad'];
   let cladAusteniticOrDuplex = false;
   const cladSpec = equip.clad;
-  if (cladSpec && cladSpec.mode !== 'none' && cladSpec.thicknessMm > 0) {
+  const overlaySpec = cladSpec?.kind === 'weldOverlay' ? cladSpec.overlay : undefined;
+  const cladTotalThk = overlaySpec
+    ? Math.max(1.5, overlaySpec.baseThkMm || 1.5) + Math.max(1.5, overlaySpec.finishThkMm || 1.5)
+    : (cladSpec?.thicknessMm ?? 0);
+  if (cladSpec && cladSpec.mode !== 'none' && cladTotalThk > 0) {
     let cladArea = 0;
     for (const c of sections) {
       const Dm = c.spec.dia / 1000;
@@ -895,7 +940,52 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
     }
     const cladMat = getMat(cladSpec.materialKey);
     cladAusteniticOrDuplex = ['SS304', 'SS316', 'SS stab', 'Duplex', 'SuperDuplex', 'Nickel'].includes(cladMat.group);
-    const cladWeightKg = cladArea * (cladSpec.thicknessMm / 1000) * cladMat.density;
+
+    // ---- weld overlay: 309L base (buffer) run + finish layer, each with its own
+    // minimum thickness, consumable and deposition hours ----
+    let overlay: NonNullable<EquipmentCalc['clad']>['overlay'];
+    let cladWeightKg: number;
+    if (overlaySpec) {
+      const baseThk = Math.max(1.5, overlaySpec.baseThkMm || 1.5);
+      const finishThk = Math.max(1.5, overlaySpec.finishThkMm || 1.5);
+      const baseMat = getMat(overlaySpec.baseMatKey || defaultOverlayBase(equip.materialKey));
+      const baseWeight = cladArea * (baseThk / 1000) * baseMat.density;
+      const finishWeight = cladArea * (finishThk / 1000) * cladMat.density;
+      cladWeightKg = baseWeight + finishWeight;
+      const tGov = Math.max(0, ...sections.map((s) => s.tNominal));
+      // Furnace heating is a real cost driver on overlay work: a thick build-up,
+      // a thick shell or a Cr-Mo base needs a controlled furnace cycle rather
+      // than local preheat — the engine states the basis, the user decides.
+      const thickOverlay = baseThk + finishThk >= 5;
+      const thickShell = tGov >= 32;
+      const crMoBase = baseMat.group === 'CrMo';
+      const furnaceSuggested = thickOverlay || thickShell || crMoBase;
+      const basisParts = [
+        thickOverlay ? `build-up ${(baseThk + finishThk).toFixed(1)} mm ≥ 5 mm` : '',
+        thickShell ? `shell ${tGov.toFixed(0)} mm ≥ 32 mm` : '',
+        crMoBase ? 'Cr-Mo base metal' : '',
+      ].filter(Boolean);
+      overlay = {
+        baseMatKey: baseMat.key,
+        baseMatName: baseMat.name,
+        baseThkMm: baseThk,
+        finishThkMm: finishThk,
+        baseWeightKg: baseWeight,
+        finishWeightKg: finishWeight,
+        totalThkMm: baseThk + finishThk,
+        furnaceSuggested,
+        basis: furnaceSuggested ? basisParts.join('; ') : 'no furnace cycle indicated by thickness / base metal',
+      };
+      if (furnaceSuggested && !overlaySpec.furnaceHeating) {
+        warnings.push({
+          level: 'warning',
+          code: 'CL-05',
+          msg: `Weld overlay ${baseThk + finishThk} mm on this tag is indicated for furnace heat treatment (${basisParts.join('; ')}) — enable “furnace heating” in the Cladding block so the cycle is costed`,
+        });
+      }
+    } else {
+      cladWeightKg = cladArea * (cladTotalThk / 1000) * cladMat.density;
+    }
     weightDry += cladWeightKg;
     clad = {
       weightKg: cladWeightKg,
@@ -903,6 +993,7 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
       materialKey: cladSpec.materialKey,
       materialName: cladMat.name,
       coverageLengthMm,
+      overlay,
     };
     if (cladSpec.kind === 'mechanicalLiner') {
       warnings.push({
@@ -914,11 +1005,11 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
     if (cladSpec.mode === 'partial' && cladSpec.partialLengthMm <= 0) {
       warnings.push({ level: 'error', code: 'CL-02', msg: 'Partial cladding selected but coverage length is 0 — set covered length from bottom datum' });
     }
-    if (cladSpec.thicknessMm > 0 && cladSpec.thicknessMm < 2 && cladSpec.kind !== 'mechanicalLiner') {
+    if (cladTotalThk < 2 && cladSpec.kind !== 'mechanicalLiner') {
       warnings.push({
         level: 'warning',
         code: 'CL-04',
-        msg: `Cladding ${cladSpec.thicknessMm} mm < 2 mm min. finished thickness for corrosion barrier (typical mill min. 2–3 mm) — confirm with clad supplier`,
+        msg: `Cladding ${cladTotalThk.toFixed(1)} mm < 2 mm min. finished thickness for corrosion barrier (typical mill min. 2–3 mm) — confirm with clad supplier`,
       });
     }
   }
@@ -1001,7 +1092,7 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
   // Design loads from equip.designLoads (user) or indicative defaults. Preliminary
   // aid — verify against ASCE 7 / the governing jurisdiction edition.
   let bolts: EquipmentCalc['bolts'];
-  if (equip.orientation === 'vertical' && (equip.support.type === 'legs' || equip.support.type === 'skirt')) {
+  if (equip.orientation === 'vertical' && (LEG_TYPES.includes(equip.support.type) || SKIRT_TYPES.includes(equip.support.type))) {
     const dl = equip.designLoads ?? { windPressureKpa: 0, sds: 0, seismicR: 3, seismicIe: 1 };
     bolts = sizeAnchorBolts(
       {

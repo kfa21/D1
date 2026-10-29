@@ -141,7 +141,7 @@ describe('ASME UG-37 nozzle reinforcement (corrected A2, UG-40 limits)', () => {
     expect(n2).toBeTruthy();
     // re-derive A2 from the calc's own quantities using the corrected form + UG-40 limits
     const ta = c.sections[0].tCorroded;
-    const hOut = Math.min(n2.spec.projOutside + n2.spec.padThk, 2.5 * ta + n2.spec.padThk);
+    const hOut = Math.min(n2.spec.projOutside + n2.padThkUsed, 2.5 * ta + n2.padThkUsed);
     const hIn = Math.min(50, ta, 2.5 * n2.wallCorroded);
     const expected = 2 * (hOut + hIn) * Math.max(0, n2.wallCorroded - c.sections[0].tReq); // F = 1
     expect(n2.A2).toBeCloseTo(expected, 6);
@@ -171,7 +171,7 @@ describe('ASME UG-37 nozzle reinforcement (corrected A2, UG-40 limits)', () => {
     const tn = nz.wallCorroded;
     const tr = sec.tReq;
     expect(tn).toBeGreaterThan(tr); // discriminating: neck contributes
-    const hOut = Math.min(nz.spec.projOutside + nz.spec.padThk, 2.5 * sec.tCorroded + nz.spec.padThk);
+    const hOut = Math.min(nz.spec.projOutside + nz.padThkUsed, 2.5 * sec.tCorroded + nz.padThkUsed);
     const hIn = Math.min(50, sec.tCorroded, 2.5 * tn);
     const inner = tn - tr; // F = 1 — corrected form deducts F·t_r only
     expect(nz.A2).toBeCloseTo(2 * (hOut + hIn) * inner, 6);

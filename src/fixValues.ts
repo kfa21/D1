@@ -102,17 +102,36 @@ export function suggestedValue(
     case 'NZ-02': {
       const n = calc.nozzles[0];
       if (!n) return;
-      if (n.spec.padDia <= n.dn) {
+      // pad thickness is derived by the engine; the only input left to change is the OD
+      if (n.padDiaUsed <= 0) {
         return {
-          value: `add a pad (Pad Ø > ${n.dn} mm), then Pad t`,
-          basis: `${r1(n.shortfall)} mm² reinforcement short with no pad`,
+          value: `Pad Ø ${n.padDiaSuggested} mm`,
+          basis: `${r1(n.shortfall)} mm² short with no pad — the ${n.padDiaSuggested} mm ring closes it with an auto pad thickness`,
         };
       }
-      const perMm = n.spec.padDia - n.dn; // annulus area per mm of pad thickness
-      const need = halfUp(n.spec.padThk + n.shortfall / perMm);
       return {
-        value: `Pad t ≥ ${need} mm`,
-        basis: `${r1(n.shortfall)} mm² short; pad adds ~${r1(perMm)} mm² per 0.1 mm at Ø${n.spec.padDia}`,
+        value: `Pad t ≥ ${halfUp(n.padThkAuto)} mm`,
+        basis: `at Ø${n.padDiaUsed} the pad needs ${r1(n.padThkAuto)} mm (currently ${r1(n.padThkUsed)} mm); ${r1(n.shortfall)} mm² short`,
+      };
+    }
+    case 'CL-05': {
+      const ov = calc.clad?.overlay;
+      if (!ov) return;
+      return {
+        value: 'Furnace heating: 1 cycle',
+        basis: `${ov.totalThkMm} mm build-up (${ov.baseThkMm} mm 309L base + ${ov.finishThkMm} mm finish) — ${ov.basis}`,
+      };
+    }
+    case 'CL-02':
+      return {
+        value: `covered length ≥ 1 mm (e.g. ${Math.round((equip.sections[0]?.ttLength ?? 0) / 2)} mm)`,
+        basis: 'partial coverage needs a length measured up from the bottom tangent',
+      };
+    case 'CL-04': {
+      const ov = calc.clad?.overlay;
+      return {
+        value: '≥ 2 mm total',
+        basis: ov ? `base ${ov.baseThkMm} + finish ${ov.finishThkMm} mm` : 'typical clad barrier minimum',
       };
     }
     case 'NZ-03': {

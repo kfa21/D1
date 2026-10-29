@@ -17,6 +17,29 @@ import { estimateProject, manhourMatrix } from '../engine/estimate';
 import { computeEquipment } from '../engine/compute';
 import { fmt } from '../engine/units';
 
+/** Human labels for the manual labor trades. */
+const LABOR_LABEL: Record<string, string> = {
+  fitter: 'Fitter / fabricator',
+  welder: 'General welder (fit-up, supports)',
+  gtaw: 'GTAW/TIG welder (root, overlay)',
+  smaw: 'SMAW/stick welder (fill & cap)',
+  grinder: 'Grinder / dresser',
+  helper: 'Helper',
+  qc: 'QC inspector',
+  engineer: 'Engineer',
+  pwht: 'Heat-treatment operator',
+  painter: 'Painter / blaster',
+};
+
+const MACHINE_LABEL: Record<string, string> = {
+  saw: 'SAW welding set (machine hour)',
+  plasma: 'CNC plasma cutting table',
+  bevel: 'Plate bevelling machine',
+  roll: 'Plate rolling machine',
+  drill: 'Radial / magnetic drill',
+  crane: 'Overhead crane / yard handling',
+};
+
 export default function SettingsPage() {
   const s = useStore((x) => x.settings);
   const equipment = useStore((x) => x.equipment);
@@ -233,15 +256,34 @@ export default function SettingsPage() {
           <label className="f"><span>Paint (BHD/m²)</span><input type="number" step="0.1" value={s.rates.paintUSDperM2} onChange={(e) => setSettings({ rates: { ...s.rates, paintUSDperM2: +e.target.value } })} /></label>
           <label className="f"><span>Hydro water (BHD/m³)</span><input type="number" step="0.01" value={s.rates.hydroUSDperM3} onChange={(e) => setSettings({ rates: { ...s.rates, hydroUSDperM3: +e.target.value } })} /></label>
         </div>
-        <h3 style={{ marginTop: 12 }}>Labor rates (BHD/h)</h3>
+        <h3 style={{ marginTop: 12 }}>Manual labor rates (BHD/h)</h3>
         <div className="grid2">
           {(Object.keys(s.rates.labor) as (keyof typeof s.rates.labor)[]).map((k) => (
             <label className="f" key={k}>
-              <span>{k}</span>
+              <span>{LABOR_LABEL[k] ?? k}</span>
               <input type="number" value={s.rates.labor[k]} onChange={(e) => setSettings({ rates: { ...s.rates, labor: { ...s.rates.labor, [k]: +e.target.value } } })} />
             </label>
           ))}
         </div>
+        <p className="muted small">
+          Manual trades are booked per man-hour: the GTAW root and any SMAW fill at the welder rates, grinding at the
+          grinder rate, fit-up/handling at the fitter rate. A machine is never charged at these rates.
+        </p>
+
+        <h3 style={{ marginTop: 12 }}>Machine rates (BHD per machine hour)</h3>
+        <div className="grid2">
+          {(Object.keys(s.rates.machine) as (keyof typeof s.rates.machine)[]).map((k) => (
+            <label className="f" key={k}>
+              <span>{MACHINE_LABEL[k] ?? k}</span>
+              <input type="number" step="0.1" value={s.rates.machine[k]} onChange={(e) => setSettings({ rates: { ...s.rates, machine: { ...s.rates.machine, [k]: +e.target.value } } })} />
+            </label>
+          ))}
+        </div>
+        <p className="muted small">
+          Machine hours are booked as their own lines in the estimate: CNC plasma cutting, the SAW set (fill/cap on
+          long seams), the bevelling machine, the plate rolls and crane time. Machine time is shown separately from
+          manual man-hours and from outside services.
+        </p>
 
         <hr className="sep" />
         <h3>Gemini AI</h3>
@@ -364,7 +406,7 @@ export default function SettingsPage() {
         <div className="tablewrap">
           <table className="grid">
             <thead>
-              <tr><th>Man-hour item</th><th>Trade</th><th>How the automatic hours are derived</th><th className="num">Auto h</th><th className="num">Manual h</th><th className="num">Applied h</th></tr>
+              <tr><th>Man-hour item</th><th>Resource</th><th>How the automatic hours are derived</th><th className="num">Auto h</th><th className="num">Manual h</th><th className="num">Applied h</th></tr>
             </thead>
             <tbody>
               {manhourMatrix().map(({ group, items }) => {
@@ -398,7 +440,15 @@ export default function SettingsPage() {
                             {b.label}
                             {overridden && <span className="badge warn" style={{ marginLeft: 6 }}>manual</span>}
                           </td>
-                          <td className="small">{b.trade}</td>
+                          <td className="small">
+                            {b.resource === 'machine' ? (
+                              <span title="Machine time — charged at the machine rate, not a labor rate">
+                                ⚙ machine · {b.machine}
+                              </span>
+                            ) : (
+                              b.trade
+                            )}
+                          </td>
                           <td className="small muted">{b.basis}</td>
                           <td className="num calc" title="Engine auto hours for this project">{fmt(autoH, 1)}</td>
                           <td className="num">

@@ -19,11 +19,31 @@ export interface CladSpec {
   kind: CladKind;
   /** Lining/cladding grade, e.g. 316L, 304L, 321, 347, 904L, 625, duplex */
   materialKey: string;
-  /** Nominal cladding/lining thickness (mm) */
+  /** Nominal cladding/lining thickness (mm) — for weld overlay this is the TOTAL of the layers */
   thicknessMm: number;
   /** Partial mode: covered length measured up from bottom datum (mm) */
   partialLengthMm: number;
   note: string;
+  /**
+   * Weld-overlay build-up. In practice an overlay is not one bead: a 309L/309Mo
+   * stainless base run is deposited on the ferritic shell first, then the
+   * corrosion-resistant finish layer of the specified grade. Each layer has its
+   * own minimum thickness, its own consumable and its own overlay hours.
+   * Absent => single-layer fallback using thicknessMm and materialKey.
+   */
+  overlay?: OverlaySpec;
+}
+
+/** Two-layer weld overlay (base run + finish layer). */
+export interface OverlaySpec {
+  /** base (buffer) run grade — 309L for a carbon/low-alloy shell, 309Mo for Cr-Mo */
+  baseMatKey: string;
+  /** base run thickness (mm), minimum 1.5 mm */
+  baseThkMm: number;
+  /** finish (corrosion-resistant) layer thickness (mm), minimum 1.5 mm */
+  finishThkMm: number;
+  /** furnace (post-overlay) heat treatment — suggested by the engine, selectable */
+  furnaceHeating: boolean;
 }
 
 /** NDT methods — per-weld-method plan with timing and extent. */
@@ -100,7 +120,11 @@ export interface NozzleSpec {
   flangeMatKey: string;
   /** Reinforcement pad OD (mm), 0 => none */
   padDia: number;
-  /** Pad thickness (mm) */
+  /**
+   * Legacy pad thickness (mm). Kept so old projects load, but the engine no longer
+   * reads it: ring thickness is DERIVED from the bore, neck schedule and shell /
+   * head thickness (NozzleCalc.padThkUsed) — only the pad OD is an input.
+   */
   padThk: number;
   /** Neck length from shell OD to flange face (mm) */
   projOutside: number;
@@ -144,9 +168,58 @@ export interface InternalsSpec {
   /** Extra allowance kg/m2 (deck furniture, downcomers etc.) */
   kgPerM2: number;
   note: string;
+  /**
+   * Does this shop supply the internals themselves? false = tray/bed SUPPORT
+   * RINGS only: the rings are welded in (the hours are booked) but no tray,
+   * packing or deck is bought or installed. Default (absent) = supplied.
+   */
+  supplied?: boolean;
+  /**
+   * Support-ring stock is the clad FINAL layer grade when the ring sits inside a
+   * clad/overlay zone (an SS tray ring welded to a 316L overlay). Absent = derive
+   * from the tag's clad specification.
+   */
+  ringMaterialKey?: string;
 }
 
-export type SupportType = 'legs' | 'saddle' | 'skirt' | 'ring' | 'none';
+export type SupportType =
+  | 'legs'
+  | 'legsAngle'
+  | 'legsBeam'
+  | 'saddle'
+  | 'skirt'
+  | 'skirtCone'
+  | 'angleSkirt'
+  | 'bodyAngleSkirt'
+  | 'ring'
+  | 'none';
+
+/** Lifting arrangement (lifting lugs, trunnions or a tailing lug). */
+export type LiftingKind = 'lugs' | 'trunnion' | 'trunnionPair' | 'tailLug';
+
+export interface LiftingSpec {
+  enabled: boolean;
+  kind: LiftingKind;
+  /** number of lugs/trunnions; 0 = auto from the dry weight */
+  count: number;
+  /** lug/trunnion plate thickness (mm); 0 = auto from the lift load */
+  plateThkMm: number;
+  /** design lift factor on the dry weight (1.0 = dead weight, 1.5 = dynamic/tailing) */
+  liftFactor: number;
+  /** trunnion pipe bore (mm) for kind = trunnion; 0 = auto */
+  trunnionBoreMm: number;
+}
+
+/** Transportation / shipping saddle for horizontal equipment (wood or fabricated steel). */
+export interface TransportSaddleSpec {
+  enabled: boolean;
+  /** auto picks wood below ~8 t and metal above, unless overridden */
+  kind: 'auto' | 'wood' | 'metal';
+  /** number of saddles; 0 = auto (2 up to 12 m, 3 above) */
+  count: number;
+  /** include the transportation saddles as a priced line in the estimate */
+  includeInPrice: boolean;
+}
 
 /** Design wind / seismic loads driving anchor-bolt overturning (vessels & columns).
  *  Wind is a flat design pressure on the projected area (common vessel-spec basis);
@@ -173,15 +246,33 @@ export interface SupportSpec {
   legPlateThk: number;
   /** base ring + anchor bolt group (skirt/legs/ring-mounted vessels) */
   baseRing?: boolean;
-  /** lifting lugs / padeyes on shell */
+  /** lifting lugs / padeyes on shell (legacy switch — see lifting for the detailed spec) */
   padeyes?: boolean;
   /** guy-wire derrick for tall verticals (L/D > 4) */
   guyLines?: boolean;
+  /** detailed lifting arrangement (lugs, trunnions, tailing lug) */
+  lifting?: LiftingSpec;
+  /** transportation saddles for horizontal equipment */
+  transportSaddle?: TransportSaddleSpec;
 }
 
 /** Per-kind support item calculation (each support type costed separately). */
 export interface SupportItemCalc {
-  kind: 'legs' | 'saddle' | 'skirt' | 'ring' | 'baseRing' | 'padeyes' | 'guylines';
+  kind:
+    | 'legs'
+    | 'legsAngle'
+    | 'legsBeam'
+    | 'saddle'
+    | 'skirt'
+    | 'skirtCone'
+    | 'angleSkirt'
+    | 'bodyAngleSkirt'
+    | 'ring'
+    | 'baseRing'
+    | 'padeyes'
+    | 'lifting'
+    | 'transport'
+    | 'guylines';
   label: string;
   count: number;
   weightKg: number;
@@ -513,6 +604,16 @@ export interface NozzleCalc {
   Aprov: number;
   shortfall: number;
   reinforceOK: boolean;
+  /** pad thickness the current pad OD needs to close the UG-37 shortfall (mm, 0 when not needed) */
+  padThkAuto: number;
+  /** pad thickness the check actually ran with (the derived padThkAuto, rounded up to 0.5 mm) */
+  padThkUsed: number;
+  /** pad OD the check actually saw (mm, 0 = no pad) */
+  padDiaUsed: number;
+  /** reinforcement the pad supplies at padThkUsed (mm²) */
+  padArea: number;
+  /** recommended pad OD for the neck/wall (2× the bore, min bore + 100 mm) — the value to type */
+  padDiaSuggested: number;
   flangeRating: number; // bar at design T
   flangeClassOK: boolean;
   /** local-load screening (WRC 107 structure) — present when nozzle.loads set */
@@ -800,7 +901,26 @@ export interface EquipmentCalc {
   mawpBar: number;
   mawpNote: string;
   /** Cladding/lining summary (vessels & columns) */
-  clad?: { weightKg: number; areaM2: number; materialKey: string; materialName: string; coverageLengthMm: number };
+  clad?: {
+    weightKg: number;
+    areaM2: number;
+    materialKey: string;
+    materialName: string;
+    coverageLengthMm: number;
+    /** weld-overlay layer split (base run + finish layer); absent for bonded/liner clad */
+    overlay?: {
+      baseMatKey: string;
+      baseMatName: string;
+      baseThkMm: number;
+      finishThkMm: number;
+      baseWeightKg: number;
+      finishWeightKg: number;
+      totalThkMm: number;
+      /** furnace (post-overlay) heat treatment suggested by the engine */
+      furnaceSuggested: boolean;
+      basis: string;
+    };
+  };
   sections: SectionCalc[];
   nozzles: NozzleCalc[];
   hydroTestBar: number; // at top of vessel

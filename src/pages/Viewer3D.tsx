@@ -430,17 +430,24 @@ function buildVessel(g: THREE.Group, equip: Equipment, calc: EquipmentCalc, o: B
   // ---------- supports ----------
   const s = equip.support;
   const R0 = layout.segments[0]?.r0 ?? (equip.sections[0]?.dia ?? 1000) / 2;
+  const isLegType = s.type === 'legs' || s.type === 'legsAngle' || s.type === 'legsBeam';
+  const isSkirtType =
+    s.type === 'skirt' || s.type === 'skirtCone' || s.type === 'angleSkirt' || s.type === 'bodyAngleSkirt';
   const supportH =
-    vertical && (s.type === 'legs' || s.type === 'skirt')
+    vertical && (isLegType || isSkirtType)
       ? s.skirtH > 0
         ? s.skirtH
-        : s.type === 'legs'
+        : isLegType
           ? 800
-          : 1500
+          : s.type === 'bodyAngleSkirt'
+            ? 400
+            : s.type === 'angleSkirt'
+              ? 600
+              : 1500
       : 0;
   const gradeY = layout.bottomDepth - supportH;
 
-  if (s.type === 'legs' && vertical) {
+  if (isLegType && vertical) {
     const n = Math.max(2, s.legCount || 4);
     const h = supportH;
     const t = Math.max(8, s.legPlateThk || 16);
@@ -457,11 +464,24 @@ function buildVessel(g: THREE.Group, equip: Equipment, calc: EquipmentCalc, o: B
       bp.position.set(leg.position.x, gradeY + 10, leg.position.z);
       o.model.add(bp);
     }
-  } else if (s.type === 'skirt' && vertical) {
+  } else if (isSkirtType && vertical) {
     const h = supportH;
-    const skirt = new THREE.Mesh(new THREE.CylinderGeometry(R0 * 1.001, R0 * 1.001, h, 64, 1, false), steelMat(o, 0x4d5a70));
+    const conical = s.type === 'skirtCone';
+    const angleRing = s.type === 'angleSkirt' || s.type === 'bodyAngleSkirt';
+    const rTop = R0 * 1.001;
+    const rBot = conical ? R0 * 1.25 : angleRing ? R0 * 1.04 : R0 * 1.001;
+    const skirt = new THREE.Mesh(
+      angleRing
+        ? new THREE.CylinderGeometry(rTop, rBot, h, 64, 1, true)
+        : new THREE.CylinderGeometry(rTop, rBot, h, 64, 1, false),
+      steelMat(o, angleRing ? 0x5a6578 : 0x4d5a70)
+    );
     skirt.position.y = layout.bottomDepth - h / 2; // top of skirt meets the shell bottom
-    part(skirt, 'Skirt', `Ø${fmt(R0 * 2, 0)} × ${Math.round(h)} mm`);
+    part(
+      skirt,
+      angleRing ? (s.type === 'bodyAngleSkirt' ? 'Body angle skirt' : 'Angle skirt') : conical ? 'Conical skirt' : 'Skirt',
+      `Ø${fmt(R0 * 2, 0)} × ${Math.round(h)} mm${angleRing ? ' — angle ring + gussets' : ''}`
+    );
     o.model.add(skirt);
     const ring = new THREE.Mesh(new THREE.TorusGeometry(R0 * 1.06, 30, 12, 64), steelMat(o, 0x46526b));
     ring.rotation.x = Math.PI / 2;

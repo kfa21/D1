@@ -250,7 +250,12 @@ export interface PlateRequestFull {
 /** Support steel per kind — single source of truth is the supports engine (calc.supports). */
 export function supportItems(equip: Equipment, calc: EquipmentCalc): BOMItem[] {
   const sc = calc.supports ?? computeSupports(equip, calc);
-  const items: BOMItem[] = sc.items.map((it) => ({
+  // Transportation saddles are shipping accessories, not part of the equipment: they
+  // are priced by their own estimate line only when "include in the price" is ticked,
+  // and never appear as structural steel mass on the tag.
+  const items: BOMItem[] = sc.items
+    .filter((it) => it.kind !== 'transport')
+    .map((it) => ({
     id: `${equip.id}-sup-${it.kind}`,
     equipId: equip.id,
     tag: equip.tag,
@@ -262,7 +267,7 @@ export function supportItems(equip: Equipment, calc: EquipmentCalc): BOMItem[] {
     unit: 'ea' as const,
     unitMassKg: it.count > 0 ? it.weightKg / it.count : 0,
     massKg: it.weightKg,
-  }));
+    }));
   if (sc.anchorBolts) {
     const ab = sc.anchorBolts;
     const boltKg = Math.PI / 4 * ab.diaMm * ab.diaMm * ab.lengthMm * 7.85e-6 * 1.4; // + nuts
@@ -287,16 +292,24 @@ export function internalsItems(equip: Equipment, calc: EquipmentCalc): BOMItem[]
   const items: BOMItem[] = [];
   const area = (Math.PI / 4) * Math.pow(((equip.sections[0]?.dia ?? 1000) - 150) / 1000, 2);
   for (const it of equip.internals) {
+    // support-ring-only scope: nothing is supplied to the job, so nothing is bought
+    if (it.supplied === false) continue;
     const packing = it.kind === 'randomPacking' || it.kind === 'structuredPacking';
-    const mass = packing ? it.count * it.kgPerM2 * (it.spacing / 1000 > 0 ? 1 : 1) * area : it.count * it.kgPerM2 * area;
+    const mass = it.count * it.kgPerM2 * area;
+    // a tray/bed support ring inside the clad zone is made of the clad FINISH layer
+    // grade (an SS ring on an SS overlay), so it must not be bought as carbon steel
+    const matKey =
+      it.kind === 'supportRing' && equip.clad?.mode !== 'none' && equip.clad
+        ? it.ringMaterialKey || equip.clad.materialKey
+        : it.materialKey;
     items.push({
       id: `${equip.id}-int-${it.id}`,
       equipId: equip.id,
       tag: equip.tag,
       category: 'Internals',
       item: internalsLabel(it.kind),
-      spec: `${it.count} × ${it.spacing} mm spacing, ${getMat(it.materialKey).name}`,
-      material: it.materialKey,
+      spec: `${it.count} × ${it.spacing} mm spacing, ${getMat(matKey).name}`,
+      material: matKey,
       qty: it.count,
       unit: 'ea',
       unitMassKg: area > 0 ? mass / Math.max(1, it.count) : 0,

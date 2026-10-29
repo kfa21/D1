@@ -102,18 +102,27 @@ export function FixNote({ equipId, field }: { equipId: string; field: string }) 
         const level = WARNING_CATALOG[w.code]?.level ?? 'info';
         const sug = suggestedValue(w.code, equip, calc);
         return (
-          <div key={w.code} className={`finding ${level} fix-note`} role="note">
-            <div>
-              <strong>{w.code}</strong> — how to correct: {fx.suggest}
-            </div>
-            <div className="small muted" style={{ marginTop: 2 }}>
-              Observed: {w.msg}
-            </div>
-            {sug && (
-              <div style={{ marginTop: 2 }}>
-                ✔ Correct value: <strong>{sug.value}</strong>
-                <span className="small muted"> — {sug.basis}</span>
+          <div
+            key={w.code}
+            className={`finding ${level} fix-note`}
+            role="note"
+            title={sug ? `${w.code} — ${sug.basis}` : `${w.code} — ${w.msg}`}
+          >
+            {sug ? (
+              // the box under a field carries the VALUE to enter and nothing else;
+              // the full explanation stays in the warning list (and in this tooltip)
+              <div className="fix-value">
+                <span aria-hidden="true">✔</span> <strong>{sug.value}</strong>
               </div>
+            ) : (
+              <>
+                <div>
+                  <strong>{w.code}</strong> — how to correct: {fx.suggest}
+                </div>
+                <div className="small muted" style={{ marginTop: 2 }}>
+                  Observed: {w.msg}
+                </div>
+              </>
             )}
             <button
               className="ghost"

@@ -504,7 +504,8 @@ describe('Support calculations (per kind) & structure recommendation', () => {
     const kinds = sup.items.map((i) => i.kind);
     expect(kinds).toContain('legs');
     expect(kinds).toContain('baseRing');
-    expect(kinds).toContain('padeyes');
+    // the legacy padeyes switch now produces the detailed lifting arrangement
+    expect(kinds).toContain('lifting');
     expect(sup.totalWeightKg).toBeGreaterThan(0);
     expect(sup.totalHours).toBeGreaterThan(0);
     expect(sup.anchorBolts).not.toBeNull();

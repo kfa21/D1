@@ -39,7 +39,7 @@ export const WARNING_FIX: Record<string, FieldFix> = {
   'CN-02': { tab: 'sections', field: 'sec0-coneAngleDeg', suggest: 'Included cone angle > 30°: reduce the angle, or introduce a knuckle/multi-cone transition between the two diameters.' },
   'MD-01': { tab: 'sections', field: 'sec0-dia', suggest: 'Two sections with different diameters need a cone between them: add a section (Sections → ＋) whose cone angle spans the transition, or make the diameters equal.' },
   'NZ-01': { tab: 'nozzles', field: 'nz0-dn', suggest: 'Nozzle neck wall below UG-45/pressure: select a heavier pipe schedule, a smaller bore, or add a reinforcing pad (Pad Ø / Pad t) on the Nozzles tab.' },
-  'NZ-02': { tab: 'nozzles', field: 'nz0-padThk', suggest: 'Reinforcement shortfall (UG-37): increase Pad t / Pad Ø, reduce the bore, or use a heavier neck schedule until A prov ≥ A req (right-hand columns show both).' },
+  'NZ-02': { tab: 'nozzles', field: 'nz0-padDia', suggest: 'Reinforcement shortfall (UG-37): increase Pad t / Pad Ø, reduce the bore, or use a heavier neck schedule until A prov ≥ A req (right-hand columns show both).' },
   'NZ-03': { tab: 'nozzles', field: 'nz0-elevation', suggest: 'The nozzle elevation lies outside the shell, so the check ran against the nearest course instead of the right one: set Elev (mm) to a height between 0 and the T-T length, measured from the bottom tangent (the Course column shows which shell course the elevation selects).' },
   'FL-01': { tab: 'nozzles', field: 'nz0-flangeClass', suggest: 'Flange rating below design pressure at temperature: raise the flange class on the Nozzles tab (Cl 150 → 300 → …) or lower the design pressure.' },
   'FL-02': { tab: 'nozzles', field: 'nz0-flangeClass', suggest: 'The selected class is more than 50% above the required rating — consider one class lower to save cost (advisory only).'},
@@ -51,6 +51,7 @@ export const WARNING_FIX: Record<string, FieldFix> = {
   'CL-02': { tab: 'general', field: 'cladLength', suggest: 'Partial coverage selected with zero length: enter the covered length from the bottom (mm) in the Cladding block, or switch coverage to Full/None.' },
   'CL-03': { tab: 'general', field: 'cladMode', suggest: 'Mechanical liner is non-pressure-retaining — informational. Confirm the liner is intended as a corrosion barrier only (or switch coverage to weld overlay).' },
   'CL-04': { tab: 'general', field: 'cladThk', suggest: 'Overlay below the usual 2 mm corrosion-barrier minimum: increase the clad thickness, or accept a liner/overlay with a documented service justification.' },
+  'CL-05': { tab: 'general', field: 'cladFurnace', suggest: 'This overlay build-up / shell thickness / base metal is normally furnace heat treated: tick “Furnace heating” in the weld-overlay block so the cycle is costed (post-overlay PWHT per UCS-56 / WRC guidance), or record why local preheat is sufficient.' },
   'MW-01': { tab: 'general', field: 'designPressure', suggest: 'MAWP has fallen below the design pressure: increase the shell/head/nozzle thickness until MAWP ≥ design P, or lower the design pressure (General tab).'},
   'PW-01': { tab: 'general', field: 'pwhtOverride', suggest: 'UCS-56 requires PWHT but it is waived on this tag: set PWHT back to Auto/Yes on the General tab, or keep the waiver only with a documented production trial (UCS-56 NOTE).'},
   'GE-01': { tab: 'sections', field: 'sec0-ttLength', suggest: 'Vertical L/D > 15: review the wind/seismic analysis — shorten the T-T length, increase the diameter, or confirm the design loads (Design Loads block) have been checked for this slenderness.' },
@@ -88,7 +89,7 @@ export const WARNING_FIX: Record<string, FieldFix> = {
 
   // ---- nozzle local loads (WRC 107) ----
   'NL-01': { tab: '', field: '', suggest: 'Informational: reports the nozzle local-load utilisation from the entered piping loads (WRC 107 structure). No field to change.' },
-  'NL-02': { tab: 'nozzles', field: 'nz0-padThk', suggest: 'Local-load utilisation over 1.5·S: reduce the piping loads on the nozzle, add a reinforcement pad (Pad t / Pad Ø) or a heavier neck, or support the connected pipe close to the nozzle.' },
+  'NL-02': { tab: 'nozzles', field: 'nz0-padDia', suggest: 'Local-load utilisation over 1.5·S: reduce the piping loads on the nozzle, add a reinforcement pad (set the RF pad Ø — its thickness follows automatically) or a heavier neck, or support the connected pipe close to the nozzle.' },
   'NL-03': { tab: '', field: '', suggest: 'The nozzle attachment ratio is beyond the common WRC 107 chart range — treat the number as screening only and confirm with WRC 537/107 or FEA for this geometry.' },
 
   // ---- API 661 fin-fans ----
