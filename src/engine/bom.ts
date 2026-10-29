@@ -33,7 +33,9 @@ export function nozzleBOMItems(equip: Equipment, calc: EquipmentCalc): BOMItem[]
       tag: equip.tag,
       category: 'Pipe',
       item: `Nozzle neck ${n.tag}`,
-      spec: `${nps} Sch.${n.schKey}, L≈${(nc.pipeLenM * 1000).toFixed(0)} mm`,
+      spec: n.style === 'srn'
+        ? `SRN neck ${nps} bore, t = ${n.neckThkMm && n.neckThkMm > 0 ? n.neckThkMm : nc.wall} mm (self-reinforced), L≈${(nc.pipeLenM * 1000).toFixed(0)} mm`
+        : `${nps} Sch.${n.schKey}, L≈${(nc.pipeLenM * 1000).toFixed(0)} mm`,
       material: equip.materialKey,
       qty: 1,
       unit: 'ea',
@@ -41,6 +43,27 @@ export function nozzleBOMItems(equip: Equipment, calc: EquipmentCalc): BOMItem[]
       massKg: nc.pipeKg,
       note: n.service,
     });
+    // reinforcing pad: a plate ring cut to the pad OD — priced as plate, not as a
+    // purchased item, so an SRN neck (no pad) is fairly comparable in the estimate
+    if (nc.padDiaUsed > 0 && nc.padThkUsed > 0) {
+      const padId = n.dn + 2 * nc.wall;
+      const padMass =
+        ((Math.PI / 4) * (nc.padDiaUsed * nc.padDiaUsed - padId * padId) * nc.padThkUsed * mat.density) / 1e9;
+      items.push({
+        id: `${equip.id}-nzpad-${n.id}`,
+        equipId: equip.id,
+        tag: equip.tag,
+        category: 'Plate',
+        item: `RF pad ${n.tag}`,
+        spec: `Ø${nc.padDiaUsed} × ${nc.padThkUsed.toFixed(1)} mm ring (ID Ø${padId})`,
+        material: equip.materialKey,
+        qty: 1,
+        unit: 'ea',
+        unitMassKg: padMass,
+        massKg: padMass,
+        plateReq: { w: nc.padDiaUsed, l: nc.padDiaUsed, thk: nc.padThkUsed },
+      });
+    }
     items.push({
       id: `${equip.id}-nzf-${n.id}`,
       equipId: equip.id,
@@ -579,6 +602,10 @@ export function generateBOM(equip: Equipment, calc: EquipmentCalc): { items: BOM
     const r = tankItems(equip, calc);
     items.push(...r.items);
     plateReqs = r.plateReqs;
+  } else if (equip.equipType === 'finfan') {
+    // an air cooler has no shell of its own: the bundle, fins and headers are the
+    // pressure part (finFanItems), so the vestigial section must not buy plate
+    plateReqs = [];
   } else {
     const r = vesselPlateItems(equip, calc);
     items.push(...r.items);
@@ -587,6 +614,21 @@ export function generateBOM(equip: Equipment, calc: EquipmentCalc): { items: BOM
   if (equip.equipType === 'finfan') items.push(...finFanItems(equip, calc));
 
   items.push(...nozzleBOMItems(equip, calc));
+  // reinforcing-pad rings are cut from plate, so they belong in plate procurement too
+  for (const nc of calc.nozzles) {
+    if (nc.padDiaUsed > 0 && nc.padThkUsed > 0) {
+      plateReqs.push({
+        equipId: equip.id,
+        tag: equip.tag,
+        partName: `RF pad ${nc.spec.tag}`,
+        material: equip.materialKey,
+        thk: nc.padThkUsed,
+        w: nc.padDiaUsed,
+        l: nc.padDiaUsed,
+        count: 1,
+      });
+    }
+  }
   items.push(...supportItems(equip, calc));
   if (equip.structure?.enabled) {
     const rec = recommendStructure(equip, calc);

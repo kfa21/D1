@@ -14,7 +14,8 @@ import { siteAirDensity } from '../engine/api661';
 import { API650_STRESSES } from '../engine/api650';
 import { recommendStructure } from '../engine/supports';
 import { equipmentDims } from '../engine/dims';
-import type { CladSpec } from '../engine/types';
+import type { CladSpec, NozzleStyle } from '../engine/types';
+import { scopeFor } from '../engine/scope';
 import { useStore, setState, getStore } from '../store';
 import { requestFixFor, subscribeFix, getFix, useFix, FixNote, focusField } from '../fixNav';
 import { fieldId, fixFor } from '../fixes';
@@ -290,6 +291,9 @@ export default function Register() {
 function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<typeof computeEquipment> }) {
   // overall dimensions: T-T total, per-section cone length and tip-to-tip length
   const dims = equipmentDims(equip, calc);
+  // only the inputs and tabs that this equipment type's code actually uses
+  const scope = scopeFor(equip.equipType);
+  const tabs = scope.tabs;
   const [tab, setTab] = useState<'general' | 'sections' | 'nozzles' | 'internals' | 'type'>('general');
   const [openCode, setOpenCode] = useState<string | null>(null);
   const fix = useFix();
@@ -299,6 +303,11 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
   useEffect(() => {
     if (fix && fix.equipId === equip.id) setTab(fix.tab);
   }, [fix, equip.id]);
+  // a tab can disappear when the type scope says it is not relevant — never leave
+  // the editor pointing at a tab that is no longer rendered
+  useEffect(() => {
+    if (!tabs.includes(tab)) setTab(tabs[0]);
+  }, [tabs, tab]);
   useEffect(() => {
     if (!fix || fix.equipId !== equip.id || fix.tab !== tab) return;
     const t = window.setTimeout(() => focusField(fix), 90);
@@ -308,7 +317,7 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
   const addNozzle = () => {
     const n: NozzleSpec = {
       id: uid('nz'), tag: `N${equip.nozzles.length + 1}`, service: '', dn: 50, schKey: '40',
-      sectionId: equip.sections[0]?.id ?? '', elevation: 500, azimuth: 0, kind: 'process',
+      sectionId: equip.sections[0]?.id ?? '', elevation: 500, azimuth: 0, kind: 'process', style: 'pad',
       flangeClass: 150, flangeMatKey: 'SA-105', padDia: 0, padThk: 0, projOutside: 120,
     };
     update(equip.id, { nozzles: [...equip.nozzles, n] });
@@ -337,9 +346,9 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
         </h3>
 
         <div className="tabs">
-          {(['general', 'sections', 'nozzles', 'internals', 'type'] as const).map((t) => (
+          {tabs.map((t) => (
             <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
-              {t === 'type' ? `${equip.equipType === 'hx' ? 'TEMA data' : equip.equipType === 'tank' ? 'Tank data' : equip.equipType === 'finfan' ? 'Fin-fan data' : 'Supports & code'}` : t[0].toUpperCase() + t.slice(1)}
+              {t === 'type' ? scope.typeTabLabel : t[0].toUpperCase() + t.slice(1)}
             </button>
           ))}
         </div>
@@ -352,10 +361,12 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
               </select>
               <FixNote equipId={equip.id} field="materialKey" />
             </label>
-            <label className="f"><span>Corrosion allowance (mm)</span>
-              <input id={fid('corrosionAllowance')} type="number" value={equip.corrosionAllowance} onChange={(e) => update(equip.id, { corrosionAllowance: +e.target.value })} />
-              <FixNote equipId={equip.id} field="corrosionAllowance" />
-            </label>
+            {scope.general.corrosionAllowance && (
+              <label className="f"><span>Corrosion allowance (mm)</span>
+                <input id={fid('corrosionAllowance')} type="number" value={equip.corrosionAllowance} onChange={(e) => update(equip.id, { corrosionAllowance: +e.target.value })} />
+                <FixNote equipId={equip.id} field="corrosionAllowance" />
+              </label>
+            )}
             <label className="f"><span>Design pressure (bar g)</span>
               <input id={fid('designPressure')} type="number" value={equip.designPressure} onChange={(e) => update(equip.id, { designPressure: +e.target.value })} />
               <FixNote equipId={equip.id} field="designPressure" />
@@ -363,45 +374,57 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
             <label className="f"><span>Design temp (°C)</span>
               <input type="number" value={equip.designTemp} onChange={(e) => update(equip.id, { designTemp: +e.target.value })} />
             </label>
-            <label className="f"><span>MDMT (°C)</span>
-              <input id={fid('mdmt')} type="number" value={equip.mdmt} onChange={(e) => update(equip.id, { mdmt: +e.target.value })} />
-              <FixNote equipId={equip.id} field="mdmt" />
-            </label>
-            <label className="f"><span>External / vacuum press (bar)</span>
-              <input id={fid('externalPressure')} type="number" step="0.05" value={equip.externalPressure} onChange={(e) => update(equip.id, { externalPressure: +e.target.value })} />
-              <FixNote equipId={equip.id} field="externalPressure" />
-            </label>
-            <label className="f"><span>RT category (UW-11)</span>
-              <select value={equip.rtCategory} onChange={(e) => update(equip.id, { rtCategory: e.target.value as never })}>
-                <option value="full">Full RT (E=1.0)</option>
-                <option value="spot">Spot RT (E=0.85)</option>
-                <option value="none">None (E=0.70)</option>
-              </select>
-            </label>
-            <label className="f"><span>Inspection level</span>
-              <select value={equip.inspectionLevel} onChange={(e) => update(equip.id, { inspectionLevel: e.target.value as never })}>
-                <option value="3.1">ASME VIII App. 3.1 (standard)</option>
-                <option value="3.2">ASME VIII App. 3.2 (enhanced)</option>
-              </select>
-            </label>
-            <label className="f"><span>PWHT</span>
-              <select id={fid('pwhtOverride')} value={equip.pwhtOverride === null ? 'auto' : equip.pwhtOverride ? 'yes' : 'no'} onChange={(e) => update(equip.id, { pwhtOverride: e.target.value === 'auto' ? null : e.target.value === 'yes' })}>
-                <option value="auto">Auto (per UCS-56)</option>
-                <option value="yes">Force PWHT</option>
-                <option value="no">Waive PWHT</option>
-              </select>
-              <FixNote equipId={equip.id} field="pwhtOverride" />
-            </label>
-            <label className="f"><span>Test pressure factor (UG-99)</span>
-              <input type="number" step="0.05" value={equip.testPressureFactor} onChange={(e) => update(equip.id, { testPressureFactor: +e.target.value })} />
-            </label>
+            {scope.general.mdmt && (
+              <label className="f"><span>MDMT (°C)</span>
+                <input id={fid('mdmt')} type="number" value={equip.mdmt} onChange={(e) => update(equip.id, { mdmt: +e.target.value })} />
+                <FixNote equipId={equip.id} field="mdmt" />
+              </label>
+            )}
+            {scope.general.externalPressure && (
+              <label className="f"><span>External / vacuum press (bar)</span>
+                <input id={fid('externalPressure')} type="number" step="0.05" value={equip.externalPressure} onChange={(e) => update(equip.id, { externalPressure: +e.target.value })} />
+                <FixNote equipId={equip.id} field="externalPressure" />
+              </label>
+            )}
+            {scope.general.rtCategory && (
+              <label className="f"><span>RT category (UW-11)</span>
+                <select value={equip.rtCategory} onChange={(e) => update(equip.id, { rtCategory: e.target.value as never })}>
+                  <option value="full">Full RT (E=1.0)</option>
+                  <option value="spot">Spot RT (E=0.85)</option>
+                  <option value="none">None (E=0.70)</option>
+                </select>
+              </label>
+            )}
+            {scope.general.inspectionLevel && (
+              <label className="f"><span>Inspection level</span>
+                <select value={equip.inspectionLevel} onChange={(e) => update(equip.id, { inspectionLevel: e.target.value as never })}>
+                  <option value="3.1">ASME VIII App. 3.1 (standard)</option>
+                  <option value="3.2">ASME VIII App. 3.2 (enhanced)</option>
+                </select>
+              </label>
+            )}
+            {scope.general.pwht && (
+              <label className="f"><span>PWHT</span>
+                <select id={fid('pwhtOverride')} value={equip.pwhtOverride === null ? 'auto' : equip.pwhtOverride ? 'yes' : 'no'} onChange={(e) => update(equip.id, { pwhtOverride: e.target.value === 'auto' ? null : e.target.value === 'yes' })}>
+                  <option value="auto">Auto (per UCS-56)</option>
+                  <option value="yes">Force PWHT</option>
+                  <option value="no">Waive PWHT</option>
+                </select>
+                <FixNote equipId={equip.id} field="pwhtOverride" />
+              </label>
+            )}
+            {scope.general.testPressureFactor && (
+              <label className="f"><span>Test pressure factor (UG-99)</span>
+                <input type="number" step="0.05" value={equip.testPressureFactor} onChange={(e) => update(equip.id, { testPressureFactor: +e.target.value })} />
+              </label>
+            )}
             <label className="f" style={{ gridColumn: 'span 2' }}><span>Notes</span>
               <input value={equip.notes} onChange={(e) => update(equip.id, { notes: e.target.value })} />
             </label>
           </div>
         )}
 
-        {tab === 'general' && equip.orientation === 'vertical' && (equip.equipType === 'vessel' || equip.equipType === 'column' || equip.equipType === 'tank') && (
+        {tab === 'general' && scope.designLoads && equip.orientation === 'vertical' && (
           <div style={{ marginTop: 14 }}>
             <h3>Design Loads — anchor-bolt overturning (wind / seismic)</h3>
             <div className="grid2">
@@ -435,7 +458,7 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
           </div>
         )}
 
-        {tab === 'general' && (equip.equipType === 'vessel' || equip.equipType === 'column') && (
+        {tab === 'general' && scope.cladding && (
           <div style={{ marginTop: 14 }}>
             <h3>Cladding / Lining</h3>
             <div className="grid2">
@@ -559,7 +582,12 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
               )}
             </div>
 
-            <h3 style={{ marginTop: 16 }}>Preferred NDT method</h3>
+          </div>
+        )}
+
+        {tab === 'general' && scope.ndtMethod && (
+          <div style={{ marginTop: 14 }}>
+            <h3>Preferred NDT method</h3>
             <p className="muted small">
               The per-weld NDT plan is derived from the RT category, shell thickness and clad condition — it is shown
               read-only on the Inspection &amp; ITP page and drives estimate costing from there.
@@ -642,17 +670,27 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
               Nozzle neck, reinforcement (UG-32/UG-37) and B16.5 flange rating are verified at design temperature
               automatically. <strong>Attach</strong> places a nozzle on the shell or on <em>either</em> dished end — on a
               head the elevation is measured inward from that head's tangent line and the azimuth around it, and UG-37
-              is checked against the head thickness. <strong>RF pad Ø</strong> is the only pad input: the ring thickness
-              is derived from the bore, the neck schedule and the shell/head thickness.
+              is checked against the head thickness. <strong>Type</strong> selects the neck construction: a set-on neck
+              with an <strong>RF pad</strong> (only the pad Ø is an input — the ring thickness is derived from the bore,
+              the neck schedule and the shell/head thickness), an <strong>SRN</strong> self-reinforced neck that carries
+              reinforcement itself (enter its wall; the engine reports the minimum that closes UG-37, no pad is bought),
+              or a <strong>set-in</strong> neck that passes through the shell so the inside projection counts in A<sub>2</sub>.
             </p>
             <div className="tablewrap">
               <table className="grid">
                 <thead>
                   <tr>
-                    <th>Tag</th><th>Service</th><th>Kind</th><th>Attach</th><th className="num">Bore (NPS)</th><th>Sch</th>
-                    <th className="num">Elev (mm)</th><th className="num" title="Shell course the nozzle sits on — resolved from its elevation">Course</th><th className="num">Azim°</th><th>Flange</th><th>Flange mat</th>
-                    <th className="num">RF pad Ø</th><th className="num" title="Derived from the bore, neck wall and shell thickness for the pad Ø entered">Pad t (auto)</th>
-                    <th className="num grp">Neck t (mm)</th><th className="num grp">A req</th><th className="num grp">A prov</th>
+                    <th>Tag</th><th>Service</th><th>Kind</th>
+                    <th title="Neck construction and reinforcement: set-on with a ring, self-reinforced (SRN) or set-in">Type</th>
+                    <th>Attach</th><th className="num">Bore (NPS)</th><th>Sch</th>
+                    <th className="num">Elev (mm)</th>
+                    {scope.sections && <th className="num" title="Shell course the nozzle sits on — resolved from its elevation">Course</th>}
+                    <th className="num">Azim°</th><th>Flange</th><th>Flange mat</th>
+                    {scope.pad && <th className="num">RF pad Ø</th>}
+                    {scope.pad && <th className="num" title="Derived from the bore, neck wall and shell thickness for the pad Ø entered">Pad t (auto)</th>}
+                    <th className="num grp">Neck t (mm)</th>
+                    {scope.reinforcement && <th className="num grp">A req</th>}
+                    {scope.reinforcement && <th className="num grp">A prov</th>}
                     <th className="num grp">Rating (bar)</th><th className="grp">Status</th><th></th>
                   </tr>
                 </thead>
@@ -663,9 +701,25 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
                       <tr key={n.id}>
                         <td><input value={n.tag} onChange={(e) => upNz(n.id, { tag: e.target.value })} style={{ width: 64 }} /></td>
                         <td><input value={n.service} onChange={(e) => upNz(n.id, { service: e.target.value })} style={{ width: 110 }} /></td>
+                        <td><select value={n.kind} onChange={(e) => upNz(n.id, { kind: e.target.value as never })}>
+                          {Object.keys(NOZZLE_KIND_LABELS).map((k) => <option key={k} value={k}>{NOZZLE_KIND_LABELS[k]}</option>)}
+                        </select></td>
                         <td>
                           <select
-                            id={fid(`nz${i}-attach`) }
+                            id={fid(`nz${i}-style`)}
+                            value={n.style ?? 'pad'}
+                            onChange={(e) => upNz(n.id, { style: e.target.value as NozzleStyle })}
+                            title="Set-on + reinforcing ring, self-reinforced neck (SRN — no pad, the neck carries UG-37), or a neck set through the shell"
+                          >
+                            <option value="pad">Set-on + RF pad</option>
+                            <option value="srn">SRN (self-reinforced)</option>
+                            <option value="setIn">Set-in (through shell)</option>
+                          </select>
+                          <FixNote equipId={equip.id} field={`nz${i}-style`} />
+                        </td>
+                        <td>
+                          <select
+                            id={fid(`nz${i}-attach`)}
                             value={n.attach ?? 'shell'}
                             onChange={(e) => upNz(n.id, { attach: e.target.value as 'shell' | 'topHead' | 'bottomHead' })}
                             title="Penetration: shell course, or one of the dished ends"
@@ -676,9 +730,6 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
                           </select>
                           <FixNote equipId={equip.id} field={`nz${i}-attach`} />
                         </td>
-                        <td><select value={n.kind} onChange={(e) => upNz(n.id, { kind: e.target.value as never })}>
-                          {Object.keys(NOZZLE_KIND_LABELS).map((k) => <option key={k} value={k}>{NOZZLE_KIND_LABELS[k]}</option>)}
-                        </select></td>
                         <td>
                           <select id={fid(`nz${i}-dn`)} className="num" value={n.dn} onChange={(e) => upNz(n.id, { dn: +e.target.value })}>
                             {NPS_SIZES.map((o) => (
@@ -696,7 +747,9 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
                           {SCHEDULES.map((s) => <option key={s} value={s}>Sch {s}</option>)}
                         </select></td>
                         <td><input id={fid(`nz${i}-elevation`)} type="number" className="num" value={n.elevation} onChange={(e) => upNz(n.id, { elevation: +e.target.value })} /><FixNote equipId={equip.id} field={`nz${i}-elevation`} /></td>
-                        <td className="num calc" title="Course resolved by the engine from the nozzle elevation (bottom tangent = 0)">{nc ? courseOf(calc, nc) : '—'}</td>
+                        {scope.sections && (
+                          <td className="num calc" title="Course resolved by the engine from the nozzle elevation (bottom tangent = 0)">{nc ? courseOf(calc, nc) : '—'}</td>
+                        )}
                         <td><input type="number" className="num" value={n.azimuth} onChange={(e) => upNz(n.id, { azimuth: +e.target.value })} /></td>                        <td><select id={fid(`nz${i}-flangeClass`)} value={n.flangeClass} onChange={(e) => upNz(n.id, { flangeClass: +e.target.value as never })}>
                           {[150, 300, 600, 900, 1500, 2500].map((c) => <option key={c} value={c}>Cl {c0label(c)}</option>)}</select><FixNote equipId={equip.id} field={`nz${i}-flangeClass`} /></td>
                         <td><select value={n.flangeMatKey} onChange={(e) => upNz(n.id, { flangeMatKey: e.target.value })}>
@@ -704,25 +757,60 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
                         </select></td>
                         {/* RF pad: the ring THICKNESS is derived from the nozzle bore, its
                             schedule and the shell/head thickness — only the pad OD is an input
-                            (setting it rewrites padThk to 0 = auto). */}
-                        <td>
-                          <input
-                            id={fid(`nz${i}-padDia`)}
-                            type="number"
-                            className="num"
-                            value={n.padDia}
-                            step={10}
-                            title={`Suggested ${nc?.padDiaSuggested ?? '—'} mm (≈ twice the bore)`}
-                            onChange={(e) => upNz(n.id, { padDia: +e.target.value, padThk: 0 })}
-                          />
-                          <FixNote equipId={equip.id} field={`nz${i}-padDia`} />
+                            (setting it rewrites padThk to 0 = auto). An SRN neck carries its
+                            own reinforcement, so the ring is not offered at all. */}
+                        {scope.pad && (
+                          <td>
+                            <input
+                              id={fid(`nz${i}-padDia`)}
+                              type="number"
+                              className="num"
+                              value={n.style === 'srn' ? 0 : n.padDia}
+                              step={10}
+                              disabled={n.style === 'srn'}
+                              title={
+                                n.style === 'srn'
+                                  ? 'Self-reinforced neck — no pad; thicken the neck instead'
+                                  : `Suggested ${nc?.padDiaSuggested ?? '—'} mm (≈ twice the bore)`
+                              }
+                              onChange={(e) => upNz(n.id, { padDia: +e.target.value, padThk: 0 })}
+                            />
+                            <FixNote equipId={equip.id} field={`nz${i}-padDia`} />
+                          </td>
+                        )}
+                        {scope.pad && (
+                          <td className="num calc" title="Pad thickness derived by UG-37 for this pad OD — no entry needed">
+                            {nc ? (nc.padDiaUsed > 0 ? fmt(nc.padThkUsed, 1) : '—') : '—'}
+                          </td>
+                        )}
+                        <td className={n.style === 'srn' ? '' : 'num calc'} title={n.style === 'srn' ? 'Self-reinforced neck wall — enter the forged neck thickness; the engine checks that it closes UG-37 without a pad' : 'Nominal neck wall from the schedule' }>
+                          {n.style === 'srn' ? (
+                            <>
+                              <input
+                                id={fid(`nz${i}-neckThk`)}
+                                type="number"
+                                step={0.5}
+                                className="num"
+                                style={{ width: 72 }}
+                                value={n.neckThkMm ?? 0}
+                                placeholder="sch"
+                                onChange={(e) => upNz(n.id, { neckThkMm: +e.target.value })}
+                              />
+                              <FixNote equipId={equip.id} field={`nz${i}-neckThk`} />
+                              {nc && nc.srnNeckThkRequired > 0 && (
+                                <div className="small" style={{ color: 'var(--err, #b4232a)' }}>
+                                  needs ≥ {nc.srnNeckThkRequired.toFixed(1)}
+                                </div>
+                              )}
+                            </>
+                          ) : nc ? (
+                            fmt(nc.wall, 2)
+                          ) : (
+                            '—'
+                          )}
                         </td>
-                        <td className="num calc" title="Pad thickness derived by UG-37 for this pad OD — no entry needed">
-                          {nc ? (nc.padDiaUsed > 0 ? fmt(nc.padThkUsed, 1) : '—') : '—'}
-                        </td>
-                        <td className="num calc">{nc ? fmt(nc.wall, 2) : '—'}</td>
-                        <td className="num calc">{nc ? nc.Areq.toFixed(0) : '—'}</td>
-                        <td className="num calc">{nc ? nc.Aprov.toFixed(0) : '—'}</td>
+                        {scope.reinforcement && <td className="num calc">{nc ? nc.Areq.toFixed(0) : '—'}</td>}
+                        {scope.reinforcement && <td className="num calc">{nc ? nc.Aprov.toFixed(0) : '—'}</td>}
                         <td className="num calc">{nc ? fmt(nc.flangeRating, 0) : '—'}</td>
                         <td>{nc && (nc.reinforceOK && nc.flangeClassOK && nc.neckOK && (nc.load?.ok ?? true)
                           ? <span className="badge ok">OK</span>
@@ -735,7 +823,7 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
               </table>
             </div>
             <div style={{ marginTop: 8 }}><button onClick={addNozzle}>＋ Add nozzle</button></div>
-            {(equip.equipType === 'vessel' || equip.equipType === 'column' || equip.equipType === 'tank') && equip.nozzles.length > 0 && (
+            {scope.localLoads && equip.nozzles.length > 0 && (
               <div style={{ marginTop: 16, border: '1px solid var(--line, #ddd)', borderRadius: 8, padding: 12 }}>
                 <h4 style={{ margin: '0 0 4px' }}>Local loads — WRC 107 screening</h4>
                 <p className="muted small" style={{ marginTop: 0 }}>
@@ -845,7 +933,7 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
           </div>
         )}
 
-        {tab === 'type' && equip.equipType === 'hx' && equip.hx && <HxEqEditor equip={equip} />}
+        {tab === 'type' && equip.equipType === 'hx' && equip.hx && <HxEqEditor equip={equip} calc={calc} />}
         {tab === 'type' && equip.equipType === 'tank' && equip.tank && <TankEqEditor equip={equip} calc={calc} />}
         {tab === 'type' && equip.equipType === 'finfan' && equip.finfan && <FinFanEqEditor equip={equip} calc={calc} />}
         {tab === 'type' && <SupportEditor equip={equip} />}
@@ -1125,20 +1213,36 @@ const SHELL_FLOW_FIELDS: [keyof ShellSideFlow, string, string][] = [
   ['connorsK', 'Connors K (0 = 3.3)', '0.1'],
 ];
 
-function HxEqEditor({ equip }: { equip: Equipment }) {
+function HxEqEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<typeof computeEquipment> }) {
   const hx = equip.hx!;
+  const c = calc.hx;
   const p = (patch: Partial<HXSpec>) => update(equip.id, { hx: { ...hx, ...patch } });
   const fid = (f: string) => fieldId(equip.id, f);
+  const joint = hx.tubeJointType ?? 'strengthWelded';
+  const jointCount = (c?.tubeCountActual ?? 0) * 2;
   return (
     <div>
       <div className="grid2">
         <label className="f"><span>Tube-to-tubesheet joint</span>
-          <select value={hx.tubeJointType ?? 'strengthWelded'} onChange={(e) => p({ tubeJointType: e.target.value as never })}>
-            <option value="expanded">Strength expanded</option>
-            <option value="strengthWelded">Strength welded + expanded</option>
-            <option value="sealWeldExpanded">Seal welded + strength expanded</option>
-            <option value="fullyWelded">Fully welded (inner/outer)</option>
+          <select id={fid('hxTubeJoint')} value={joint} onChange={(e) => p({ tubeJointType: e.target.value as never })}>
+            <option value="expanded">Strength expanded (rolled only, no weld)</option>
+            <option value="strengthWelded">Strength welded + expanded (GTAW cap, then roll)</option>
+            <option value="sealWeldExpanded">Seal welded + strength expanded (light GTAW seal, then roll)</option>
+            <option value="fullyWelded">Fully welded, both ends (two GTAW passes, no roll)</option>
           </select>
+          <FixNote equipId={equip.id} field="hxTubeJoint" />
+        </label>
+        <label className="f"><span>Tube joint work (derived)</span>
+          <b className="small">
+            {jointCount > 0 ? `${jointCount} joints (${c!.tubeCountActual} tubes × 2 tubesheets) — ` : '— '}
+            {joint === 'expanded'
+              ? 'every joint machine-rolled, no weld hours'
+              : joint === 'sealWeldExpanded'
+              ? 'machine roll + one light GTAW seal pass per joint'
+              : joint === 'fullyWelded'
+              ? 'two manual GTAW passes per joint, no expansion'
+              : 'machine roll + one manual GTAW strength pass per joint'}
+          </b>
         </label>
         <label className="f"><span>Tubesheet face cladding</span>
           <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>

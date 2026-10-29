@@ -38,6 +38,7 @@ const MACHINE_LABEL: Record<string, string> = {
   roll: 'Plate rolling machine',
   drill: 'Radial / magnetic drill',
   crane: 'Overhead crane / yard handling',
+  expander: 'Tube rolling / expander unit',
 };
 
 export default function SettingsPage() {

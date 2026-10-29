@@ -64,6 +64,17 @@ const LEGACY_USD_TO_BHD = 0.376;
 const round3 = (v: number) => Math.round(v * 1000) / 1000;
 const PCT_KEYS = new Set(['overheadPct', 'profitPct', 'contingencyPct']);
 
+/** Deep-merged rate card: a saved card never loses a key added since it was written. */
+function mergeRates(r: Partial<RateCard>): RateCard {
+  return {
+    ...DEFAULT_RATES,
+    ...r,
+    labor: { ...DEFAULT_RATES.labor, ...(r.labor ?? {}) },
+    machine: { ...DEFAULT_RATES.machine, ...(r.machine ?? {}) },
+    prices: r.prices ?? DEFAULT_RATES.prices,
+  };
+}
+
 /**
  * Migrate a settings object saved when USD was the base: scale every money
  * field (rate card scalars, labor rates, material price overrides, FX rates)
@@ -72,11 +83,17 @@ const PCT_KEYS = new Set(['overheadPct', 'profitPct', 'contingencyPct']);
  */
 function migrateToBhdBase(set: Partial<Settings>): Partial<Settings> {
   if (set.rateBase === 'BHD') {
-    // even when already migrated, make sure newly added rate fields exist
-    return { ...set, rates: { ...DEFAULT_RATES, ...(set.rates ?? {}) } };
+    // even when already migrated, make sure newly added rate fields exist (a saved
+    // project predates any rate key added since: the nested tables must merge too)
+    return { ...set, rates: mergeRates(set.rates ?? {}) };
   }
   const old = set.rates ?? ({} as Partial<typeof DEFAULT_RATES>);
-  const rates: typeof DEFAULT_RATES = { ...DEFAULT_RATES, ...(old as object) } as typeof DEFAULT_RATES;
+  const rates: typeof DEFAULT_RATES = {
+    ...DEFAULT_RATES,
+    ...(old as object),
+    labor: { ...DEFAULT_RATES.labor, ...(old.labor ?? {}) },
+    machine: { ...DEFAULT_RATES.machine, ...(old.machine ?? {}) },
+  } as typeof DEFAULT_RATES;
   for (const k of Object.keys(old) as (keyof typeof DEFAULT_RATES)[]) {
     if (k === 'labor' || k === 'prices') continue;
     const v = old[k];
@@ -222,7 +239,7 @@ function migrateImportedSettings(incoming: Partial<Settings>): Partial<Settings>
   const usdBase = 'rateBase' in incoming ? incoming.rateBase !== 'BHD' : Object.keys(incoming).length > 0;
   if (!usdBase) {
     const out: Partial<Settings> = { ...incoming };
-    if (hasRates) out.rates = { ...DEFAULT_RATES, ...incoming.rates };
+    if (hasRates) out.rates = mergeRates(incoming.rates!);
     return out;
   }
   const m = migrateToBhdBase({

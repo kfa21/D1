@@ -449,10 +449,14 @@ function calcNozzle(
   PExt: number,
   warnings: Warning[]
 ): NozzleCalc {
+  const style = nozzle.style ?? 'pad';
   const pipeInfo = wallForBore(nozzle.dn, nozzle.schKey);
   const pipe = pipeInfo?.pipe;
-  const wall = pipeInfo?.wall ?? 0;
-  const od = pipe?.od ?? nozzle.dn + 2 * wall;
+  // A self-reinforced (SRN) or custom neck is heavier than any pipe schedule, so an
+  // entered wall overrides the schedule — the OD then follows the bore + 2·wall.
+  const wallOverride = nozzle.neckThkMm && nozzle.neckThkMm > 0 ? nozzle.neckThkMm : 0;
+  const wall = wallOverride || (pipeInfo?.wall ?? 0);
+  const od = wallOverride > 0 ? nozzle.dn + 2 * wall : pipe?.od ?? nozzle.dn + 2 * wall;
   const boreCorr = nozzle.dn + 2 * ca; // corroded finished opening
   const wallCorr = Math.max(0, wall - ca);
   const Snozzle = S;
@@ -498,7 +502,9 @@ function calcNozzle(
   // closes the shortfall is the pad thickness at the chosen pad OD — so the ring
   // is sized from the same numbers the check runs on, and only the diameter is a
   // user choice. (A manual padThk still overrides it.)
-  const padDia = nozzle.padDia > nozzle.dn + 2 * wall ? nozzle.padDia : 0;
+  // A self-reinforced neck carries the reinforcement itself — no pad is modelled
+  // even if an old project still carries a pad OD on the spec.
+  const padDia = style !== 'srn' && nozzle.padDia > nozzle.dn + 2 * wall ? nozzle.padDia : 0;
   const padAnnulus = padDia > 0 ? Math.max(0, padDia - d - 2 * wall) : 0; // mm² of pad per mm of thickness
   const hOutBase = Math.min(nozzle.projOutside, 2.5 * ta);
   const hIn = Math.min(50, ta, 2.5 * tn); // inside projection (set-through assumption), UG-40 nozzle cap
@@ -515,6 +521,19 @@ function calcNozzle(
   const Aprov = A1 + A2 + A3 + Aweld;
   const shortfall = Areq - Aprov;
   const reinforceOK = shortfall <= 1e-6;
+  // SRN: with no pad the whole shortfall has to be carried by a heavier neck, so
+  // solve for the neck wall at which A1 + A2 + A_weld closes A_req.
+  let srnNeckThkRequired = 0;
+  if (style === 'srn' && !reinforceOK) {
+    const providedAt = (w: number) => {
+      const tnW = Math.max(0, w - ca);
+      const a2 = 2 * (Math.min(nozzle.projOutside, 2.5 * ta) + Math.min(50, ta, 2.5 * tnW)) * Math.max(0, tnW - F * tr);
+      return A1 + a2 + Aweld;
+    };
+    let w = Math.max(wall, trn + ca);
+    while (providedAt(w) < Areq && w < trn + ca + 150) w += 0.5;
+    srnNeckThkRequired = Math.ceil(w * 2) / 2;
+  }
   // Suggested pad OD = twice the opening (the usual reinforcement ring), and never
   // less than the opening plus 100 mm of annular width.
   const padDiaSuggested = Math.ceil(Math.max(2 * nozzle.dn, nozzle.dn + 2 * wall + 100) / 10) * 10;
@@ -526,7 +545,20 @@ function calcNozzle(
       msg: `Nozzle ${nozzle.tag}: guaranteed min. neck wall ${(wall * 0.875).toFixed(2)} mm (${wall} mm − 12.5 % mill tol.) < required ${tNeckReq.toFixed(2)} mm (UG-45/pressure)`,
     });
   }
-  if (!reinforceOK) {
+  if (style === 'srn' && nozzle.padDia > 0) {
+    warnings.push({
+      level: 'info',
+      code: 'NZ-05',
+      msg: `Nozzle ${nozzle.tag}: reinforcing pad ignored — a self-reinforced (SRN) neck carries the reinforcement itself; set the style back to "pad" to use a ring`,
+    });
+  }
+  if (style === 'srn' && srnNeckThkRequired > 0) {
+    warnings.push({
+      level: 'error',
+      code: 'NZ-06',
+      msg: `Nozzle ${nozzle.tag}: self-reinforced neck ${wall.toFixed(1)} mm provides A = ${Aprov.toFixed(0)} < A_req = ${Areq.toFixed(0)} mm² (shortfall ${shortfall.toFixed(0)} mm²) — thicken the SRN neck to ≥ ${srnNeckThkRequired.toFixed(1)} mm, or switch the style to "pad"`,
+    });
+  } else if (!reinforceOK) {
     warnings.push({
       level: 'error',
       code: 'NZ-02',
@@ -575,7 +607,7 @@ function calcNozzle(
   }
 
   const neckLenM = (nozzle.projOutside + wall + 150) / 1000;
-  const pipeKg = pipe ? pipeMassKgPerM(od, wall, getMat(matKey).density) * neckLenM : 0;
+  const pipeKg = wall > 0 ? pipeMassKgPerM(od, wall, getMat(matKey).density) * neckLenM : 0;
   const flangeKg = flangeWeightKg(npsNum, nozzle.flangeClass);
 
   return {
@@ -601,6 +633,8 @@ function calcNozzle(
     padDiaUsed: padDia,
     padArea: A3,
     padDiaSuggested,
+    style,
+    srnNeckThkRequired,
     flangeRating: fl.ratingBar,
     flangeClassOK: fl.ok,
     load: loadCalc ?? undefined,

@@ -95,6 +95,16 @@ export interface SectionSpec {
 
 export type NozzleKind = 'process' | 'vent' | 'drain' | 'instrument' | 'manway' | 'safety' | 'safetyRelief' | 'spare' | 'support';
 
+/**
+ * How the opening is reinforced — the neck construction, not the service.
+ *  - `pad`   set-on neck + reinforcing pad (RF pad); the ring thickness is derived.
+ *  - `srn`   self-reinforced nozzle: no pad, the forged/rolled neck is thick enough
+ *            on its own to close the UG-37 shortfall (engine reports the wall needed).
+ *  - `setIn` neck inserted through the shell wall, so the inside projection
+ *            (2.5·t) counts towards A2 as well.
+ */
+export type NozzleStyle = 'pad' | 'srn' | 'setIn';
+
 export interface NozzleSpec {
   id: string;
   tag: string;
@@ -116,6 +126,17 @@ export interface NozzleSpec {
   /** Azimuth, deg clockwise from north (viewed from top) */
   azimuth: number;
   kind: NozzleKind;
+  /**
+   * Neck construction / reinforcement style. Absent = `pad` (the historic
+   * behaviour: set-on neck with an optional reinforcing pad).
+   */
+  style?: NozzleStyle;
+  /**
+   * Neck wall override (mm). 0/absent = the schedule wall of the bore. A
+   * self-reinforced (SRN) neck is usually heavier than any pipe schedule, so its
+   * wall is entered here and the engine checks that it closes A_req.
+   */
+  neckThkMm?: number;
   flangeClass: 150 | 300 | 600 | 900 | 1500 | 2500;
   flangeMatKey: string;
   /** Reinforcement pad OD (mm), 0 => none */
@@ -614,6 +635,13 @@ export interface NozzleCalc {
   padArea: number;
   /** recommended pad OD for the neck/wall (2× the bore, min bore + 100 mm) — the value to type */
   padDiaSuggested: number;
+  /** resolved reinforcement style (pad / srn / setIn) */
+  style: NozzleStyle;
+  /**
+   * SRN only: the neck wall (mm, rounded up to 0.5) that makes the bare neck close
+   * UG-37 with no pad. 0 when a pad or the schedule wall already covers it.
+   */
+  srnNeckThkRequired: number;
   flangeRating: number; // bar at design T
   flangeClassOK: boolean;
   /** local-load screening (WRC 107 structure) — present when nozzle.loads set */

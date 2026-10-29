@@ -45,6 +45,8 @@ export interface RateCard {
     roll: number;
     drill: number;
     crane: number;
+    /** tube-rolling / expander unit for tube-to-tubesheet expansion */
+    expander: number;
   };
   labor: {
     /** general fabrication welder (fit-up tacks, supports, misc.) */
@@ -95,6 +97,7 @@ export const DEFAULT_RATES: RateCard = {
     roll: 5.4, // plate rolling machine
     drill: 3.6, // radial/magnetic drill
     crane: 7.5, // overhead crane / yard handling
+    expander: 3.2, // pneumatic/roller tube expander incl. torque control
   },
   labor: {
     fitter: 9,
@@ -151,6 +154,7 @@ export interface ManhourUsage {
 /** Activity types shown as group headings in Settings → man-hour matrix. */
 export type ManhourGroup =
   | 'Welding'
+  | 'Tube bundle'
   | 'Cutting & edge prep'
   | 'Forming & fitting'
   | 'Assembly & supports'
@@ -164,6 +168,7 @@ export type ManhourGroup =
 
 export const MANHOUR_GROUP_ORDER: ManhourGroup[] = [
   'Welding',
+  'Tube bundle',
   'Cutting & edge prep',
   'Forming & fitting',
   'Assembly & supports',
@@ -213,6 +218,18 @@ export const MANHOUR_BASIS: ManhourBasis[] = [
   { key: 'weld.clip', label: 'Insulation, refractory & platform clip welding', trade: 'welder', basis: '4 clips per access platform + 4 per m² when cladding/refractory is specified, 0.24 m of weld per clip (60 mm fillets, both sides)' },
   { key: 'handle', label: 'Handling, turning & rigging (manual)', trade: 'fitter', basis: '0.35 h per tonne dry weight of rigging, slewing and yard moves' },
   { key: 'handle.crane', label: 'Crane time (machine)', trade: 'fitter', resource: 'machine', machine: 'crane', basis: '0.25 h per tonne dry weight of crane occupancy for the same lifts' },
+  // ---- exchanger tube bundle: tube-to-tubesheet joints and the bundle itself ----
+  // A shell-and-tube estimate that only books shell seams misses most of the work:
+  // the tubesheet and baffle tube holes, the tube cuts, and one tube-to-tubesheet
+  // joint per tube END (two tubesheets). The joint method decides the mix — an
+  // expanded joint is machine rolling, a strength/fully welded joint is manual GTAW,
+  // a seal weld is one small cap pass on top of the expansion.
+  { key: 'hx.tsDrill', label: 'Tubesheet & baffle tube-hole drilling (machine)', trade: 'fitter', group: 'Tube bundle', resource: 'machine', machine: 'drill', basis: 'tube holes = tube count × (1 tubesheet pair + baffle count); 0.045 h per hole through tubesheet thickness, 0.02 h per hole in a baffle (radial drill)' },
+  { key: 'hx.tubeCut', label: 'Tube cutting to length, deburring & cleaning (manual)', trade: 'helper', group: 'Tube bundle', basis: '0.11 h per tube (cut, deburr both ends, blow through, gauge) × (1 + 3 % spares)' },
+  { key: 'hx.tubeExpand', label: 'Tube rolling / expansion into the tubesheet (machine)', trade: 'fitter', group: 'Tube bundle', resource: 'machine', machine: 'expander', basis: 'one rolled joint per tube end; 0.05 h per joint (feeding, expanding, gauging) — booked for expanded, seal-welded + expanded and strength-welded + expanded joints, not for a fully welded joint' },
+  { key: 'hx.tubeWeld', label: 'Tube-to-tubesheet welding (GTAW, manual)', trade: 'gtaw', group: 'Tube bundle', basis: 'per tube END: strength weld 1 pass ≈ 0.10 h, seal weld 1 pass ≈ 0.07 h, fully welded 2 passes ≈ 0.20 h (+0.02 h per joint for tubes < 20 mm OD) — welder access at both tubesheets' },
+  { key: 'hx.bundle', label: 'Bundle assembly, baffles, tie rods & insertion', trade: 'fitter', group: 'Tube bundle', basis: '0.09 h per tube to thread baffles/spacers + 1.6 h per baffle + 3 h bundle insertion into the shell' },
+  { key: 'hx.tubeTest', label: 'Tube-to-tubesheet joint test (PT + helium/vacuum box)', trade: 'qc', group: 'Tube bundle', basis: '0.04 h per welded joint for PT of the weld + 6 h per exchanger for the helium/vacuum-box test of both tubesheets (crew day rate billed separately)' },
   // ---- weld overlay: 309L buffer run + corrosion-resistant finish layer ----
   { key: 'weld.overlay.base', label: 'Weld overlay — 309L base (buffer) run', trade: 'gtaw', basis: 'overlay area (m²) × base-run thickness × 7.9 kg/m³·10⁻³ ÷ 1.1 kg/h deposition incl. cleaning between passes and preheat hold' },
   { key: 'weld.overlay.finish', label: 'Weld overlay — finish (corrosion-resistant) layer', trade: 'gtaw', basis: 'overlay area (m²) × finish thickness × alloy density ÷ 1.0 kg/h deposition (single-pass, higher skill) — counted only for weld-overlay cladding' },
@@ -221,6 +238,7 @@ export const MANHOUR_BASIS: ManhourBasis[] = [
 
 /** Activity TYPE for a man-hour key (used for the Settings matrix headings). */
 export function manhourGroup(key: string): ManhourGroup {
+  if (key.startsWith('hx.')) return 'Tube bundle';
   if (key.startsWith('weld.')) return 'Welding';
   if (key === 'cut' || key === 'cut.grind' || key === 'edge') return 'Cutting & edge prep';
   if (key === 'fitup' || key === 'rolling' || key === 'forming') return 'Forming & fitting';
@@ -666,6 +684,65 @@ export function estimateEquipment(
   const nzFit = calc.nozzles.reduce((s, n) => s + 1.2 + 0.5 * (n.spec.dn / 25.4), 0);
   labor('Nozzle fit & attachment', nzFit, 'fitter', 'nzfit');
 
+  // ---- TUBE BUNDLE — shell & tube exchangers only ----
+  // One tube-to-tubesheet joint per tube END (both tubesheets). The joint method
+  // decides the mix: an expanded joint is machine rolling only, a strength or seal
+  // weld adds manual GTAW on top of the roll, a fully welded joint is welded at both
+  // ends with no expansion.
+  let tubeWeldJoints = 0;
+  if (equip.equipType === 'hx' && calc.hx) {
+    const hxCalc = calc.hx;
+    const tubes = Math.max(0, Math.round(hxCalc.tubeCountActual));
+    const jointType = equip.hx?.tubeJointType ?? 'strengthWelded';
+    const ends = 2;
+    const jointLabel =
+      jointType === 'expanded'
+        ? 'strength expanded (rolled only)'
+        : jointType === 'sealWeldExpanded'
+        ? 'seal welded + expanded'
+        : jointType === 'fullyWelded'
+        ? 'fully welded (both ends)'
+        : 'strength welded + expanded';
+    const drillH = tubes * ends * 0.045 + hxCalc.baffleCount * tubes * 0.02;
+    machineWork(
+      `Tubesheet & baffle tube-hole drilling (${tubes} tubes × 2 tubesheets, ${hxCalc.baffleCount} baffles)`,
+      drillH,
+      'drill',
+      'hx.tsDrill'
+    );
+    labor(`Tube cutting, deburring & cleaning (${Math.round(tubes * 1.03)} tubes incl. 3 % spares)`, tubes * 1.03 * 0.11, 'helper', 'hx.tubeCut');
+    const perJoint =
+      jointType === 'fullyWelded' ? 0.2 : jointType === 'strengthWelded' ? 0.1 : jointType === 'sealWeldExpanded' ? 0.07 : 0;
+    const smallTube = (equip.hx?.tubeOD ?? 25) < 20 ? 0.02 : 0; // cramped access on small bore
+    tubeWeldJoints = perJoint > 0 ? tubes * ends : 0;
+    labor(
+      `Tube-to-tubesheet welding — ${jointLabel} (${tubeWeldJoints} joints, GTAW manual)`,
+      tubes * ends * (perJoint + smallTube),
+      'gtaw',
+      'hx.tubeWeld'
+    );
+    if (jointType !== 'fullyWelded') {
+      machineWork(`Tube rolling / expansion into the tubesheets (${tubes * ends} joints)`, tubes * ends * 0.05, 'expander', 'hx.tubeExpand');
+    }
+    labor(
+      `Bundle assembly, tie rods, spacers & insertion (${tubes} tubes, ${hxCalc.baffleCount} baffles)`,
+      tubes * 0.09 + hxCalc.baffleCount * 1.6 + 3,
+      'fitter',
+      'hx.bundle'
+    );
+    if (tubeWeldJoints > 0) {
+      labor(
+        `Tube-to-tubesheet joint test — PT + helium/vacuum box (${tubeWeldJoints} welded joints)`,
+        tubeWeldJoints * 0.04 + 6,
+        'qc',
+        'hx.tubeTest'
+      );
+    } else {
+      // rolled-only joints still get the helium/vacuum-box test of both tubesheets
+      labor('Tube-to-tubesheet joint test — helium/vacuum box (rolled joints)', 6, 'qc', 'hx.tubeTest');
+    }
+  }
+
   // ---- welding subtypes that are easy to leave out of an estimate ----
 
   // external-pressure stiffening rings: every ring is welded both sides
@@ -891,6 +968,18 @@ export function estimateEquipment(
   if (sawWireKg > 0) push({ group: 'Consumables', activity: `SAW wire (deposit ${sawFillDeposit.toFixed(0)} kg × 1.1)`, qty: sawWireKg, unit: 'kg', rateUSD: rates.wirePrice, amountUSD: sawWireKg * rates.wirePrice });
   if (sawFluxKg > 0) push({ group: 'Consumables', activity: `SAW flux (deposit ${sawFillDeposit.toFixed(0)} kg × 1.15)`, qty: sawFluxKg, unit: 'kg', rateUSD: rates.sawFluxPrice, amountUSD: sawFluxKg * rates.sawFluxPrice });
   if (rootWireKg > 0) push({ group: 'Consumables', activity: 'GTAW root filler wire', qty: rootWireKg, unit: 'kg', rateUSD: rates.wirePrice, amountUSD: rootWireKg * rates.wirePrice });
+  if (tubeWeldJoints > 0) {
+    // a tube-to-tubesheet weld is a small autogenous-ish cap: ≈4 g of filler per joint
+    const tubeWireKg = tubeWeldJoints * 0.004 * 1.2;
+    push({
+      group: 'Consumables',
+      activity: `Tube-to-tubesheet weld filler (${tubeWeldJoints} joints × 4 g + 20 % stub)`,
+      qty: tubeWireKg,
+      unit: 'kg',
+      rateUSD: rates.wirePrice,
+      amountUSD: tubeWireKg * rates.wirePrice,
+    });
+  }
   if (supWeldLenM > 0) {
     const supElecKg = supWeldLenM * 0.25; // ≈6 mm fillet deposit × SMAW utilization
     push({ group: 'Consumables', activity: `Support & structural fillet electrodes (${supWeldLenM.toFixed(0)} m weld)`, qty: supElecKg, unit: 'kg', rateUSD: rates.electrodePrice, amountUSD: supElecKg * rates.electrodePrice });

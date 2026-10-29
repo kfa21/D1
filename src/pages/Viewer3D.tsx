@@ -249,11 +249,15 @@ function addNozzle(
   part(neck, `Nozzle ${n.spec.tag}`, `Ø${dn} mm · ${n.spec.service || n.spec.kind}${n.reinforceOK ? '' : ' · reinforcement insufficient'}`);
   o.model.add(neck);
 
-  if (n.spec.padDia > 0 && n.spec.padThk > 0) {
-    const pad = new THREE.Mesh(new THREE.CylinderGeometry(n.spec.padDia / 2, n.spec.padDia / 2, n.spec.padThk + 2, 32), steelMat(o, 0x71809a, 0.6, true));
+  // the ring thickness is derived by UG-37 (the spec keeps padThk at 0), so the pad
+  // is drawn from what the check actually used — an SRN neck has no pad at all
+  const padDia = n.padDiaUsed ?? n.spec.padDia;
+  const padThk = n.padThkUsed ?? n.spec.padThk;
+  if (padDia > 0 && padThk > 0) {
+    const pad = new THREE.Mesh(new THREE.CylinderGeometry(padDia / 2, padDia / 2, padThk + 2, 32), steelMat(o, 0x71809a, 0.6, true));
     pad.quaternion.setFromUnitVectors(UP_Y, unit);
-    pad.position.copy(surface).addScaledVector(unit, n.spec.padThk / 2);
-    part(pad, `Reinforcement pad ${n.spec.tag}`, `Ø${n.spec.padDia} × ${n.spec.padThk} mm`);
+    pad.position.copy(surface).addScaledVector(unit, padThk / 2);
+    part(pad, `Reinforcement pad ${n.spec.tag}`, `Ø${padDia} × ${padThk.toFixed(1)} mm`);
     o.model.add(pad);
   }
 

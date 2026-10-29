@@ -99,6 +99,14 @@ export function suggestedValue(
         basis: `heavier neck schedule — pressure ${r2(n.trn)} vs UG-45 ${r2(n.ug45min)} mm`,
       };
     }
+    case 'NZ-06': {
+      const n = calc.nozzles[0];
+      if (!n) return;
+      return {
+        value: `neck t ≥ ${n.srnNeckThkRequired.toFixed(1)} mm`,
+        basis: `SRN neck ${r1(n.wall)} mm gives A ${n.Aprov.toFixed(0)} < A req ${n.Areq.toFixed(0)} mm² (${r1(n.shortfall)} mm² short) with no pad`,
+      };
+    }
     case 'NZ-02': {
       const n = calc.nozzles[0];
       if (!n) return;

@@ -34,6 +34,8 @@ export const WARNING_CATALOG: Record<string, WarningSpec> = {
   'NZ-01': { level: 'error', note: 'Nozzle neck wall below UG-45/pressure requirement' },
   'NZ-02': { level: 'error', note: 'Nozzle reinforcement shortfall (UG-37)' },
   'NZ-03': { level: 'warning', note: 'Nozzle elevation outside the shell — checked against the nearest course' },
+  'NZ-05': { level: 'info', note: 'Reinforcing pad ignored — the nozzle is a self-reinforced (SRN) neck' },
+  'NZ-06': { level: 'error', note: 'Self-reinforced (SRN) neck too thin for UG-37 without a pad' },
   'FL-01': { level: 'error', note: 'B16.5 flange rating below design pressure at temperature' },
   'FL-02': { level: 'info', note: 'Flange class over-sized (>50% margin) — consider lower class' },
   'FL-03': { level: 'info', note: 'Flange class > 600 rated conservatively from the Class 600 table — verify per B16.5' },
