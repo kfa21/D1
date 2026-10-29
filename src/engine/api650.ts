@@ -341,9 +341,10 @@ export function computeTank(equip: Equipment): EquipmentCalc {
     // order the course in a plate thickness a mill actually rolls (ASTM A6/A20):
     // the code thickness is a minimum, the BOM/weight must use the plate bought.
     const plate = astmPlateThickness(tReq);
-    if (plate.addedMm > 0.5) roundedCourses.push(`${nCourses - i}: ${tReq.toFixed(2)} → ${plate.chosen} mm`);
+    // course numbers here count from the BOTTOM, matching the course tables
+    if (plate.addedMm > 0.5) roundedCourses.push(`${i + 1}: ${tReq.toFixed(2)} → ${plate.chosen} mm`);
     if (plate.chosen > ASTM_PLATE_MAX_MM + 1e-9) {
-      millOrderCourses.push(`${nCourses - i}: ${tReq.toFixed(1)} mm`);
+      millOrderCourses.push(`${i + 1}: ${tReq.toFixed(1)} mm`);
     }
     courses.push({
       courseNo: nCourses - i, // top course = 1
@@ -363,7 +364,7 @@ export function computeTank(equip: Equipment): EquipmentCalc {
     warnings.push({
       level: 'info',
       code: 'T650-16',
-      msg: `Course plate thickness taken from the ASTM A6/A20 rolled-plate series (course no. from top, required → ordered): ${roundedCourses.join(', ')}`,
+      msg: `Course plate thickness taken from the ASTM A6/A20 rolled-plate series (course no. from bottom, required → ordered): ${roundedCourses.join(', ')}`,
     });
   }
   if (millOrderCourses.length > 0) {
