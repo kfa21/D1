@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Equipment, EquipType, HeadType, NozzleSpec, NozzleLoads, InternalsSpec, SectionSpec } from '../engine/types';
 import { computeEquipment } from '../engine/compute';
 import { MATERIALS } from '../engine/materials';
-import { PIPES, SCHEDULES } from '../engine/pipes';
+import { NPS_SIZES, PIPES, SCHEDULES, npsLabelForBore } from '../engine/pipes';
 import { uid, fmt } from '../engine/units';
 import { newEquipment, demoProject } from '../defaults';
 import { suggestNdtMethod } from '../engine/ndt';
@@ -17,6 +17,9 @@ import type { CladSpec } from '../engine/types';
 import { useStore, setState, getStore } from '../store';
 import { requestFixFor, subscribeFix, getFix, useFix, FixNote, focusField } from '../fixNav';
 import { fieldId, fixFor } from '../fixes';
+
+/** Total tangent-to-tangent length: the sum of the cylindrical section lengths. */
+const totalTTMm = (e: Equipment) => e.sections.reduce((s, x) => s + (x.ttLength || 0), 0);
 
 /** Human labels for nozzle kinds (SR = safety relief). */
 export const NOZZLE_KIND_LABELS: Record<string, string> = {
@@ -168,7 +171,7 @@ export default function Register() {
               <th>Orientation</th>
               <th className="num">#Dia</th>
               <th className="num">Dia (mm)</th>
-              <th className="num">T-T Length (mm)</th>
+              <th className="num">T-T total (mm)</th>
               <th>Dish End (T/B)</th>
               <th className="num">CA (mm)</th>
               <th>Material</th>
@@ -202,7 +205,15 @@ export default function Register() {
                   </td>
                   <td className="num calc">{e.sections.length}</td>
                   <td><input type="number" className="num" value={e.sections[0]?.dia ?? 0} onChange={(ev) => updateSection(e.id, e.sections[0].id, { dia: +ev.target.value })} onClick={(ev) => ev.stopPropagation()} /></td>
-                  <td><input type="number" className="num" value={e.sections[0]?.ttLength ?? 0} onChange={(ev) => updateSection(e.id, e.sections[0].id, { ttLength: +ev.target.value })} onClick={(ev) => ev.stopPropagation()} /></td>
+                  <td>
+                    {e.sections.length > 1 ? (
+                      <span className="calc" title="Sum of the section lengths — edit them on the Sections tab">
+                        {fmt(totalTTMm(e), 0)}
+                      </span>
+                    ) : (
+                      <input type="number" className="num" value={e.sections[0]?.ttLength ?? 0} onChange={(ev) => updateSection(e.id, e.sections[0].id, { ttLength: +ev.target.value })} onClick={(ev) => ev.stopPropagation()} />
+                    )}
+                  </td>
                   <td>
                     <select
                       value={e.sections[0]?.headTop ?? 'none'}
@@ -462,12 +473,16 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
 
         {tab === 'sections' && (
           <div>
+            <p className="muted small">
+              <b>Total T-T length {fmt(totalTTMm(equip), 0)} mm</b> — the sum of the section lengths below (heads and
+              cones are additional). Nozzle elevations are measured from the bottom tangent of this total.
+            </p>
             <p className="muted small">Multi-dia shells: add sections bottom→top. The cone angle at each section transition is the included angle of the reducing cone.</p>
             <div className="tablewrap">
               <table className="grid">
                 <thead>
                   <tr>
-                    <th>#</th><th className="num">ID (mm)</th><th className="num">T-T (mm)</th>
+                    <th>#</th><th className="num">ID (mm)</th><th className="num">Section L (mm)</th>
                     <th>Top head</th><th>Bottom head</th><th className="num">Spec t shell</th>
                     <th className="num">Cone angle°</th><th className="num">Spec t cone</th>
                     <th className="num grp">Req t (mm)</th><th className="num grp">Nominal</th>
@@ -517,7 +532,7 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
               <table className="grid">
                 <thead>
                   <tr>
-                    <th>Tag</th><th>Service</th><th>Kind</th><th className="num">Bore (mm)</th><th>Sch</th>
+                    <th>Tag</th><th>Service</th><th>Kind</th><th>Attach</th><th className="num">Bore (NPS)</th><th>Sch</th>
                     <th className="num">Elev (mm)</th><th className="num" title="Shell course the nozzle sits on — resolved from its elevation">Course</th><th className="num">Azim°</th><th>Flange</th><th>Flange mat</th>
                     <th className="num">Pad Ø</th><th className="num">Pad t</th>
                     <th className="num grp">Neck t (mm)</th><th className="num grp">A req</th><th className="num grp">A prov</th>
@@ -531,10 +546,35 @@ function DetailEditor({ equip, calc }: { equip: Equipment; calc: ReturnType<type
                       <tr key={n.id}>
                         <td><input value={n.tag} onChange={(e) => upNz(n.id, { tag: e.target.value })} style={{ width: 64 }} /></td>
                         <td><input value={n.service} onChange={(e) => upNz(n.id, { service: e.target.value })} style={{ width: 110 }} /></td>
+                        <td>
+                          <select
+                            id={fid(`nz${i}-attach`) }
+                            value={n.attach ?? 'shell'}
+                            onChange={(e) => upNz(n.id, { attach: e.target.value as 'shell' | 'topHead' | 'bottomHead' })}
+                            title="Penetration: shell course, or one of the dished ends"
+                          >
+                            <option value="shell">Shell</option>
+                            <option value="topHead">Top head</option>
+                            <option value="bottomHead">Bottom head</option>
+                          </select>
+                          <FixNote equipId={equip.id} field={`nz${i}-attach`} />
+                        </td>
                         <td><select value={n.kind} onChange={(e) => upNz(n.id, { kind: e.target.value as never })}>
                           {Object.keys(NOZZLE_KIND_LABELS).map((k) => <option key={k} value={k}>{NOZZLE_KIND_LABELS[k]}</option>)}
                         </select></td>
-                        <td><input id={fid(`nz${i}-dn`)} type="number" className="num" value={n.dn} onChange={(e) => upNz(n.id, { dn: +e.target.value })} /><FixNote equipId={equip.id} field={`nz${i}-dn`} /></td>
+                        <td>
+                          <select id={fid(`nz${i}-dn`)} className="num" value={n.dn} onChange={(e) => upNz(n.id, { dn: +e.target.value })}>
+                            {NPS_SIZES.map((o) => (
+                              <option key={o.dnMm} value={o.dnMm}>
+                                {o.nps} · {o.dnMm} mm
+                              </option>
+                            ))}
+                            {!NPS_SIZES.some((o) => o.dnMm === n.dn) && (
+                              <option value={n.dn}>{`${npsLabelForBore(n.dn)} · ${n.dn} mm (custom)`}</option>
+                            )}
+                          </select>
+                          <FixNote equipId={equip.id} field={`nz${i}-dn`} />
+                        </td>
                         <td><select value={n.schKey} onChange={(e) => upNz(n.id, { schKey: e.target.value })}>
                           {SCHEDULES.map((s) => <option key={s} value={s}>Sch {s}</option>)}
                         </select></td>

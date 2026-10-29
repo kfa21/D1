@@ -24,6 +24,7 @@ describe('warning → clickable fix registry', () => {
   it('omits the field exactly for codes with no single editable input', () => {
     // basis/advisory codes and engine exceptions: nothing to type into
     const NO_FIELD = [
+      'AC-01', 'AC-02', 'AC-03', 'AC-04', 'AC-05', 'AC-06', 'AC-07', 'AC-08',
       'AF-04', 'DBA-02', 'DBA-03', 'HX-04', 'HX-05', 'HX-09', 'HX-11',
       'NL-01', 'NL-03', 'RG-01', 'RG-02', 'RG-03', 'SYS',
       'T650-01', 'T650-02', 'T650-03', 'T650-05', 'T650-11', 'T650-14', 'T650-15',
@@ -41,7 +42,7 @@ describe('warning → clickable fix registry', () => {
         expect(fx.field, code).toMatch(/^sec\d+-(dia|ttLength|headTop|shellThk|coneAngleDeg|coneThk)$/);
       }
       if (fx.field.startsWith('nz')) {
-        expect(fx.field, code).toMatch(/^nz\d+-(dn|flangeClass|padThk|elevation)$/);
+        expect(fx.field, code).toMatch(/^nz\d+-(dn|attach|flangeClass|padThk|elevation)$/);
       }
       if (fx.field.startsWith('shellFlow-')) {
         expect(fx.field, code).toMatch(/^shellFlow-[A-Za-z]+$/);

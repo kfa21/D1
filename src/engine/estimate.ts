@@ -79,6 +79,9 @@ export type LaborTrade = keyof RateCard['labor'];
 export interface ManhourBasis {
   key: string;
   label: string;
+  /** activity TYPE — the group heading in the Settings matrix (Welding, NDT…);
+   *  derived from the key by `manhourGroup()` when not set explicitly */
+  group?: ManhourGroup;
   /** labor trade charged (\'outsourced\' = billed as an outside service, not shop hours) */
   trade: LaborTrade | 'outsourced';
   /** how the automatic hours are derived — shown verbatim in Settings */
@@ -97,6 +100,34 @@ export interface ManhourUsage {
  * derivation and a manual input per row; the difference from the auto value is booked
  * as one adjustment line so the automatic basis stays visible in the detailed estimate.
  */
+/** Activity types shown as group headings in Settings → man-hour matrix. */
+export type ManhourGroup =
+  | 'Welding'
+  | 'Cutting & edge prep'
+  | 'Forming & fitting'
+  | 'Assembly & supports'
+  | 'Machining & finishing'
+  | 'Non-destructive testing'
+  | 'Heat treatment'
+  | 'Testing'
+  | 'Painting & insulation'
+  | 'Handling & erection'
+  | 'Engineering & QA';
+
+export const MANHOUR_GROUP_ORDER: ManhourGroup[] = [
+  'Welding',
+  'Cutting & edge prep',
+  'Forming & fitting',
+  'Assembly & supports',
+  'Machining & finishing',
+  'Non-destructive testing',
+  'Heat treatment',
+  'Testing',
+  'Painting & insulation',
+  'Handling & erection',
+  'Engineering & QA',
+];
+
 export const MANHOUR_BASIS: ManhourBasis[] = [
   { key: 'weld.ls', label: 'Shell longitudinal seam welding', trade: 'welder', basis: 'h/m welding norm by governing thickness (SAW root+fill deposition model where SAW-eligible), × joint position factor' },
   { key: 'weld.cs', label: 'Shell circumferential seam welding', trade: 'welder', basis: 'h/m welding norm by governing thickness; course count from 2 m plate lengths' },
@@ -123,7 +154,34 @@ export const MANHOUR_BASIS: ManhourBasis[] = [
   { key: 'paint', label: 'Blasting & painting (SA 2.5, 2 coats)', trade: 'painter', basis: '0.12 h per m² paint area (paint billed per m² separately)' },
   { key: 'eng', label: 'Design, planning & documentation', trade: 'engineer', basis: '6 % of total shop hours (project level)' },
   { key: 'qa', label: 'QA/QC surveillance', trade: 'qc', basis: '2 % of total shop hours (project level)' },
+  // ---- added subtypes: the welding that is easy to forget when estimating ----
+  { key: 'weld.ring', label: 'Stiffening ring welding (vacuum rings)', trade: 'welder', basis: 'ring circumference × number of rings, both sides, at shell thickness × 0.8 position factor — only when a ring is specified' },
+  { key: 'weld.intRing', label: 'Internal support ring welding (tray / packing supports)', trade: 'welder', basis: 'one support ring per three internals levels, π·D each side at shell thickness × 0.6 — only when internals are fitted' },
+  { key: 'weld.clip', label: 'Insulation, refractory & platform clip welding', trade: 'welder', basis: '4 clips per access platform + 4 per m² when cladding/refractory is specified, 0.24 m of weld per clip (60 mm fillets, both sides)' },
+  { key: 'handle', label: 'Handling, turning & crane', trade: 'fitter', basis: '0.6 h per tonne dry weight for lifts, rotation and yard moves' },
 ];
+
+/** Activity TYPE for a man-hour key (used for the Settings matrix headings). */
+export function manhourGroup(key: string): ManhourGroup {
+  if (key.startsWith('weld.')) return 'Welding';
+  if (key === 'cut' || key === 'edge') return 'Cutting & edge prep';
+  if (key === 'fitup' || key === 'rolling' || key === 'forming') return 'Forming & fitting';
+  if (key === 'nzfit' || key === 'internals' || key === 'mech' || key === 'supports' || key === 'struct') return 'Assembly & supports';
+  if (key.startsWith('ndt.')) return 'Non-destructive testing';
+  if (key === 'pwht') return 'Heat treatment';
+  if (key === 'hydro') return 'Testing';
+  if (key === 'paint') return 'Painting & insulation';
+  if (key === 'handle') return 'Handling & erection';
+  return 'Engineering & QA';
+}
+
+/** The documented items grouped by activity type, in the published order. */
+export function manhourMatrix(): { group: ManhourGroup; items: ManhourBasis[] }[] {
+  return MANHOUR_GROUP_ORDER.map((group) => ({
+    group,
+    items: MANHOUR_BASIS.filter((b) => (b.group ?? manhourGroup(b.key)) === group),
+  })).filter((g) => g.items.length > 0);
+}
 
 export interface EstimateLine {
   equipId: string;
@@ -486,6 +544,44 @@ export function estimateEquipment(
   const nzFit = calc.nozzles.reduce((s, n) => s + 1.2 + 0.5 * (n.spec.dn / 25.4), 0);
   labor('Nozzle fit & attachment', nzFit, 'fitter', 'nzfit');
 
+  // ---- welding subtypes that are easy to leave out of an estimate ----
+
+  // external-pressure stiffening rings: every ring is welded both sides
+  let ringWeldM = 0;
+  const ringSpec = equip.ring;
+  if (ringSpec?.enabled) {
+    const rings = Math.max(1, Math.round(ringSpec.count || 1));
+    const ringDia = (calc.sections[0]?.spec.dia ?? 1000) + 2 * (calc.sections[0]?.tNominal ?? 0) + 2 * (ringSpec.webDepthMm || 0);
+    ringWeldM = (rings * Math.PI * ringDia) / 1000;
+  }
+  const ringWeldH = addWeld('Stiffening ring welds (both sides)', ringWeldM, tGov, hPerM_ls(tGov) * 0.8, 1, false);
+  labor(`Stiffening ring welding (${ringWeldM.toFixed(1)} m)`, ringWeldH, 'welder', 'weld.ring');
+
+  // internal support rings: one per three internals levels
+  let intRingWeldM = 0;
+  const shellDiaM = (calc.sections[0]?.spec.dia ?? 1000) / 1000;
+  for (const it of equip.internals) {
+    const rings = Math.max(1, Math.ceil((it.count || 1) / 3));
+    intRingWeldM += rings * Math.PI * shellDiaM;
+  }
+  const intRingH = addWeld('Internal support ring welds', intRingWeldM, Math.min(tGov, 16), hPerM_ls(Math.min(tGov, 16)) * 0.6, 1, false);
+  labor(`Internal support ring welding (${intRingWeldM.toFixed(1)} m)`, intRingH, 'welder', 'weld.intRing');
+
+  // clips: access platforms and insulation/refractory fixings
+  const platformCount = calc.access?.platforms ?? 0;
+  const cladOn = equip.clad != null && equip.clad.mode !== 'none';
+  const clipCount = platformCount * 4 + (cladOn ? Math.ceil(calc.paintAreaM2 * 4) : 0);
+  const clipWeldM = clipCount * 0.24; // 60 mm fillets, both sides
+  const clipH = addWeld('Insulation / platform clip welds', clipWeldM, 8, hPerM_ls(8), 1.4, false);
+  labor(
+    `Insulation, refractory & platform clip welding (${clipCount} clips${cladOn ? ', cladding included' : ''})`,
+    clipH,
+    'welder',
+    'weld.clip'
+  );
+  // every weld above (including the ring/clip welds) is subject to the NDT plan
+  const weldMAll = weldM + ringWeldM + intRingWeldM + clipWeldM;
+
   let intH = 0;
   const area = (Math.PI / 4) * Math.pow(((equip.sections[0]?.dia ?? 1000) - 150) / 1000, 2);
   for (const it of equip.internals) intH += it.count * (2 + area * 0.4);
@@ -493,6 +589,10 @@ export function estimateEquipment(
 
   const mechH = calc.weightDryKg / 1000 * 6; // mechanical completion
   labor('Mechanical completion, bolting & trim', mechH, 'fitter', 'mech');
+
+  // handling, turning and yard lifts — distinct from fabrication hours
+  const handleH = (calc.weightDryKg / 1000) * 0.6;
+  labor(`Handling, turning & crane (${(calc.weightDryKg / 1000).toFixed(1)} t dry)`, handleH, 'fitter', 'handle');
 
   // ---- SUPPORTS — each support kind fabricated & costed separately (steel via BOM Structural) ----
   const sup = calc.supports;
@@ -533,14 +633,14 @@ export function estimateEquipment(
     if (!p.enabled) continue;
     const extentF = EXTENT[p.extent] ?? 0.3;
     const timingLabel = p.timing === 'during' ? 'interstage, during welding' : p.timing === 'afterPwht' ? 'after PWHT' : 'final, before hydrotest';
-    const h = weldM * extentF * (NDT_RATE[p.method] ?? 0.3) + (p.method === 'mt' ? calc.nozzles.length * 0.5 : 0);
+    const h = weldMAll * extentF * (NDT_RATE[p.method] ?? 0.3) + (p.method === 'mt' ? calc.nozzles.length * 0.5 : 0);
     labor(`${NDT_LABEL[p.method]} — ${p.extent} extent, ${timingLabel}`, h, 'qc', `ndt.${p.method}`);
     if (p.method === 'rt') {
-      const days = Math.max(1, Math.ceil((weldM * extentF) / 25));
+      const days = Math.max(1, Math.ceil((weldMAll * extentF) / 25));
       push({ group: 'NDT', activity: `Conventional RT crew & film (${days} day${days > 1 ? 's' : ''})`, qty: days, unit: 'day', rateUSD: rates.rtDayUSD, amountUSD: days * rates.rtDayUSD });
     }
     if (p.method === 'putTofd') {
-      const days = Math.max(1, Math.ceil((weldM * extentF) / 40));
+      const days = Math.max(1, Math.ceil((weldMAll * extentF) / 40));
       push({ group: 'NDT', activity: `PaUT/TOFD scanner crew & equipment (${days} day${days > 1 ? 's' : ''})`, qty: days, unit: 'day', rateUSD: rates.putTofdDayUSD, amountUSD: days * rates.putTofdDayUSD });
     }
   }

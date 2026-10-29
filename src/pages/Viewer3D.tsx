@@ -21,7 +21,15 @@ import { computeEquipment } from '../engine/compute';
 import type { Equipment, EquipmentCalc, HeadType, NozzleCalc, SectionCalc } from '../engine/types';
 import { fmt } from '../engine/units';
 import { exportOBJ } from '../cad';
-import { buildBodyLayout, headProfile, locateNozzle, radialDirection, radiusAtY, saddleStations } from '../engine/layout3d';
+import {
+  buildBodyLayout,
+  headProfile,
+  locateHeadNozzle,
+  locateNozzle,
+  radialDirection,
+  radiusAtY,
+  saddleStations,
+} from '../engine/layout3d';
 import { finFanModel, tankModel, viewerSummary, type FinFanModel, type TankModel } from '../engine/model3d';
 import {
   ACCESS,
@@ -526,10 +534,19 @@ function buildVessel(g: THREE.Group, equip: Equipment, calc: EquipmentCalc, o: B
   // ---------- nozzles ----------
   if (o.showNozzles) {
     for (const n of calc.nozzles) {
-      const place = locateNozzle(layout, n.spec.elevation);
-      if (!place) continue;
+      const attach = n.spec.attach ?? 'shell';
       const [dxv, , dzv] = radialDirection(n.spec.azimuth, vertical);
       const dir = new THREE.Vector3(dxv, 0, dzv);
+      // nozzles can penetrate the shell or a dished end — place each on the
+      // surface it actually enters (a head nozzle rides the head profile)
+      if (attach !== 'shell') {
+        const hp = locateHeadNozzle(layout, n.spec.elevation, attach, (i) => sections[i], sections.length - 1);
+        if (!hp) continue;
+        addNozzle(o, n, new THREE.Vector3(dxv * hp.r, hp.y, dzv * hp.r), dir);
+        continue;
+      }
+      const place = locateNozzle(layout, n.spec.elevation);
+      if (!place) continue;
       const surface = new THREE.Vector3(dxv * place.r, place.y, dzv * place.r);
       addNozzle(o, n, surface, dir);
     }
@@ -943,7 +960,31 @@ function buildBar(o: BuildOpts, b: AccessBar) {
   o.model.add(mesh);
 }
 
-/** Top rail + mid rail + toe board + posts along a circular arc. */
+/**
+ * Split a swept arc into the runs left after removing a ladder opening, so the
+ * rail stops either side of the opening instead of crossing it (a rail across
+ * the ladder is both unbuildable and unsafe).
+ */
+function arcRuns(azimuthDeg: number, sweepDeg: number, gapAz?: number, gapDeg?: number) {
+  const sw = Math.max(1, Math.min(360, Math.abs(sweepDeg)));
+  const a0 = azimuthDeg - sw / 2;
+  const a1 = azimuthDeg + sw / 2;
+  if (!gapDeg || gapDeg <= 0 || gapAz == null) return [{ center: azimuthDeg, sweep: sw }];
+  const g0 = gapAz - gapDeg / 2;
+  const g1 = gapAz + gapDeg / 2;
+  // opening outside the swept sector → nothing to cut
+  if (g1 <= a0 || g0 >= a1) return [{ center: azimuthDeg, sweep: sw }];
+  const runs: { center: number; sweep: number }[] = [];
+  const leftStart = a0;
+  const leftEnd = Math.max(a0, Math.min(a1, g0));
+  if (leftEnd - leftStart > 0.5) runs.push({ center: (leftStart + leftEnd) / 2, sweep: leftEnd - leftStart });
+  const rightStart = Math.min(a1, Math.max(a0, g1));
+  const rightEnd = a1;
+  if (rightEnd - rightStart > 0.5) runs.push({ center: (rightStart + rightEnd) / 2, sweep: rightEnd - rightStart });
+  return runs.length ? runs : [{ center: azimuthDeg, sweep: sw }];
+}
+
+/** Top rail + mid rail + toe board + posts along a circular arc (optionally interrupted). */
 function ringRail(
   o: BuildOpts,
   radius: number,
@@ -951,33 +992,49 @@ function ringRail(
   azimuthDeg: number,
   sweepDeg: number,
   mat: THREE.Material,
-  withToe: boolean
+  withToe: boolean,
+  gapAzimuthDeg?: number,
+  gapDeg?: number
 ) {
-  const sw = Math.max(1, Math.min(360, Math.abs(sweepDeg)));
-  const seg = Math.max(16, Math.ceil(sw / 3));
-  const top = new THREE.Mesh(new THREE.TorusGeometry(radius, 17, 6, seg, sw * DEG), mat);
-  top.quaternion.copy(planQuat(azimuthDeg, sw));
-  top.position.y = y + ACCESS.railHeightMm;
-  o.model.add(top);
-  const mid = new THREE.Mesh(new THREE.TorusGeometry(radius, 14, 6, seg, sw * DEG), mat);
-  mid.quaternion.copy(planQuat(azimuthDeg, sw));
-  mid.position.y = y + ACCESS.midRailMm;
-  o.model.add(mid);
+  const runs = arcRuns(azimuthDeg, sweepDeg, gapAzimuthDeg, gapDeg);
+  for (const run of runs) {
+    const sw = run.sweep;
+    const seg = Math.max(8, Math.ceil(sw / 3));
+    const top = new THREE.Mesh(new THREE.TorusGeometry(radius, 17, 6, seg, sw * DEG), mat);
+    top.quaternion.copy(planQuat(run.center, sw));
+    top.position.y = y + ACCESS.railHeightMm;
+    o.model.add(top);
+    const mid = new THREE.Mesh(new THREE.TorusGeometry(radius, 14, 6, seg, sw * DEG), mat);
+    mid.quaternion.copy(planQuat(run.center, sw));
+    mid.position.y = y + ACCESS.midRailMm;
+    o.model.add(mid);
 
-  const posts = Math.max(2, Math.ceil((sw * DEG * radius) / ACCESS.postPitchMm));
-  for (let i = 0; i <= posts; i++) {
-    const a = (azimuthDeg - sw / 2 + (sw * i) / posts) * DEG;
-    const x = Math.sin(a) * radius;
-    const z = Math.cos(a) * radius;
-    barBetween(o, new THREE.Vector3(x, y, z), new THREE.Vector3(x, y + ACCESS.railHeightMm, z), 34, mat);
+    const posts = Math.max(1, Math.ceil((sw * DEG * radius) / ACCESS.postPitchMm));
+    for (let i = 0; i <= posts; i++) {
+      const a = (run.center - sw / 2 + (sw * i) / posts) * DEG;
+      const x = Math.sin(a) * radius;
+      const z = Math.cos(a) * radius;
+      barBetween(o, new THREE.Vector3(x, y, z), new THREE.Vector3(x, y + ACCESS.railHeightMm, z), 34, mat);
+    }
+    if (withToe) {
+      const toe = new THREE.Mesh(
+        new THREE.CylinderGeometry(radius, radius, ACCESS.toeBoardMm, Math.max(12, seg), 1, true, (run.center - sw / 2) * DEG, sw * DEG),
+        mat
+      );
+      toe.position.y = y + ACCESS.toeBoardMm / 2;
+      o.model.add(toe);
+    }
   }
-  if (withToe) {
-    const toe = new THREE.Mesh(
-      new THREE.CylinderGeometry(radius, radius, ACCESS.toeBoardMm, Math.max(24, seg), 1, true, (azimuthDeg - sw / 2) * DEG, sw * DEG),
-      mat
-    );
-    toe.position.y = y + ACCESS.toeBoardMm / 2;
-    o.model.add(toe);
+
+  // gate posts either side of the opening, so the gap reads as an opening and
+  // not as a missing piece of rail
+  if (gapDeg && gapDeg > 0 && gapAzimuthDeg != null) {
+    for (const sgn of [-1, 1]) {
+      const a = (gapAzimuthDeg + (sgn * gapDeg) / 2) * DEG;
+      const x = Math.sin(a) * radius;
+      const z = Math.cos(a) * radius;
+      barBetween(o, new THREE.Vector3(x, y, z), new THREE.Vector3(x, y + ACCESS.railHeightMm, z), 44, mat);
+    }
   }
 }
 
@@ -1028,7 +1085,8 @@ function buildPlatform(o: BuildOpts, p: AccessPlatform) {
     deck.position.y = p.y;
     part(deck, p.label, p.detail);
     o.model.add(deck);
-    if (p.rails.includes('outer')) ringRail(o, p.r1, p.y, p.azimuthDeg, sw, rail, true);
+    if (p.rails.includes('outer'))
+      ringRail(o, p.r1, p.y, p.azimuthDeg, sw, rail, true, p.gapAzimuthDeg, p.gapDeg);
     if (p.rails.includes('inner')) ringRail(o, p.r0, p.y, p.azimuthDeg, sw, rail, false);
   } else {
     const deck = new THREE.Mesh(

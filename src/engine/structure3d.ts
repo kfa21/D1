@@ -132,6 +132,10 @@ export interface AccessPlatform {
   railHeightMm: number;
   /** edges that carry handrail + toe board */
   rails: ('north' | 'south' | 'east' | 'west' | 'outer' | 'inner')[];
+  /** ring decks: the outer rail is interrupted for the ladder, centred here */
+  gapAzimuthDeg?: number;
+  /** ring decks: angular width of that ladder opening (deg) */
+  gapDeg?: number;
   kg: number;
 }
 
@@ -241,14 +245,15 @@ export function sectionsFor(equip: Equipment, calc: EquipmentCalc): SectionCalc[
 
 const railKg = (runMm: number) => (runMm / 1000) * (ACCESS_STEEL.railKgM + ACCESS_STEEL.toeKgM);
 
-function ringDeckKg(r0: number, r1: number, sweepDeg: number, rails: string[]): number {
+function ringDeckKg(r0: number, r1: number, sweepDeg: number, rails: string[], gapDeg = 0): number {
   const sweep = Math.abs(clamp(sweepDeg, 1, 360)) * DEG;
   const area = (Math.PI * (r1 * r1 - r0 * r0) * sweep) / (2 * Math.PI) / 1e6; // m²
   const width = Math.abs(r1 - r0);
   const arc = ((r0 + r1) / 2) * sweep; // mid-line length of the sector
+  const railArc = arc * (1 - Math.min(0.9, Math.max(0, gapDeg) / Math.max(1, Math.abs(sweepDeg))));
   let kg = area * ACCESS_STEEL.gratingKgM2;
   kg += (arc / 1000) * ACCESS_STEEL.framingKgM * 2; // two curved beams under the deck
-  if (rails.includes('outer')) kg += railKg(arc) + (width / 1000) * 0; // outer edge rail
+  if (rails.includes('outer')) kg += railKg(railArc); // outer edge rail, less the ladder opening
   if (rails.includes('inner')) kg += railKg(arc);
   // radial end rails close the sector
   const closed = rails.includes('outer') || rails.includes('inner');
@@ -307,8 +312,12 @@ function ringPlatform(params: {
   azimuthDeg: number;
   sweepDeg: number;
   rails?: ('outer' | 'inner')[];
+  /** outer-rail opening for the ladder arriving at this deck */
+  gapAzimuthDeg?: number;
+  gapDeg?: number;
 }): AccessPlatform {
   const rails = params.rails ?? ['outer'];
+  const gapDeg = params.gapDeg && params.gapDeg > 0 ? params.gapDeg : 0;
   return {
     label: params.label,
     detail: params.detail,
@@ -324,7 +333,9 @@ function ringPlatform(params: {
     hz: 0,
     railHeightMm: ACCESS.railHeightMm,
     rails,
-    kg: ringDeckKg(params.r0, params.r1, params.sweepDeg, rails),
+    gapAzimuthDeg: gapDeg > 0 ? params.gapAzimuthDeg ?? params.azimuthDeg : undefined,
+    gapDeg: gapDeg > 0 ? gapDeg : undefined,
+    kg: ringDeckKg(params.r0, params.r1, params.sweepDeg, rails, gapDeg),
   };
 }
 
@@ -557,23 +568,36 @@ export function vesselAccess(equip: Equipment, calc: EquipmentCalc, layout: Body
   const addTopLanding = !horizontal && (shellTopH > 8000 || (traySpec?.count ?? 0) > 0) && shellTopH - topLevel > 1200;
   if (addTopLanding) levels.push({ y: shellTopH, azimuthDeg: levels[0]?.azimuthDeg ?? 0, reason: 'top of shell' });
 
+  // One access column: every platform is centred on the same azimuth, so the
+  // ladder runs straight up the front of the vessel and each deck can be entered
+  // through an opening in its outer rail. Previously each deck was centred on
+  // its own manway, which left the ladder arriving through the deck itself.
+  const columnAz = levels[0]?.azimuthDeg ?? 0;
+  const [colX, colZ] = planDirection(columnAz);
+
   for (const lvl of levels) {
     // local Y for the radius lookup, then the ring deck clears the shell
     const localY = lvl.y - supH + layout.bottomDepth;
     const r = Math.max(R0, radiusAtY(layout, localY));
     const r0 = r + 80;
+    const r1 = r0 + ACCESS.walkWidthMm;
     const isTop = Math.abs(lvl.y - shellTopH) < 1;
     const sweep = isTop ? 180 : 130;
+    // the ladder arrives at the outer edge: cut a clear opening for it
+    const openingMm = Math.round(ACCESS.ladderWidthMm + 240);
+    const gapDeg = openingMm / r1 / DEG;
     platforms.push(
       ringPlatform({
         label: `Access platform · ${Math.round(lvl.y)} mm${isTop ? ' (top)' : ''}`,
-        detail: `${lvl.reason} · deck ${Math.round(r0)}–${Math.round(r0 + ACCESS.walkWidthMm)} mm · ${sweep}° sweep · Ø42.4 handrail + 100 mm toe board`,
+        detail: `${lvl.reason} · deck Ø${Math.round(r0 * 2)}–${Math.round(r1 * 2)} mm · ${sweep}° sweep · ${openingMm} mm ladder opening in the outer rail · inner edge closed by the shell · Ø42.4 handrail + 100 mm toe board`,
         y: lvl.y,
         r0,
-        r1: r0 + ACCESS.walkWidthMm,
-        azimuthDeg: lvl.azimuthDeg,
+        r1,
+        azimuthDeg: columnAz,
         sweepDeg: sweep,
-        rails: ['outer', 'inner'],
+        rails: ['outer'],
+        gapAzimuthDeg: columnAz,
+        gapDeg,
       })
     );
   }
@@ -603,19 +627,47 @@ export function vesselAccess(equip: Equipment, calc: EquipmentCalc, layout: Body
       // flight actually ends — a fixed (x,z) list here would not follow a
       // switchback stair, so nothing is emitted for them in the descriptors.
     } else {
-      ladders.push(
-        ladder({
-          label: climbTo > ACCESS.guideRailsFromMm ? 'Caged ladder with guide rails' : 'Caged ladder',
-          detail: `From grade to ${Math.round(climbTo)} mm · 460 mm wide · 300 mm rungs · cage from ${ACCESS.cageFromMm} mm${
-            climbTo > ACCESS.guideRailsFromMm ? ' · standoff guide rails + brackets every 1.5 m' : ''
-          }`,
-          x: px * (baseR + 300),
-          z: pz * (baseR + 300),
-          y0: 0,
-          y1: climbTo + 1100, // stiles carry on past the landing
-          facingDeg: firstAz,
-        })
-      );
+      // One run per platform: climb to a deck, step through the rail opening,
+      // take the next run from that deck upward. A single run from grade to the
+      // top would pass through every platform above the first.
+      const stops = [0, ...levels.map((l) => l.y)];
+      let runNo = 0;
+      for (let i = 1; i < stops.length; i++) {
+        const y0 = stops[i - 1];
+        const y1 = stops[i];
+        if (y1 - y0 < 300) continue;
+        runNo += 1;
+        // the run stands at the outer edge of the deck it serves
+        const localY = y1 - supH + layout.bottomDepth;
+        const rEdge =
+          Math.max(R0, radiusAtY(layout, localY)) + 80 + ACCESS.walkWidthMm - ACCESS.ladderWidthMm / 2;
+        const isLast = i === stops.length - 1;
+        ladders.push(
+          ladder({
+            label: isLast
+              ? `Caged ladder run ${runNo}/${stops.length - 1} — to the top platform`
+              : `Caged ladder run ${runNo}/${stops.length - 1}`,
+            detail:
+              `${runNo === 1 ? 'From grade' : `From the ${Math.round(y0)} mm deck`} to ${Math.round(y1)} mm · ` +
+              `${ACCESS.ladderWidthMm} mm wide · ${ACCESS.rungPitchMm} mm rungs · cage from ${ACCESS.cageFromMm} mm` +
+              `${y1 - y0 > ACCESS.guideRailsFromMm ? ' · standoff guide rails + brackets every 1.5 m' : ''}`,
+            x: colX * rEdge,
+            z: colZ * rEdge,
+            y0,
+            // stiles carry past the top landing only, so intermediate runs stop flush
+            y1: isLast ? y1 + 1100 : y1,
+            facingDeg: columnAz,
+            guideRails: y1 - y0 > ACCESS.guideRailsFromMm,
+          })
+        );
+      }
+      // no unbroken run may exceed the rest-platform limit
+      for (const l of ladders) {
+        if (l.y1 - l.y0 > ACCESS.stairAboveMm) {
+          // caller sees this in the rows/checks; keep the descriptor honest
+          l.detail += ' · exceeds the 9 m unbroken-climb limit — add an intermediate platform';
+        }
+      }
     }
   }
 
@@ -675,14 +727,16 @@ function horizontalAccess(equip: Equipment, calc: EquipmentCalc, layout: BodyLay
     })
   );
 
-  // ladder at the end away from the main nozzles, plus a small landing
+  // ladder at the end away from the main nozzles, plus a small landing. The
+  // landing sits clear of the walkway end (it used to overlap it by ~450 mm).
   const azEnd = 0;
+  const landingCz = s1 + 300 + 450;
   out.ladders!.push(
     ladder({
       label: 'Access ladder',
       detail: `At the end of the shell · climbs ${Math.round(deckY)} mm · caged above 2.2 m`,
       x: 0,
-      z: s1 + 500,
+      z: landingCz,
       y0: 0,
       y1: deckY + 1100,
       facingDeg: azEnd,
@@ -694,7 +748,7 @@ function horizontalAccess(equip: Equipment, calc: EquipmentCalc, layout: BodyLay
       detail: 'Top landing at the crown walkway',
       y: deckY,
       cx: 0,
-      cz: s1 + 250,
+      cz: landingCz,
       hx: 450,
       hz: 450,
       rails: ['north', 'south', 'east', 'west'],

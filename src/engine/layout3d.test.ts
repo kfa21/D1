@@ -7,6 +7,8 @@ import {
   buildBodyLayout,
   headDepthMm,
   headProfile,
+  headRadiusAt,
+  locateHeadNozzle,
   locateNozzle,
   radiusAtY,
   saddleStations,
@@ -115,6 +117,59 @@ describe('headProfile (revolve profile of a dished end)', () => {
     const p = headProfile({ type: 'toriFD' }, R, 250);
     expect(p.points[0][0]).toBeCloseTo(R, 6);
     expect(p.points[p.points.length - 1][1]).toBeCloseTo(250, 6);
+  });
+});
+
+describe('nozzles on a dished end (I7)', () => {
+  const s = sec(
+    { dia: 1400, ttLength: 3000, headTop: 'toriFD', headBottom: 'ellip2' },
+    {
+      headTop: { type: 'toriFD', tReq: 9, tMinNominal: 12, depth: 0.1935 * 1400 + 12, utilization: 0.5 } as never,
+      headBot: { type: 'ellip2', tReq: 9, tMinNominal: 12, depth: 350, utilization: 0.5 } as never,
+    }
+  );
+  const layout = buildBodyLayout([s]);
+
+  it('starts at the tangent line with the shell radius', () => {
+    const at0 = locateHeadNozzle(layout, 0, 'topHead', () => s, 0)!;
+    expect(at0.y).toBeCloseTo(layout.stackTop, 6);
+    expect(at0.r).toBeCloseTo(700, 3);
+    expect(at0.outside).toBe(false);
+  });
+
+  it('follows the head profile to the crown', () => {
+    const depth = headDepthMm({ type: 'toriFD', tMinNominal: 12 }, 700);
+    const crown = locateHeadNozzle(layout, depth, 'topHead', () => s, 0)!;
+    expect(crown.outside).toBe(false);
+    expect(crown.r).toBeLessThan(30);
+    expect(crown.y).toBeCloseTo(layout.stackTop + depth, 3);
+    // half way up the head the radius is between the shell and the crown
+    const mid = locateHeadNozzle(layout, depth / 2, 'topHead', () => s, 0)!;
+    expect(mid.r).toBeGreaterThan(0);
+    expect(mid.r).toBeLessThan(700);
+  });
+
+  it('flags an elevation past the crown', () => {
+    expect(locateHeadNozzle(layout, 4000, 'topHead', () => s, 0)!.outside).toBe(true);
+  });
+
+  it('mirrors onto the bottom head', () => {
+    const bot = locateHeadNozzle(layout, 0, 'bottomHead', () => s, 0)!;
+    expect(bot.y).toBeCloseTo(layout.bottomDepth, 6);
+    expect(bot.r).toBeCloseTo(700, 3);
+  });
+
+  it('returns null when that end is flat, so the caller can warn', () => {
+    const flat = sec({ dia: 1400, headTop: 'none', headBottom: 'none' });
+    const l2 = buildBodyLayout([flat]);
+    expect(locateHeadNozzle(l2, 100, 'topHead', () => flat, 0)).toBeNull();
+  });
+
+  it('interpolates the profile radius by height', () => {
+    const p = headProfile({ type: 'ellip2' }, 700);
+    expect(headRadiusAt(p, 0)).toBeCloseTo(700, 6);
+    expect(headRadiusAt(p, p.depth)).toBeCloseTo(0, 6);
+    expect(headRadiusAt(p, p.depth * 2)).toBeCloseTo(0, 6); // clamped past the apex
   });
 });
 

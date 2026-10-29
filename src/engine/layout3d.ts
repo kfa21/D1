@@ -263,6 +263,51 @@ export function headProfile(
   return { points: scaled, depth: target, crownR: L, knuckleR: r, exactDepth };
 }
 
+/** Radius of a head profile at a height above its tangent line (clamped). */
+export function headRadiusAt(profile: HeadProfile, riseMm: number): number {
+  const pts = profile.points;
+  if (!pts.length) return 0;
+  const h = Math.min(Math.max(0, riseMm), profile.depth);
+  for (let i = 1; i < pts.length; i++) {
+    const [r0, y0] = pts[i - 1];
+    const [r1, y1] = pts[i];
+    if (h >= y0 && h <= y1) {
+      const t = y1 - y0 <= 1e-9 ? 0 : (h - y0) / (y1 - y0);
+      return r0 + t * (r1 - r0);
+    }
+  }
+  return pts[pts.length - 1][0];
+}
+
+/**
+ * Place a nozzle that penetrates a DISHED END. The elevation is measured along
+ * the axis from the tangent line the head leaves (0 = tangent, + up/down into the
+ * head), so a top-head nozzle shares the same datum as every shell nozzle.
+ * `outside` reports an elevation that runs past the head depth (crown).
+ */
+export function locateHeadNozzle(
+  layout: BodyLayout,
+  elevation: number,
+  attach: 'topHead' | 'bottomHead',
+  sectionFor: (index: number) => SectionCalc | undefined,
+  lastIndex: number
+): { y: number; r: number; outside: boolean } | null {
+  const e = Number.isFinite(elevation) ? Math.max(0, elevation) : 0;
+  const firstSec = sectionFor(0);
+  const lastSec = sectionFor(lastIndex);
+  const head =
+    attach === 'topHead'
+      ? lastSec?.headTop
+      : firstSec?.headBot;
+  const R = (attach === 'topHead' ? lastSec?.spec.dia : firstSec?.spec.dia) ?? 0;
+  if (!head || !(R > 0)) return null;
+  const profile = headProfile(head, R / 2);
+  const outside = e > profile.depth + 1e-6;
+  const rise = Math.min(e, profile.depth);
+  const y = attach === 'topHead' ? layout.stackTop + rise : layout.bottomDepth - rise;
+  return { y, r: headRadiusAt(profile, rise), outside };
+}
+
 /** Radial direction of a nozzle at the given azimuth.
  *  Vertical vessel: 0° = north (+Z), turning clockwise viewed from above.
  *  Horizontal vessel: the axis lies down, so 0° = top of the shell (12 o'clock),

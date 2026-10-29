@@ -230,33 +230,33 @@ type and subtype; and errors must show the suggested value at the field.
   UG-32 knuckle proportions, tori flatter than 2:1 at mid-radius, depth normalisation.
 
 **Batch I-B — access hardware: place it correctly, then size it**
-- [ ] **I2** Ladder/platform interference: the vessel ladder is one continuous run at
+- [x] **I2** Ladder/platform interference: the vessel ladder is one continuous run at
   R+300, i.e. inside the platform ring (R+80 … R+980), so it passes through every
   deck. Break it into one run per platform level, put each run at the platform rim,
   cut a 700 mm opening (with gate post) in the outer rail at the ladder azimuth, and
   drop the inner rail that currently encircles the shell.
-- [ ] **I3** Tank spiral stair / roof walkway and the cooler header platforms: verify
+- [~] **I3** Tank spiral stair / roof walkway and the cooler header platforms: verify
   the stair lands on the rim rail line, that the roof walkway starts at the stair
   landing, and that header platforms and fan-deck walkways do not overlap the guards.
-- [ ] **I4** Access calculation (new `structureCheck`): live load on grating
+- [x] **I4** Access calculation (new `structureCheck`): live load on grating
   (4.5 kN/m² point + 1.5 kN concentrated), platform beam span/deflection, ladder
   rung + stringer, cage/guide-rail requirement by climb, stair angle 30–38°,
   walkway clear width ≥ 600 mm, max unbroken climb 9 m, handrail 1070/550 + toe
   board, and the access steel mass fed to the BOM/estimate. Emits warnings.
-- [ ] **I5** 3D: fan-guard and stair-tower visuals; support-leg bracing; hover labels
+- [~] **I5** 3D: fan-guard and stair-tower visuals; support-leg bracing; hover labels
   and part-list rows for every access item.
 
 **Batch I-C — nozzle and dimension data**
-- [ ] **I6** Nozzle bore selected in **inches** (NPS ½"…24") with the mm equivalent
+- [x] **I6** Nozzle bore selected in **inches** (NPS ½"…24") with the mm equivalent
   shown; the stored value stays in mm for the calculations.
-- [ ] **I7** Nozzle attachable to top/bottom dished end (`NozzleSpec.attach`): placement
+- [x] **I7** Nozzle attachable to top/bottom dished end (`NozzleSpec.attach`): placement
   on the head surface, reinforcement checked against head thickness/UG-37, and a
   warning when the elevation falls outside the head depth.
-- [ ] **I8** T-T length shown as the TOTAL tangent-to-tangent length (sum of section
+- [x] **I8** T-T length shown as the TOTAL tangent-to-tangent length (sum of section
   lengths + cones), with each section row labelled as its own length.
 
 **Batch I-D — man-hours matrix**
-- [ ] **I9** Settings: activity → subtype man-hour matrix (welding: shell long seam,
+- [x] **I9** Settings: activity → subtype man-hour matrix (welding: shell long seam,
   shell circ seam, dished-end-to-shell, dish blank seam, nozzle, platform/clip,
   stiffening ring, internal support ring, insulation/refractory clips, tray supports;
   plus cutting, rolling, forming, fit-up, machining, grinding, NDT, PWHT, hydro,
@@ -264,5 +264,5 @@ type and subtype; and errors must show the suggested value at the field.
   Hours are overridable per tag and roll into the estimate as documented items.
 
 **Batch I-E — error guidance**
-- [ ] **I10** Show the suggested value beside/below the field that has the error
+- [~] **I10** Show the suggested value beside/below the field that has the error
   (not only in the warning list), derived from the same `fixValues` basis.

@@ -24,7 +24,7 @@ import { flangeWeightKg, npsNumber, pipeMassKgPerM, studCount, wallForBore } fro
 import { clamp, interp } from './units';
 import { pwhtAdvice } from './pwht';
 import { loadWarnings, screenNozzleLoad } from './wrc107';
-import { buildBodyLayout, locateNozzle } from './layout3d';
+import { buildBodyLayout, locateHeadNozzle, locateNozzle } from './layout3d';
 import { stiffenerRingCheck } from './rings';
 import { designMargin, designMarginWarnings } from './viii2';
 
@@ -786,6 +786,45 @@ export function computeVessel(equip: Equipment): EquipmentCalc {
   const layout = buildBodyLayout(sections);
   const maxElev = Math.max(0, layout.stackTop - layout.bottomDepth);
   const nozzleCalcs = equip.nozzles.map((n) => {
+    const attach = n.attach ?? 'shell';
+
+    // ---- nozzle on a DISHED END -------------------------------------------
+    // A head nozzle is a different problem from a shell nozzle: the opening is in
+    // the head, so UG-37 must be checked against the head thickness and the head's
+    // required thickness — not the shell course the elevation happens to fall in.
+    if (attach !== 'shell') {
+      const top = attach === 'topHead';
+      const hostSection = top ? sections[sections.length - 1] : sections[0];
+      const head = top ? hostSection?.headTop : hostSection?.headBot;
+      const where = top ? 'top' : 'bottom';
+      if (!hostSection || !head) {
+        warnings.push({
+          level: 'warning',
+          code: 'NZ-04',
+          msg: `Nozzle ${n.tag}: attached to the ${where} dished end, but that end is flat (none) — set the head type on the Sections tab, or attach the nozzle to the shell`,
+        });
+      } else {
+        const placed = locateHeadNozzle(layout, n.elevation, attach, (i) => sections[i], sections.length - 1);
+        if (placed?.outside) {
+          warnings.push({
+            level: 'warning',
+            code: 'NZ-04',
+            msg: `Nozzle ${n.tag}: elevation ${n.elevation} mm from the ${where} tangent line is beyond the head depth (${head.depth.toFixed(0)} mm) — bring it inside the dish or use a shell nozzle`,
+          });
+        }
+      }
+      const tNom =
+        (top ? hostSection.spec.headThkTop : hostSection.spec.headThkBot) || head?.tMinNominal || hostSection.tNominal;
+      const basis: SectionCalc = {
+        ...hostSection,
+        tReq: head?.tReq ?? hostSection.tReq,
+        tMinNominal: head?.tMinNominal ?? hostSection.tMinNominal,
+        tNominal: tNom,
+        tCorroded: Math.max(0.1, tNom - ca),
+      };
+      return calcNozzle(n, basis, Pm, S, E, ca, mat.key, T, PExt, warnings);
+    }
+
     const place = locateNozzle(layout, n.elevation);
     if (place?.clamped) {
       warnings.push({

@@ -38,6 +38,40 @@ export const PIPES: PipeSize[] = [
 
 export const SCHEDULES = ['5S', '10S', '40', '80', '160', 'XXS'];
 
+/**
+ * Nozzle bore picker: the sizes a designer actually specifies, in INCHES, with the
+ * nominal bore in mm that the engine stores and calculates with. `dn` stays the
+ * finished bore in mm, so every existing check (UG-37/UG-45, schedules, flanges)
+ * is unchanged — only the way the bore is chosen became an NPS choice.
+ */
+export const NPS_SIZES: { nps: string; dnMm: number }[] = [
+  { nps: '1/2"', dnMm: 15 },
+  { nps: '3/4"', dnMm: 20 },
+  { nps: '1"', dnMm: 25 },
+  { nps: '1-1/4"', dnMm: 32 },
+  { nps: '1-1/2"', dnMm: 40 },
+  { nps: '2"', dnMm: 50 },
+  { nps: '2-1/2"', dnMm: 65 },
+  { nps: '3"', dnMm: 80 },
+  { nps: '4"', dnMm: 100 },
+  { nps: '5"', dnMm: 125 },
+  { nps: '6"', dnMm: 150 },
+  { nps: '8"', dnMm: 200 },
+  { nps: '10"', dnMm: 250 },
+  { nps: '12"', dnMm: 300 },
+  { nps: '14"', dnMm: 350 },
+  { nps: '16"', dnMm: 400 },
+  { nps: '18"', dnMm: 450 },
+  { nps: '20"', dnMm: 500 },
+  { nps: '24"', dnMm: 600 },
+];
+
+/** NPS label for a bore in mm (e.g. 150 → 6"), for readouts and hover text. */
+export function npsLabelForBore(dnMm: number): string {
+  const hit = NPS_SIZES.find((s) => Math.abs(s.dnMm - dnMm) <= 2);
+  return hit ? hit.nps : `${dnMm} mm`;
+}
+
 export function findPipe(nps: string): PipeSize | undefined {
   return PIPES.find((p) => p.nps === nps);
 }

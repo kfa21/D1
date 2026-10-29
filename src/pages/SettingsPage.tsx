@@ -1,6 +1,6 @@
 // Settings — project info, units, currency & FX, plate stock, rate card, Gemini key, data backup.
 
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useStore, setSettings, setState, money, defaultSettings, exportProjectJson, importProjectData } from '../store';
 import {
   CLOUD_RULES,
@@ -13,7 +13,7 @@ import {
 import { CURRENCIES, CurrencyCode } from '../engine/currency';
 import type { PlateSize } from '../engine/plates';
 import { MATERIALS } from '../engine/materials';
-import { estimateProject, MANHOUR_BASIS } from '../engine/estimate';
+import { estimateProject, manhourMatrix } from '../engine/estimate';
 import { computeEquipment } from '../engine/compute';
 import { fmt } from '../engine/units';
 
@@ -367,49 +367,75 @@ export default function SettingsPage() {
               <tr><th>Man-hour item</th><th>Trade</th><th>How the automatic hours are derived</th><th className="num">Auto h</th><th className="num">Manual h</th><th className="num">Applied h</th></tr>
             </thead>
             <tbody>
-              {MANHOUR_BASIS.map((b) => {
-                const u = est.manhours.find((m) => m.key === b.key);
-                const autoH = u?.autoH ?? 0;
-                const appliedH = u?.appliedH ?? 0;
-                const ov = s.manhourOverrides[b.key];
-                const overridden = ov != null;
-                const clear = () => {
-                  const next = { ...s.manhourOverrides };
-                  delete next[b.key];
-                  setSettings({ manhourOverrides: next });
-                };
+              {manhourMatrix().map(({ group, items }) => {
+                const autoSum = items.reduce((t, b) => t + (est.manhours.find((m) => m.key === b.key)?.autoH ?? 0), 0);
+                const appliedSum = items.reduce((t, b) => t + (est.manhours.find((m) => m.key === b.key)?.appliedH ?? 0), 0);
+                const overriddenInGroup = items.filter((b) => s.manhourOverrides[b.key] != null).length;
                 return (
-                  <tr key={b.key}>
-                    <td className="small">
-                      {b.label}
-                      {overridden && <span className="badge warn" style={{ marginLeft: 6 }}>manual</span>}
-                    </td>
-                    <td className="small">{b.trade}</td>
-                    <td className="small muted">{b.basis}</td>
-                    <td className="num calc" title="Engine auto hours for this project">{fmt(autoH, 1)}</td>
-                    <td className="num">
-                      <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
-                        <input
-                          type="number"
-                          step={0.5}
-                          min={0}
-                          placeholder="auto"
-                          style={{ width: 88 }}
-                          value={ov ?? ''}
-                          onChange={(e) => {
-                            const next = { ...s.manhourOverrides };
-                            if (e.target.value === '') delete next[b.key];
-                            else next[b.key] = +e.target.value;
-                            setSettings({ manhourOverrides: next });
-                          }}
-                        />
-                        {overridden && (
-                          <button className="ghost danger" title="Revert to engine auto hours" onClick={clear}>✕</button>
-                        )}
-                      </span>
-                    </td>
-                    <td className="num"><strong>{fmt(appliedH, 1)}</strong></td>
-                  </tr>
+                  <Fragment key={group}>
+                    <tr>
+                      <td colSpan={6} className="small" style={{ background: 'rgba(140,170,220,0.10)', fontWeight: 600, letterSpacing: '0.02em' }}>
+                        {group}
+                        <span className="muted" style={{ fontWeight: 400 }}>
+                          {' '}· {items.length} sub-{items.length === 1 ? 'activity' : 'activities'}
+                        </span>
+                      </td>
+                    </tr>
+                    {items.map((b) => {
+                      const u = est.manhours.find((m) => m.key === b.key);
+                      const autoH = u?.autoH ?? 0;
+                      const appliedH = u?.appliedH ?? 0;
+                      const ov = s.manhourOverrides[b.key];
+                      const overridden = ov != null;
+                      const clear = () => {
+                        const next = { ...s.manhourOverrides };
+                        delete next[b.key];
+                        setSettings({ manhourOverrides: next });
+                      };
+                      return (
+                        <tr key={b.key}>
+                          <td className="small" style={{ paddingLeft: 18 }}>
+                            {b.label}
+                            {overridden && <span className="badge warn" style={{ marginLeft: 6 }}>manual</span>}
+                          </td>
+                          <td className="small">{b.trade}</td>
+                          <td className="small muted">{b.basis}</td>
+                          <td className="num calc" title="Engine auto hours for this project">{fmt(autoH, 1)}</td>
+                          <td className="num">
+                            <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                              <input
+                                type="number"
+                                step={0.5}
+                                min={0}
+                                placeholder="auto"
+                                style={{ width: 88 }}
+                                value={ov ?? ''}
+                                onChange={(e) => {
+                                  const next = { ...s.manhourOverrides };
+                                  if (e.target.value === '') delete next[b.key];
+                                  else next[b.key] = +e.target.value;
+                                  setSettings({ manhourOverrides: next });
+                                }}
+                              />
+                              {overridden && (
+                                <button className="ghost danger" title="Revert to engine auto hours" onClick={clear}>✕</button>
+                              )}
+                            </span>
+                          </td>
+                          <td className="num"><strong>{fmt(appliedH, 1)}</strong></td>
+                        </tr>
+                      );
+                    })}
+                    <tr>
+                      <td colSpan={3} className="small muted" style={{ paddingLeft: 18, fontStyle: 'italic' }}>
+                        Subtotal — {group}
+                        {overriddenInGroup > 0 ? ` · ${overriddenInGroup} manual override${overriddenInGroup > 1 ? 's' : ''}` : ''}
+                      </td>
+                      <td className="num small muted">{fmt(autoSum, 1)}</td>
+                      <td />
+                      <td className="num small">{fmt(appliedSum, 1)}</td>
+                    </tr>
+                  </Fragment>
                 );
               })}
             </tbody>

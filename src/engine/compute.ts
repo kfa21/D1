@@ -6,6 +6,7 @@ import { computeTank } from './api650';
 import { computeHX } from './tema';
 import { computeFinFan } from './api661';
 import { computeSupports } from './supports';
+import { accessCheck } from './accessCheck';
 
 /**
  * Memo for the (pure) compute dispatch: an Equipment object is only ever
@@ -41,6 +42,14 @@ function computeUncached(equip: Equipment): EquipmentCalc {
     }
     // every tag gets its per-kind support breakdown (legs/saddles/skirt/ring/…)
     calc.supports = computeSupports(equip, calc);
+    // …and the access steelwork is checked, not just drawn: ladder runs vs deck
+    // levels, unbroken climb, platform beam/deflection, stair pitch, walkways
+    try {
+      calc.access = accessCheck(equip, calc);
+      calc.warnings.push(...calc.access.warnings);
+    } catch {
+      // access checks must never take down the pressure-boundary calculation
+    }
     return calc;
   } catch (e) {
     return broken(equip, e instanceof Error ? e.message : String(e));

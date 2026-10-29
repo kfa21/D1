@@ -84,6 +84,13 @@ export interface NozzleSpec {
   /** pipe schedule key, see PIPE_SCHEDULES */
   schKey: string;
   sectionId: string;
+  /**
+   * Where the nozzle penetrates: the cylindrical shell (default) or one of the
+   * dished ends. A head nozzle's elevation is measured along the axis from the
+   * tangent line it leaves — UG-37 reinforcement is then checked against the head
+   * thickness, not the shell course.
+   */
+  attach?: 'shell' | 'topHead' | 'bottomHead';
   /** Elevation of nozzle centre above vessel bottom datum (mm) */
   elevation: number;
   /** Azimuth, deg clockwise from north (viewed from top) */
@@ -784,6 +791,8 @@ export interface BOMItem {
 export interface EquipmentCalc {
   equip: Equipment;
   codeRef: string;
+  /** access steelwork checks (ladders/platforms/stairs) — computed, not stored on the tag */
+  access?: import('./accessCheck').AccessCheckResult;
   /** External-pressure stiffening-ring check, when the vessel sees vacuum/external pressure */
   ring?: StiffenerRingResult;
   /** VIII-2 Part 5 primary-stress screen, when design-by-analysis is selected */
