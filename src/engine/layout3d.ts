@@ -174,6 +174,95 @@ export function saddleStations(layout: BodyLayout, spanMm: number): { stations: 
   };
 }
 
+/** A revolved head profile, sampled from the rim to the apex.
+ *  `points[0]` is the tangent point (r = R, y = 0); the last point is the apex
+ *  (r = 0, y = depth). Ready for a lathe/revolve in the viewer or a DXF. */
+export interface HeadProfile {
+  points: [number, number][];
+  /** apex height above the tangent line that the profile is drawn at (mm) */
+  depth: number;
+  /** crown (dish) radius used by the profile */
+  crownR: number;
+  /** knuckle radius used by the profile (0 for a plain sphere / ellipse) */
+  knuckleR: number;
+  /** depth the exact crown+knuckle geometry gives before depth normalisation */
+  exactDepth: number;
+}
+
+/**
+ * Revolve profile of a dished head. Torispherical heads are built as the real
+ * crown + knuckle pair (two tangent arcs), not a scaled sphere cap: the knuckle
+ * is centred at (R − r, 0) so the surface leaves the shell vertically, then the
+ * crown sphere (radius L) is placed on the axis at the internal-tangency centre
+ * |C − K| = L − r. The resulting height is normalised to the head depth the
+ * engine uses (`headDepthMm`), so the drawn head still lands exactly on the
+ * shell datum the T-T length and every nozzle elevation are measured from.
+ */
+export function headProfile(
+  h: { type: HeadType; tMinNominal?: number },
+  R: number,
+  depthMm?: number
+): HeadProfile {
+  const target = depthMm && depthMm > 0 ? depthMm : headDepthMm(h, R);
+  const N = 20;
+  const pts: [number, number][] = [];
+  const push = (r: number, y: number) => {
+    if (Number.isFinite(r) && Number.isFinite(y)) pts.push([Math.max(0, r), Math.max(0, y)]);
+  };
+
+  if (h.type === 'hemi' || h.type === 'ellip2') {
+    const rise = h.type === 'hemi' ? R : R / 2;
+    for (let i = 0; i <= N * 2; i++) {
+      const a = (i / (N * 2)) * (Math.PI / 2);
+      push(R * Math.cos(a), rise * Math.sin(a));
+    }
+    return { points: pts, depth: rise, crownR: R, knuckleR: 0, exactDepth: rise };
+  }
+
+  if (h.type !== 'toriFD' && h.type !== 'toriD') {
+    return { points: [[R, 0]], depth: 0, crownR: 0, knuckleR: 0, exactDepth: 0 };
+  }
+
+  // Torispherical: L = crown radius = D (as in asme.ts headGeometry),
+  // r = knuckle radius (6 % D for F&D, 17 % D for the D-type).
+  const D = 2 * R;
+  const L = D;
+  const r = Math.min(R * 0.49, (h.type === 'toriFD' ? 0.06 : 0.17) * D);
+  const kx = R - r; // knuckle centre, radially
+  const dKC = Math.max(1e-6, L - r); // |C − K| at internal tangency
+  const under = dKC * dKC - kx * kx;
+
+  if (!(r > 0) || kx <= 0 || under <= 0) {
+    // degenerate proportions — fall back to an elliptical cap of the right depth
+    for (let i = 0; i <= N * 2; i++) {
+      const a = (i / (N * 2)) * (Math.PI / 2);
+      push(R * Math.cos(a), target * Math.sin(a));
+    }
+    return { points: pts, depth: target, crownR: L, knuckleR: r, exactDepth: target };
+  }
+
+  const yc = -Math.sqrt(under); // crown centre on the axis (below the tangent)
+  // knuckle: centre K = (kx, 0), leaving the shell vertically at (R, 0)
+  const ux = kx / dKC; // unit vector K → tangency point (away from the crown centre)
+  const uy = -yc / dKC;
+  const alphaT = Math.atan2(uy, ux); // knuckle sweep angle
+  for (let i = 0; i <= N; i++) {
+    const a = (i / N) * alphaT;
+    push(kx + r * Math.cos(a), r * Math.sin(a));
+  }
+  // crown: from the tangency point up to the axis apex
+  const beta0 = Math.atan2(-yc, kx); // angle of (P − C), both components share (dKC + r)/dKC
+  for (let i = 1; i <= N; i++) {
+    const b = beta0 + (i / N) * (Math.PI / 2 - beta0);
+    push(L * Math.cos(b), yc + L * Math.sin(b));
+  }
+
+  const exactDepth = yc + L;
+  const scale = exactDepth > 1e-6 ? target / exactDepth : 1;
+  const scaled: [number, number][] = pts.map(([x, y]) => [x, y * scale]);
+  return { points: scaled, depth: target, crownR: L, knuckleR: r, exactDepth };
+}
+
 /** Radial direction of a nozzle at the given azimuth.
  *  Vertical vessel: 0° = north (+Z), turning clockwise viewed from above.
  *  Horizontal vessel: the axis lies down, so 0° = top of the shell (12 o'clock),

@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildBodyLayout,
   headDepthMm,
+  headProfile,
   locateNozzle,
   radiusAtY,
   saddleStations,
@@ -39,6 +40,81 @@ describe('headDepthMm', () => {
     expect(headDepthMm({ type: 'toriD' }, 700)).toBeCloseTo(0.152 * 1400, 9);
     expect(headDepthMm({ type: 'toriFD', tMinNominal: 12 }, 700)).toBeCloseTo(0.1935 * 1400 + 12, 9);
     expect(headDepthMm({ type: 'none' }, 700)).toBe(0);
+  });
+});
+
+describe('headProfile (revolve profile of a dished end)', () => {
+  const R = 700; // Ø1400 head
+
+  it('starts at the shell tangent (r = R, y = 0) and ends on the axis at the head depth', () => {
+    for (const type of ['hemi', 'ellip2', 'toriFD', 'toriD'] as const) {
+      const p = headProfile({ type }, R);
+      const first = p.points[0];
+      const last = p.points[p.points.length - 1];
+      expect(first[0]).toBeCloseTo(R, 6);
+      expect(first[1]).toBeCloseTo(0, 6);
+      expect(last[0]).toBeCloseTo(0, 6);
+      // apex lands on the engine head depth, which every nozzle elevation and the
+      // T-T length are measured against
+      expect(last[1]).toBeCloseTo(headDepthMm({ type }, R), 6);
+      expect(p.depth).toBeCloseTo(last[1], 6);
+      expect(p.points.length).toBeGreaterThan(10);
+    }
+  });
+
+  it('leaves the shell vertically: the knuckle tangents the shell wall', () => {
+    for (const type of ['toriFD', 'toriD'] as const) {
+      const p = headProfile({ type }, R);
+      const [r0, y0] = p.points[0];
+      const [r1, y1] = p.points[1];
+      expect(r0 - r1).toBeLessThan(0.02 * R); // almost no radial step at the rim
+      expect(y1 - y0).toBeGreaterThan(0); // but it rises off the tangent line
+    }
+  });
+
+  it('is a genuine crown + knuckle: radius falls monotonically and the surface never turns back', () => {
+    for (const type of ['toriFD', 'toriD', 'ellip2', 'hemi'] as const) {
+      const p = headProfile({ type }, R);
+      for (let i = 1; i < p.points.length; i++) {
+        expect(p.points[i][0]).toBeLessThanOrEqual(p.points[i - 1][0] + 1e-6);
+        expect(p.points[i][1]).toBeGreaterThanOrEqual(p.points[i - 1][1] - 1e-6);
+      }
+    }
+  });
+
+  it('uses the UG-32 knuckle proportion (F&D 6 % D, D-type 17 % D) and reports the exact depth', () => {
+    const fd = headProfile({ type: 'toriFD' }, R);
+    expect(fd.knuckleR).toBeCloseTo(0.06 * 2 * R, 6);
+    expect(fd.crownR).toBeCloseTo(2 * R, 6);
+    const dType = headProfile({ type: 'toriD' }, R);
+    expect(dType.knuckleR).toBeCloseTo(0.17 * 2 * R, 6);
+    // the exact arc geometry is documented, and the drawn profile is normalised onto it
+    expect(fd.exactDepth).toBeGreaterThan(0);
+    expect(dType.exactDepth).toBeGreaterThan(0);
+  });
+
+  it('a torispherical head is flatter at the crown than a 2:1 ellipsoidal head of the same diameter', () => {
+    const tori = headProfile({ type: 'toriFD' }, R);
+    const ellip = headProfile({ type: 'ellip2' }, R);
+    const atHalfR = (p: typeof tori) => {
+      // first point whose radius is below R/2, interpolated onto the half-radius
+      for (let i = 1; i < p.points.length; i++) {
+        const [ra, ya] = p.points[i - 1];
+        const [rb, yb] = p.points[i];
+        if (ra >= R / 2 && rb <= R / 2) {
+          const t = (ra - R / 2) / Math.max(1e-9, ra - rb);
+          return ya + t * (yb - ya);
+        }
+      }
+      return 0;
+    };
+    expect(atHalfR(tori)).toBeLessThan(atHalfR(ellip));
+  });
+
+  it('normalises onto a supplied depth without changing the rim radius', () => {
+    const p = headProfile({ type: 'toriFD' }, R, 250);
+    expect(p.points[0][0]).toBeCloseTo(R, 6);
+    expect(p.points[p.points.length - 1][1]).toBeCloseTo(250, 6);
   });
 });
 

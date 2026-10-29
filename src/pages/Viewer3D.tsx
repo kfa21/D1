@@ -18,10 +18,10 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useStore, setState } from '../store';
 import { computeEquipment } from '../engine/compute';
-import type { Equipment, EquipmentCalc, NozzleCalc, SectionCalc } from '../engine/types';
+import type { Equipment, EquipmentCalc, HeadType, NozzleCalc, SectionCalc } from '../engine/types';
 import { fmt } from '../engine/units';
 import { exportOBJ } from '../cad';
-import { buildBodyLayout, locateNozzle, radialDirection, radiusAtY, saddleStations } from '../engine/layout3d';
+import { buildBodyLayout, headProfile, locateNozzle, radialDirection, radiusAtY, saddleStations } from '../engine/layout3d';
 import { finFanModel, tankModel, viewerSummary, type FinFanModel, type TankModel } from '../engine/model3d';
 import {
   ACCESS,
@@ -283,24 +283,16 @@ function buildVessel(g: THREE.Group, equip: Equipment, calc: EquipmentCalc, o: B
   const layout = buildBodyLayout(sections);
   const totalLen = layout.totalLen;
 
+  // Head geometry comes from the engine's revolve profile (headProfile): a
+  // torispherical head is a real knuckle arc tangent to the shell plus a crown
+  // arc tangent to the knuckle — not a stretched sphere cap, which is why the
+  // dished ends used to look wrong. The profile height is normalised to the
+  // engine head depth so the rim still lands on the shell datum.
   const headGeo = (type: string, R: number, d: number) => {
-    if (type === 'hemi') return new THREE.SphereGeometry(R, 64, 32, 0, Math.PI * 2, 0, Math.PI / 2);
-    if (type === 'ellip2') {
-      const geo = new THREE.SphereGeometry(R, 64, 32, 0, Math.PI * 2, 0, Math.PI / 2);
-      geo.scale(1, 0.5, 1);
-      return geo;
-    }
-    if (type === 'toriFD' || type === 'toriD') {
-      // Torispherical head (ASME) - use sphere cap approximation scaled to correct depth
-      // This is simpler and more reliable for visualization
-      const Rs = (R * R + d * d) / (2 * d);
-      const alpha = Math.acos(Math.max(-1, Math.min(1, 1 - d / Math.max(1e-6, Rs))));
-      const geo = new THREE.SphereGeometry(Rs, 64, 32, 0, Math.PI * 2, 0, alpha);
-      geo.scale(R / (Rs * Math.sin(alpha)), 1, R / (Rs * Math.sin(alpha)));
-      return geo;
-    }
-    const alpha = Math.acos(Math.max(-1, Math.min(1, 1 - d / Math.max(1, R))));
-    return new THREE.SphereGeometry(R, 64, 24, 0, Math.PI * 2, 0, alpha);
+    const prof = headProfile({ type: type as HeadType }, R, d > 0 ? d : undefined);
+    const pts = prof.points.map(([r, y]) => new THREE.Vector2(Math.max(0, r), Math.max(0, y)));
+    if (pts.length < 2) return new THREE.SphereGeometry(R, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2);
+    return new THREE.LatheGeometry(pts, 72);
   };
 
   // ---------- pressure boundary: bottom head → sections → cones → top head ----------
